@@ -622,6 +622,51 @@ async def test_mcp_get_image_registered():
 
 @pytest.mark.anyio
 @respx.mock
+async def test_get_image_view_http_error_returns_transient_error(templates_dir, output_dir):
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
+    )
+    respx.get(f"{COMFYUI_URL}/view").mock(
+        return_value=httpx.Response(404, text="Not Found")
+    )
+    result = await comfyclaude.comfyui.get_image("abc-123")
+    assert result["status"] == "error"
+    assert result["error_type"] == "unreachable"
+    assert result["retry_suggested"] is True
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_fetch_job_status_non_json_returns_failed(templates_dir):
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, text="not json")
+    )
+    result = await comfyclaude.comfyui.check_job("abc-123")
+    assert result["status"] == "error"
+    assert result["error_type"] == "generation_failed"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_dot_filename_returns_error(templates_dir, output_dir):
+    history_dot = {
+        "abc-123": {
+            "outputs": {
+                "9": {"images": [{"filename": ".", "subfolder": "", "type": "output"}]}
+            },
+            "status": {"status_str": "success", "completed": True, "messages": []},
+        }
+    }
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=history_dot)
+    )
+    result = await comfyclaude.comfyui.get_image("abc-123")
+    assert result["status"] == "error"
+    assert result["error_type"] == "completed_no_output"
+
+
+@pytest.mark.anyio
+@respx.mock
 async def test_get_image_passes_subfolder_to_view(templates_dir, output_dir):
     history_with_subfolder = {
         "abc-123": {

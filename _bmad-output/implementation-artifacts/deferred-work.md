@@ -14,6 +14,13 @@
 - **`TEMPLATES_DIR` default is a relative path** (`comfyclaude/config.py`) — `"./templates"` is CWD-dependent. Explicitly accepted for MVP; server expected to run from project root. See also 1-1 deferred item.
 - **Test module reload side effects in `test_mcp_tools_registered`** (`tests/test_templates.py:120`) — `importlib.reload(comfyclaude.server)` may double-register MCP tools and resets `TEMPLATES_DIR` to the real path after the test. Passes in practice with current test suite; revisit if tool registration becomes additive.
 
+## Deferred from: code review of 2-3 and 2-4 (2026-03-30)
+
+- **Uncaught httpx.RequestError subclasses in check_job/get_image** (`comfyclaude/comfyui.py:207-231`) — Only `ConnectError` and `TimeoutException` are caught; `ReadError`, `RemoteProtocolError`, etc. propagate unhandled. Consistent with existing codebase pattern from prior stories.
+- **Malformed ComfyUI responses crash with AttributeError** (`comfyclaude/comfyui.py:160-161, 270-271`) — `_fetch_job_status` and `get_image` assume `data[prompt_id]` and output nodes are dicts. Non-dict values cause unhandled AttributeError. No response structure validation per architecture decision.
+- **File overwrite on filename collision** (`comfyclaude/comfyui.py:315-318`) — Same ComfyUI filename (e.g., `ComfyUI_00042_.png`) across different prompt_ids silently overwrites previous images. No uniqueness/counter mechanism. Not in scope for MVP.
+- **Image response size not validated** (`comfyclaude/comfyui.py:303`) — `response.content` reads entire response into memory with no size limit. Extremely large responses could cause OOM. Phase 2 hardening.
+
 ## Deferred from: code review of 1-2-fastmcp-server-with-stdio-transport-and-startup-validation (2026-03-29)
 
 - **Invalid/empty COMFYUI_URL causes unhandled exception** (`comfyclaude/server.py:18`) — `httpx.InvalidURL` or `httpx.UnsupportedProtocol` propagates without logging when URL is empty or malformed. Pre-existing config design; previously deferred in Story 1.1. Consider startup URL validation in a future hardening story.

@@ -1,6 +1,6 @@
 # Story 2.4: Image Retrieval & Output Organization
 
-Status: review
+Status: done
 
 ## Story
 
@@ -74,6 +74,17 @@ So that I can view, use, or reference it directly from the terminal.
   - [x] 3.9 Test unreachable ComfyUI returns transient error
   - [x] 3.10 Test MCP `get_image` tool is registered in server
   - [x] 3.11 Test subfolder parameter is passed to ComfyUI `/view` when present
+
+### Review Findings
+
+- [x] [Review][Decision] `get_image` returns `terminal_error("invalid_inputs")` for pending/running jobs — **kept as-is**: caller error (should call check_job first), terminal_error correctly signals "don't retry this exact call"
+- [x] [Review][Patch] `os.path.basename(".")` returns `"."` and `os.path.basename("..")` returns `".."` — fixed: added explicit check [comfyclaude/comfyui.py:282-285]
+- [x] [Review][Patch] JSONDecodeError unhandled in `_fetch_job_status` — fixed: shared with Story 2.3 [comfyclaude/comfyui.py:155]
+- [x] [Review][Patch] Missing test for HTTPStatusError on `/view` endpoint — fixed: shared with Story 2.3 [tests/test_comfyui.py]
+- [x] [Review][Defer] Uncaught httpx.RequestError subclasses — shared with Story 2.3, pre-existing
+- [x] [Review][Defer] Malformed ComfyUI responses — shared with Story 2.3, pre-existing
+- [x] [Review][Defer] File overwrite on filename collision — shared with Story 2.3, not in scope for MVP
+- [x] [Review][Defer] Image response size not validated — shared with Story 2.3, Phase 2 hardening
 
 ## Dev Notes
 

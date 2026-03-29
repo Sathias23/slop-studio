@@ -1,6 +1,6 @@
 # Story 2.3: Job Monitoring & Completion Polling
 
-Status: review
+Status: done
 
 ## Story
 
@@ -65,6 +65,17 @@ So that I know when my image is ready without manually checking ComfyUI.
   - [x] 3.8 Test poll interval is 3 seconds (verify asyncio.sleep calls)
   - [x] 3.9 Test wait is capped at 45 seconds maximum
   - [x] 3.10 Test MCP check_job tool is registered in server
+
+### Review Findings
+
+- [x] [Review][Decision] Spec contradiction: failed jobs return `status: "error"` via `terminal_error()` but AC1/AC6 specify `status: "failed"` — **kept as-is**: terminal_error is the canonical contract, consumers check error_type not status
+- [x] [Review][Decision] Polling elapsed tracks sleep time only, not wall-clock — **kept as-is**: sleep-based counting guarantees N poll attempts regardless of network latency, more useful for MCP tool pattern
+- [x] [Review][Patch] JSONDecodeError unhandled in `_fetch_job_status` — fixed: returns failed state on non-JSON response [comfyclaude/comfyui.py:155]
+- [x] [Review][Patch] Missing test for HTTPStatusError on `/view` endpoint — fixed: added test [tests/test_comfyui.py]
+- [x] [Review][Defer] Uncaught httpx.RequestError subclasses (ReadError, RemoteProtocolError, etc.) in check_job/get_image [comfyclaude/comfyui.py:207-231] — deferred, pre-existing pattern from prior stories
+- [x] [Review][Defer] Malformed ComfyUI responses (non-dict job_data or output nodes) crash with AttributeError instead of controlled error [comfyclaude/comfyui.py:160-161, 270-271] — deferred, pre-existing (no response structure validation per architecture)
+- [x] [Review][Defer] File overwrite on filename collision — same ComfyUI filename across prompt_ids silently overwrites [comfyclaude/comfyui.py:315-318] — deferred, not in scope for MVP
+- [x] [Review][Defer] Image response size not validated — large responses could cause OOM [comfyclaude/comfyui.py:303] — deferred, Phase 2 hardening
 
 ## Dev Notes
 

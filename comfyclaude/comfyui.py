@@ -152,7 +152,10 @@ async def _fetch_job_status(prompt_id: str) -> dict:
         response = await client.get(f"{COMFYUI_URL}/history/{prompt_id}")
         response.raise_for_status()
 
-    data = response.json()
+    try:
+        data = response.json()
+    except (json.JSONDecodeError, ValueError):
+        return {"state": "failed", "error": "ComfyUI returned non-JSON response from /history"}
 
     if prompt_id not in data:
         return {"state": "pending"}
@@ -280,7 +283,7 @@ async def get_image(prompt_id: str) -> dict:
 
     # 3. Sanitize filename (FR21)
     safe_filename = os.path.basename(filename)
-    if not safe_filename:
+    if not safe_filename or safe_filename in (".", ".."):
         return terminal_error("completed_no_output",
             f"Job {prompt_id} produced an invalid filename")
 
