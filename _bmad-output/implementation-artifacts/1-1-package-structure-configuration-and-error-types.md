@@ -1,6 +1,6 @@
 # Story 1.1: Package Structure, Configuration & Error Types
 
-Status: review
+Status: done
 
 ## Story
 
@@ -63,6 +63,16 @@ So that all future tools have consistent error responses and configurable behavi
   - [x] 5.2 Create `tests/test_errors.py` covering all error helpers
   - [x] 5.3 Create `tests/test_config.py` covering default and env var overrides
   - [x] 5.4 Verify all tests pass with `uv run pytest`
+
+### Review Findings
+
+- [x] [Review][Patch] test_config.py reload state pollution — env-override tests call `importlib.reload` then `monkeypatch` reverts the env var, but never re-reloads the module, leaving constants at overridden values for any subsequent test. Fixed: added `autouse` fixture in `conftest.py` that reloads `comfyclaude.config` after each test. [tests/test_config.py:18-33]
+- [x] [Review][Patch] pyproject.toml description placeholder not replaced — `description = "Add your description here"` [pyproject.toml:4]
+- [x] [Review][Defer] Config constants evaluated at import time — by architectural design (spec mandates module-level constants); pre-existing pattern. [comfyclaude/config.py:3-5] — deferred, pre-existing
+- [x] [Review][Defer] Relative path defaults are cwd-dependent — `./templates` and `./output` are spec-mandated defaults (FR26-28); no path resolution required. [comfyclaude/config.py:4-5] — deferred, pre-existing
+- [x] [Review][Defer] error_type and message accept empty strings — spec explicitly prohibits runtime validation ("taxonomy enforced by convention"). [comfyclaude/errors.py:12-19] — deferred, pre-existing
+- [x] [Review][Defer] fastmcp pinned with floor only (>=3.1.1) — dev notes explicitly prohibit pinning; uv.lock provides reproducibility. [pyproject.toml:8] — deferred, pre-existing
+- [x] [Review][Defer] Empty env var ("") bypasses defaults — no validation required per spec anti-pattern rules. [comfyclaude/config.py:3-5] — deferred, pre-existing
 
 ## Dev Notes
 
