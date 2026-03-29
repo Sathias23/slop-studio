@@ -24,8 +24,17 @@ def _inject_inputs(workflow: dict, meta_inputs: dict, user_inputs: dict) -> None
         if input_name not in meta_inputs:
             continue
         input_def = meta_inputs[input_name]
-        node_id = input_def["node_id"]
-        field = input_def["field"]
+        node_id = input_def.get("node_id")
+        field = input_def.get("field")
+        if not node_id or not field:
+            logger.error("Incomplete input definition for '%s': missing node_id or field", input_name)
+            continue
+        if node_id not in workflow:
+            logger.error("Node '%s' referenced by input '%s' not found in workflow", node_id, input_name)
+            continue
+        if "inputs" not in workflow[node_id]:
+            logger.error("Node '%s' has no 'inputs' key in workflow", node_id)
+            continue
         workflow[node_id]["inputs"][field] = value
 
 
@@ -43,11 +52,27 @@ def _inject_resolution(workflow: dict, meta: dict, aspect_ratio: str | None) -> 
     if aspect_ratio is None:
         return
 
-    dims = meta["aspect_ratios"][aspect_ratio]
+    aspect_ratios = meta.get("aspect_ratios", {})
+    if aspect_ratio not in aspect_ratios:
+        logger.error("Aspect ratio '%s' not found in meta (available: %s)", aspect_ratio, list(aspect_ratios.keys()))
+        return
+
+    dims = aspect_ratios[aspect_ratio]
     for res_node in meta.get("resolution_nodes", []):
-        node_id = res_node["node_id"]
-        workflow[node_id]["inputs"][res_node["width_field"]] = dims["width"]
-        workflow[node_id]["inputs"][res_node["height_field"]] = dims["height"]
+        node_id = res_node.get("node_id")
+        width_field = res_node.get("width_field")
+        height_field = res_node.get("height_field")
+        if not node_id or not width_field or not height_field:
+            logger.error("Incomplete resolution_node definition: %s", res_node)
+            continue
+        if node_id not in workflow:
+            logger.error("Resolution node '%s' not found in workflow", node_id)
+            continue
+        if "inputs" not in workflow[node_id]:
+            logger.error("Resolution node '%s' has no 'inputs' key in workflow", node_id)
+            continue
+        workflow[node_id]["inputs"][width_field] = dims["width"]
+        workflow[node_id]["inputs"][height_field] = dims["height"]
 
 
 async def queue_prompt(
@@ -316,6 +341,13 @@ async def get_image(prompt_id: str) -> dict:
             f"Cannot create output directory '{date_dir}': {exc}")
 
     output_path = os.path.join(date_dir, safe_filename)
+    if os.path.exists(output_path):
+        stem, ext = os.path.splitext(safe_filename)
+        for counter in range(1, 1000):
+            candidate = os.path.join(date_dir, f"{stem}_{counter:03d}{ext}")
+            if not os.path.exists(candidate):
+                output_path = candidate
+                break
     try:
         with open(output_path, "wb") as f:
             f.write(image_bytes)

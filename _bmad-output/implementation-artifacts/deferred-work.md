@@ -1,3 +1,7 @@
+## Deferred from: review of spec-defensive-hardening (2026-03-30)
+
+- **TOCTOU race in filename collision check** (`comfyclaude/comfyui.py:344-353`) — `os.path.exists()` followed by `open("wb")` is non-atomic. Concurrent `get_image()` calls for the same filename could overwrite each other. Low risk for single-user local tool; consider `O_CREAT|O_EXCL` or tempfile-based approach if concurrency becomes relevant.
+
 ## Deferred from: code review of 2-2-job-submission-with-input-injection-and-seed-randomization (2026-03-29)
 
 - **`_inject_inputs` KeyError when node_id absent from workflow** (`comfyclaude/comfyui.py:22`) — Meta file references a node_id not present in the workflow JSON. Phase 2 cross-reference validation per spec anti-pattern rule ("Do NOT validate workflow JSON structure beyond 'is it a dict'").

@@ -685,3 +685,106 @@ async def test_get_image_passes_subfolder_to_view(templates_dir, output_dir):
     await comfyclaude.comfyui.get_image("abc-123")
     request = view_route.calls.last.request
     assert "subfolder=subfolder_name" in str(request.url)
+
+
+# -- Injection guard tests --
+
+
+def test_inject_inputs_missing_node_id_skips(caplog):
+    """_inject_inputs skips gracefully when node_id is not in workflow."""
+    workflow = {"6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}}}
+    meta_inputs = {
+        "prompt": {"node_id": "99", "field": "text", "type": "required"},
+    }
+    comfyclaude.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
+    # Node 6 should be untouched
+    assert workflow["6"]["inputs"]["text"] == ""
+    assert "not found in workflow" in caplog.text
+
+
+def test_inject_inputs_missing_inputs_key_skips(caplog):
+    """_inject_inputs skips when target node has no 'inputs' sub-key."""
+    workflow = {"6": {"class_type": "CLIPTextEncode"}}  # no "inputs" key
+    meta_inputs = {
+        "prompt": {"node_id": "6", "field": "text", "type": "required"},
+    }
+    comfyclaude.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
+    assert "inputs" not in workflow["6"]
+    assert "no 'inputs' key" in caplog.text
+
+
+def test_inject_inputs_incomplete_definition_skips(caplog):
+    """_inject_inputs skips when input_def is missing node_id or field."""
+    workflow = {"6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}}}
+    meta_inputs = {
+        "prompt": {"field": "text", "type": "required"},  # missing node_id
+    }
+    comfyclaude.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
+    assert workflow["6"]["inputs"]["text"] == ""
+    assert "Incomplete input definition" in caplog.text
+
+
+def test_inject_resolution_invalid_aspect_ratio_skips(caplog):
+    """_inject_resolution skips when aspect_ratio not in meta."""
+    workflow = {"5": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1024}}}
+    meta = {
+        "aspect_ratios": {"1:1": {"width": 1024, "height": 1024}},
+        "resolution_nodes": [{"node_id": "5", "width_field": "width", "height_field": "height"}],
+    }
+    comfyclaude.comfyui._inject_resolution(workflow, meta, "5:3")
+    assert workflow["5"]["inputs"]["width"] == 1024  # unchanged
+    assert "not found in meta" in caplog.text
+
+
+def test_inject_resolution_missing_inputs_key_skips(caplog):
+    """_inject_resolution skips when resolution node has no 'inputs' key."""
+    workflow = {"5": {"class_type": "EmptyLatentImage"}}  # no "inputs" key
+    meta = {
+        "aspect_ratios": {"16:9": {"width": 1344, "height": 768}},
+        "resolution_nodes": [{"node_id": "5", "width_field": "width", "height_field": "height"}],
+    }
+    comfyclaude.comfyui._inject_resolution(workflow, meta, "16:9")
+    assert "inputs" not in workflow["5"]
+    assert "no 'inputs' key" in caplog.text
+
+
+def test_inject_resolution_missing_node_skips(caplog):
+    """_inject_resolution skips when resolution node_id not in workflow."""
+    workflow = {"5": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1024}}}
+    meta = {
+        "aspect_ratios": {"16:9": {"width": 1344, "height": 768}},
+        "resolution_nodes": [{"node_id": "99", "width_field": "width", "height_field": "height"}],
+    }
+    comfyclaude.comfyui._inject_resolution(workflow, meta, "16:9")
+    assert workflow["5"]["inputs"]["width"] == 1024  # unchanged
+    assert "not found in workflow" in caplog.text
+
+
+# -- Filename collision test --
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_filename_collision_appends_suffix(templates_dir, output_dir):
+    from datetime import date
+
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
+    )
+    respx.get(f"{COMFYUI_URL}/view").mock(
+        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
+    )
+
+    # Pre-create a file that will collide
+    today = date.today().isoformat()
+    date_dir = output_dir / today
+    date_dir.mkdir(parents=True, exist_ok=True)
+    (date_dir / "ComfyUI_00042_.png").write_bytes(b"existing")
+
+    result = await comfyclaude.comfyui.get_image("abc-123")
+    assert result["status"] == "success"
+    # Should have a suffixed filename
+    assert result["file_path"].endswith("ComfyUI_00042__001.png")
+    # Both files should exist
+    assert (date_dir / "ComfyUI_00042_.png").exists()
+    assert (date_dir / "ComfyUI_00042__001.png").exists()
