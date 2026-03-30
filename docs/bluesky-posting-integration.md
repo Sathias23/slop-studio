@@ -99,6 +99,154 @@ post = await client.send_post(text="Check out this generation!", embed=embed)
 
 Rate limit headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`) are returned in responses.
 
+## Hashtags
+
+### How hashtags work on Bluesky
+
+Hashtags on Bluesky are **not** plain-text conventions like on early Twitter. They are structured **rich text facets** — metadata annotations that mark a byte range in the post text as a tag. A `#aiart` in plain text without a corresponding facet is just literal characters with no tag behavior (not clickable, not searchable as a tag).
+
+The AT Protocol defines three facet types: **mentions**, **links**, and **tags**. Each facet specifies a byte range (`byteStart`, `byteEnd`) in the post text and a feature type.
+
+### Auto-detection
+
+The Python `atproto` SDK's `send_post()` does **not** auto-detect hashtags from text. If you pass a plain string containing `#aiart`, no tag facet is created. You must either:
+
+1. Use the `TextBuilder` helper to construct rich text with tag facets, or
+2. Manually build facet objects and pass them via the `facets` parameter
+
+### Using TextBuilder (recommended)
+
+The SDK provides `TextBuilder` with a chainable API for constructing rich text:
+
+```python
+from atproto import client_utils
+
+text = (
+    client_utils.TextBuilder()
+    .text("Golden hour vibes ")
+    .tag("#aiart", "aiart")       # display text, tag value (without #)
+    .text(" ")
+    .tag("#comfyui", "comfyui")
+    .text(" ")
+    .tag("#generativeart", "generativeart")
+)
+
+# Pass directly to send_post — it extracts text + facets automatically
+await client.send_post(text)
+```
+
+The `.tag(text, tag)` method takes two arguments:
+- `text` — what appears in the post (e.g. `"#aiart"`)
+- `tag` — the tag value without the `#` prefix (e.g. `"aiart"`)
+
+The `TextBuilder` handles byte offset calculation internally, which is important because offsets are in **UTF-8 bytes**, not Python string indices (emoji and non-ASCII characters occupy multiple bytes).
+
+### Manual facet construction
+
+For more control, build facets directly:
+
+```python
+from atproto import models
+
+post_text = "Sunset over mountains #aiart #comfyui"
+
+# Calculate byte offsets (must be UTF-8 byte positions, not character indices)
+text_bytes = post_text.encode("utf-8")
+tag1_start = text_bytes.index(b"#aiart")
+tag1_end = tag1_start + len(b"#aiart")
+tag2_start = text_bytes.index(b"#comfyui")
+tag2_end = tag2_start + len(b"#comfyui")
+
+facets = [
+    models.AppBskyRichtextFacet.Main(
+        features=[models.AppBskyRichtextFacet.Tag(tag="aiart")],
+        index=models.AppBskyRichtextFacet.ByteSlice(
+            byte_start=tag1_start, byte_end=tag1_end
+        ),
+    ),
+    models.AppBskyRichtextFacet.Main(
+        features=[models.AppBskyRichtextFacet.Tag(tag="comfyui")],
+        index=models.AppBskyRichtextFacet.ByteSlice(
+            byte_start=tag2_start, byte_end=tag2_end
+        ),
+    ),
+]
+
+await client.send_post(text=post_text, facets=facets)
+```
+
+### Searchability
+
+Hashtags with proper facets are searchable on Bluesky. Users can click a tag to see other posts with the same tag. Posts without tag facets (just literal `#text`) do **not** appear in tag searches.
+
+### Constraints
+
+- **No hard limit** on the number of tags per post, but you're constrained by the 300-grapheme text limit
+- Tag values should be **lowercase, no spaces, no `#` prefix** in the facet feature (the `#` is part of the display text only)
+- Tags are indexed for search by the Bluesky AppView
+
+### Recommended tags for AI art
+
+Common tags in the Bluesky AI art community:
+
+- `#aiart` — general AI-generated art
+- `#generativeart` — broader generative art
+- `#comfyui` — ComfyUI-specific
+- `#flux` — Flux model family
+- `#stablediffusion` — Stable Diffusion
+- `#aiartcommunity` — community tag
+
+### Implementation for slop-studio
+
+A helper to build post text with hashtags:
+
+```python
+from atproto import client_utils
+
+
+def build_post_text(text: str, tags: list[str] | None = None) -> client_utils.TextBuilder:
+    """Build rich post text with optional hashtag facets.
+
+    Args:
+        text: The main post text.
+        tags: List of tag values (without #). e.g. ["aiart", "comfyui"]
+
+    Returns:
+        TextBuilder with proper facets for all tags.
+    """
+    builder = client_utils.TextBuilder().text(text)
+
+    if tags:
+        builder.text("\n\n")
+        for i, tag in enumerate(tags):
+            if i > 0:
+                builder.text(" ")
+            builder.tag(f"#{tag}", tag)
+
+    return builder
+```
+
+Usage in the MCP tool:
+
+```python
+@mcp.tool()
+async def post_to_bluesky(
+    image_path: str,
+    text: str,
+    alt_text: str,
+    tags: list[str] | None = None,
+) -> str:
+    """Post a generated image to Bluesky.
+
+    Args:
+        image_path: Path to the image file (from get_image output).
+        text: Post text (max 300 characters including tags).
+        alt_text: Image description for accessibility.
+        tags: Optional hashtags (without #). e.g. ["aiart", "comfyui"]
+    """
+    ...
+```
+
 ## Alt Text
 
 ### Why it matters
