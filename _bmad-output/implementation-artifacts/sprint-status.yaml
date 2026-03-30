@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-29
-last_updated: 2026-03-30T15:00:00
+last_updated: 2026-03-30T12:00:00
 project: ComfyClaude
 project_key: NOKEY
 tracking_system: file-system
@@ -57,8 +57,8 @@ development_status:
   epic-2-retrospective: done
 
   # Epic 3: Template Management
-  epic-3: backlog
-  3-1-add-and-update-workflow-templates-with-validation: backlog
+  epic-3: in-progress
+  3-1-add-and-update-workflow-templates-with-validation: done
   3-2-delete-workflow-templates: backlog
   epic-3-retrospective: optional
 

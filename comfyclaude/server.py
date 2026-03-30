@@ -71,6 +71,42 @@ async def get_template(template_name: str) -> dict:
 
 
 @mcp.tool()
+async def add_template(name: str, workflow_json: dict, metadata: dict) -> dict:
+    """Add a new workflow template from an exported ComfyUI workflow.
+
+    Saves the workflow JSON and metadata sidecar to the templates directory
+    after validating the metadata structure. The template is immediately
+    available for use with queue_prompt.
+
+    The metadata must include: model (string) and description (string).
+    Optional: inputs (object mapping input names to {node_id, field} definitions),
+    aspect_ratios, resolution_nodes, expected_duration.
+
+    Use this when the user has exported a workflow from ComfyUI's browser UI
+    and wants to register it as a reusable template. Template names cannot
+    contain path characters (/, ..) or start with a dot.
+    """
+    return await templates.add_template(name, workflow_json, metadata)
+
+
+@mcp.tool()
+async def update_template(
+    name: str, workflow_json: dict | None = None, metadata: dict | None = None
+) -> dict:
+    """Update an existing workflow template's workflow JSON and/or metadata.
+
+    Overwrites the specified files for an existing template. Provide
+    workflow_json to update the workflow, metadata to update the sidecar,
+    or both. At least one must be provided. Metadata is validated on write.
+
+    Use this when a template needs to be updated after ComfyUI custom nodes
+    change, or to refine template metadata (descriptions, input definitions,
+    aspect ratios).
+    """
+    return await templates.update_template(name, workflow_json, metadata)
+
+
+@mcp.tool()
 async def queue_prompt(
     template_name: str, inputs: dict, aspect_ratio: str | None = None
 ) -> dict:

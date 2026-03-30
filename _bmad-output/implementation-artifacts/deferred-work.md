@@ -1,3 +1,11 @@
+## Deferred from: code review of 3-1-add-and-update-workflow-templates-with-validation (2026-03-30)
+
+- **`_validate_metadata` "name" check is dead code** (`comfyclaude/templates.py:27-30`) — `add_template` and `update_template` always inject `metadata["name"] = name` before calling the validator, so the "name" required field check never fires.
+- **`_validate_template_name` does not block backslash or null bytes** (`comfyclaude/templates.py:13-22`) — Outside FR8 scope (spec only requires rejecting `/`, `..`, leading `.`); low risk on POSIX, moot for null bytes in practice.
+- **`update_template` silently creates `.json` for broken template** (`comfyclaude/templates.py:162-165`) — If `.meta.json` exists but `.json` is missing, providing `workflow_json` creates the file rather than updating. Spec does not address this broken-template recovery scenario.
+- **`test_add_template_storage_error` global `Path.write_text` monkeypatch is fragile** (`tests/test_templates.py:259`) — Monkeypatches `Path.write_text` globally; could interfere with fixture teardown or future tests writing non-meta `.json` files.
+- **No positive integer validation for `aspect_ratios` width/height** (`comfyclaude/templates.py:52-53`) — Spec requires `int` type only; zero or negative dimensions pass validation and would fail at generation time.
+
 ## Deferred from: review of spec-defensive-hardening (2026-03-30)
 
 - **TOCTOU race in filename collision check** (`comfyclaude/comfyui.py:344-353`) — `os.path.exists()` followed by `open("wb")` is non-atomic. Concurrent `get_image()` calls for the same filename could overwrite each other. Low risk for single-user local tool; consider `O_CREAT|O_EXCL` or tempfile-based approach if concurrency becomes relevant.
