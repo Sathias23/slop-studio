@@ -256,10 +256,187 @@ Claude: [calls post_to_bluesky tool]
 - **Rate limiting** — the tool should surface rate limit errors clearly so Claude can advise the user to wait.
 - **Image content** — Bluesky has content policies. Consider adding a note in tool output about community guidelines.
 
+## Post Threading
+
+Bluesky threads work via a `reply` reference on each post containing two **StrongRef** pointers:
+
+- **`root`** — always points to the first post in the thread (never changes)
+- **`parent`** — points to the immediate post being replied to (walks forward)
+
+### StrongRef
+
+A `StrongRef` uniquely identifies a record using two fields:
+
+| Field | Description |
+|---|---|
+| `uri` | AT-URI, e.g. `at://did:plc:abc123/app.bsky.feed.post/3k...` |
+| `cid` | Content hash of the exact record version |
+
+Both are returned when creating a post (`post.uri`, `post.cid`).
+
+### Thread structure example
+
+For a 4-post thread A -> B -> C -> D:
+
+```
+Post A (root):  reply_to = None
+Post B:         reply_to = { root: A, parent: A }
+Post C:         reply_to = { root: A, parent: B }
+Post D:         reply_to = { root: A, parent: C }
+```
+
+### Python implementation
+
+```python
+from atproto import AsyncClient, models
+
+
+async def send_thread(
+    client: AsyncClient,
+    posts: list[dict],  # [{"text": "...", "image_data": bytes | None, "alt": "..."}]
+) -> list:
+    """Send a sequence of posts as a Bluesky thread."""
+    if not posts:
+        return []
+
+    results = []
+
+    # First post — no reply_to
+    first = await _send_single(client, posts[0])
+    results.append(first)
+
+    root_ref = models.create_strong_ref(first)
+    parent = first
+
+    for entry in posts[1:]:
+        reply_ref = models.AppBskyFeedPost.ReplyRef(
+            root=root_ref,
+            parent=models.create_strong_ref(parent),
+        )
+        post = await _send_single(client, entry, reply_to=reply_ref)
+        results.append(post)
+        parent = post
+
+    return results
+
+
+async def _send_single(client, entry, reply_to=None):
+    """Send a single post, optionally with an image and/or reply ref."""
+    embed = None
+    if entry.get("image_data"):
+        upload = await client.upload_blob(entry["image_data"])
+        images = [
+            models.AppBskyEmbedImages.Image(
+                alt=entry.get("alt", ""),
+                image=upload.blob,
+            )
+        ]
+        embed = models.AppBskyEmbedImages.Main(images=images)
+
+    return await client.send_post(
+        text=entry["text"],
+        embed=embed,
+        reply_to=reply_to,
+    )
+```
+
+### Replying to an existing post
+
+When replying to someone else's post (or a previously created post), you need to correctly carry forward the thread root:
+
+```python
+async def reply_to_existing(client: AsyncClient, post_uri: str, text: str, embed=None):
+    """Reply to an existing post by URI, correctly resolving the thread root."""
+    thread = await client.app.bsky.feed.get_post_thread(params={"uri": post_uri})
+    target = thread.thread.post
+
+    # If the target is itself a reply, use its root; otherwise it IS the root
+    if target.record.reply:
+        root_ref = target.record.reply.root
+    else:
+        root_ref = models.ComAtprotoRepoStrongRef.Main(
+            uri=target.uri, cid=target.cid
+        )
+
+    parent_ref = models.ComAtprotoRepoStrongRef.Main(
+        uri=target.uri, cid=target.cid
+    )
+
+    return await client.send_post(
+        text=text,
+        embed=embed,
+        reply_to=models.AppBskyFeedPost.ReplyRef(root=root_ref, parent=parent_ref),
+    )
+```
+
+### Threading constraints
+
+- **No hard thread depth limit** in the protocol — you can chain replies indefinitely
+- **Client display limits** — the Bluesky app shows "continue thread" after a certain depth (UI choice, not protocol)
+- **Rate limits still apply** — for long threads, a small delay between posts avoids rate limiting
+- **CID immutability** — posts are immutable once created; the CID is a content hash
+
+### Proposed MCP tool additions for threading
+
+```python
+@mcp.tool()
+async def post_thread_to_bluesky(
+    posts: list[dict],
+) -> str:
+    """Post a thread of images/text to Bluesky.
+
+    Args:
+        posts: List of {"text": str, "image_path": str | None, "alt_text": str}.
+               First entry becomes the thread root.
+
+    Returns:
+        URIs for all posts in the thread.
+    """
+    ...
+
+@mcp.tool()
+async def reply_on_bluesky(
+    post_uri: str,
+    text: str,
+    image_path: str = "",
+    alt_text: str = "",
+) -> str:
+    """Reply to an existing Bluesky post.
+
+    Args:
+        post_uri: AT-URI of the post to reply to.
+        text: Reply text (max 300 characters).
+        image_path: Optional image to attach.
+        alt_text: Image description for accessibility.
+
+    Returns:
+        The reply post URI.
+    """
+    ...
+```
+
+### Threaded user flow
+
+```
+User: /generate a 4-panel comic strip
+Claude: [generates 4 images]
+
+User: Post those as a thread on Bluesky
+Claude: [calls post_thread_to_bluesky with 4 entries]
+        Thread posted:
+        1. at://did:plc:xxx/app.bsky.feed.post/aaa
+        2. at://did:plc:xxx/app.bsky.feed.post/bbb
+        3. at://did:plc:xxx/app.bsky.feed.post/ccc
+        4. at://did:plc:xxx/app.bsky.feed.post/ddd
+
+User: Reply to the last one saying "fin."
+Claude: [calls reply_on_bluesky with post_uri of post 4]
+        Replied: at://did:plc:xxx/app.bsky.feed.post/eee
+```
+
 ## Open Questions
 
 1. **Session caching** — Should we keep a persistent client session across multiple posts, or create a new session per post? Creating per-post is simpler but counts against the 30/5min session limit.
-2. **Thread support** — Should there be a `reply_to` parameter for posting in threads?
-3. **Rich text** — `send_post()` auto-detects mentions and URLs. Do we need manual facet control?
-4. **Post deletion** — Should we add a `delete_bluesky_post` tool?
-5. **Image compression strategy** — Should Pillow be a hard dependency or optional, falling back to an error if the image is too large?
+2. **Rich text** — `send_post()` auto-detects mentions and URLs. Do we need manual facet control?
+3. **Post deletion** — Should we add a `delete_bluesky_post` tool?
+4. **Image compression strategy** — Should Pillow be a hard dependency or optional, falling back to an error if the image is too large?
