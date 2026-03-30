@@ -99,6 +99,72 @@ post = await client.send_post(text="Check out this generation!", embed=embed)
 
 Rate limit headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`) are returned in responses.
 
+## Alt Text
+
+### Why it matters
+
+Alt text is a **required field** in the Bluesky image embed schema. While it accepts an empty string, the Bluesky community strongly values accessibility — posts with missing alt text are frequently called out, and some users filter them from their feeds entirely. For an art-focused tool like slop-studio, good alt text is both an accessibility win and a way to provide context about the generation.
+
+### What to include for AI-generated images
+
+AI-generated images benefit from alt text that covers two layers:
+
+1. **Visual description** — what the image actually depicts (subject, composition, colors, style)
+2. **Generation context** — that it's AI-generated, and optionally the model or prompt used
+
+Example:
+
+> A sunset over jagged mountain peaks with cinematic orange and purple lighting. AI-generated image using Flux 2 Klein.
+
+### Guidelines
+
+- **Be concise but descriptive** — aim for 1-2 sentences, under 1000 characters
+- **Describe what's visually present**, not artistic intent
+- **Mention it's AI-generated** — transparency builds trust with the community
+- **Avoid prompt-dumping** — the raw ComfyUI prompt is not useful alt text; summarize it
+- **Don't start with "Image of..."** — screen readers already announce it as an image
+
+### Auto-generating alt text
+
+Since Claude is already in the loop when posting, it can generate alt text from the original prompt. The proposed flow:
+
+```
+User: /generate a sunset over mountains, cinematic lighting
+Claude: [generates image]
+
+User: Post that to Bluesky
+Claude: [generates alt text from the prompt context]
+        Alt text: "Sunset over jagged mountain peaks with warm orange
+        and purple cinematic lighting. AI-generated."
+        [calls post_to_bluesky with the generated alt text]
+```
+
+The `post_to_bluesky` tool should accept explicit alt text but Claude can supply a sensible default from conversation context when the user doesn't provide one. The tool description should prompt Claude to always include alt text rather than passing an empty string.
+
+### Enforcement in tool design
+
+The MCP tool should encourage alt text via its description and parameter naming:
+
+```python
+@mcp.tool()
+async def post_to_bluesky(
+    image_path: str,
+    text: str,
+    alt_text: str,  # required parameter, no default
+) -> str:
+    """Post a generated image to Bluesky.
+
+    Args:
+        image_path: Path to the image file (from get_image output).
+        text: Post text (max 300 characters).
+        alt_text: Image description for accessibility. Describe what the
+                  image shows and note that it is AI-generated.
+    """
+    ...
+```
+
+Making `alt_text` a required parameter (no default) means Claude must always provide a value, which it can derive from the generation prompt.
+
 ## Implementation Plan
 
 ### 1. New Configuration (Environment Variables)
