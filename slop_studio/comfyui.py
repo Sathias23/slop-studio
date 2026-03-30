@@ -9,8 +9,8 @@ from pathlib import Path
 
 import httpx
 
-from comfyclaude.config import COMFYUI_URL, OUTPUT_DIR, TEMPLATES_DIR
-from comfyclaude.errors import terminal_error, transient_error
+from slop_studio.config import COMFYUI_URL, OUTPUT_DIR, TEMPLATES_DIR
+from slop_studio.errors import terminal_error, transient_error
 
 logger = logging.getLogger(__name__)
 

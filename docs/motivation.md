@@ -1,10 +1,10 @@
-# Why ComfyClaude Exists
+# Why Slop Studio Exists
 
 ## The Problem
 
 Running an AI art pipeline with a separate reasoning agent is expensive and fragmented.
 
-Before ComfyClaude, the workflow looked like this: a Letta agent (Project Cenobite) running Sonnet 4.6 handled creative direction — prompt engineering, iteration decisions, stylistic reasoning — while ComfyUI handled image generation as a separate system. The two never talked directly. The human was the glue, copying outputs between them.
+Before Slop Studio, the workflow looked like this: a Letta agent (Project Cenobite) running Sonnet 4.6 handled creative direction — prompt engineering, iteration decisions, stylistic reasoning — while ComfyUI handled image generation as a separate system. The two never talked directly. The human was the glue, copying outputs between them.
 
 The cost problem isn't the image generation. ComfyUI runs locally on your own GPU — that's free after hardware. The cost is the reasoning agent. Every creative decision, every "try it darker," every "now do it in Giger's style" is a Sonnet 4.6 API call through Letta. Sustained multi-turn creative sessions burn through tokens fast, and the agent has no way to see the results it's directing. It reasons blind.
 
@@ -16,7 +16,7 @@ This creates two pain points:
 
 ## The Solution
 
-ComfyClaude is an MCP server that brings ComfyUI into Claude Code as native tools. The Claude session that's already doing the reasoning — the one you're already paying for — can now directly submit generation jobs, poll for completion, retrieve the output image, and *look at it*.
+Slop Studio is an MCP server that brings ComfyUI into Claude Code as native tools. The Claude session that's already doing the reasoning — the one you're already paying for — can now directly submit generation jobs, poll for completion, retrieve the output image, and *look at it*.
 
 The feedback loop closes completely:
 

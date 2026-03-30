@@ -6,8 +6,8 @@ import httpx
 import pytest
 import respx
 
-import comfyclaude.config
-import comfyclaude.comfyui
+import slop_studio.config
+import slop_studio.comfyui
 
 SAMPLE_WORKFLOW = {
     "3": {
@@ -71,10 +71,10 @@ def write_template(templates_dir, name, workflow, meta):
 @pytest.fixture
 def templates_dir(tmp_path, monkeypatch):
     """Set up a temporary templates directory with test fixtures."""
-    monkeypatch.setenv("COMFYCLAUDE_TEMPLATES_DIR", str(tmp_path))
+    monkeypatch.setenv("SLOP_STUDIO_TEMPLATES_DIR", str(tmp_path))
     monkeypatch.setenv("COMFYUI_URL", "http://test-comfyui:8188")
-    importlib.reload(comfyclaude.config)
-    importlib.reload(comfyclaude.comfyui)
+    importlib.reload(slop_studio.config)
+    importlib.reload(slop_studio.comfyui)
     return tmp_path
 
 
@@ -94,7 +94,7 @@ async def test_queue_prompt_success(sample_templates):
     respx.post(f"{COMFYUI_URL}/prompt").mock(
         return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
     )
-    result = await comfyclaude.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+    result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
     assert result == {"status": "success", "prompt_id": "abc-123"}
 
 
@@ -104,7 +104,7 @@ async def test_input_injection(sample_templates):
     respx.post(f"{COMFYUI_URL}/prompt").mock(
         return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
     )
-    await comfyclaude.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+    await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
 
     request_body = json.loads(respx.calls.last.request.content)
     assert request_body["prompt"]["6"]["inputs"]["text"] == "hello"
@@ -117,8 +117,8 @@ async def test_seed_randomization(sample_templates, monkeypatch):
         return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
     )
     # Mock random.randint to return a known value
-    monkeypatch.setattr(comfyclaude.comfyui.random, "randint", lambda a, b: 42)
-    await comfyclaude.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+    monkeypatch.setattr(slop_studio.comfyui.random, "randint", lambda a, b: 42)
+    await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
 
     request_body = json.loads(respx.calls.last.request.content)
     assert request_body["prompt"]["3"]["inputs"]["seed"] == 42
@@ -130,7 +130,7 @@ async def test_aspect_ratio_injection(sample_templates):
     respx.post(f"{COMFYUI_URL}/prompt").mock(
         return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
     )
-    await comfyclaude.comfyui.queue_prompt(
+    await slop_studio.comfyui.queue_prompt(
         "test_template", {"prompt": "hello"}, aspect_ratio="16:9"
     )
 
@@ -145,7 +145,7 @@ async def test_default_resolution_when_no_aspect_ratio(sample_templates):
     respx.post(f"{COMFYUI_URL}/prompt").mock(
         return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
     )
-    await comfyclaude.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+    await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
 
     request_body = json.loads(respx.calls.last.request.content)
     assert request_body["prompt"]["5"]["inputs"]["width"] == 1024
@@ -158,7 +158,7 @@ async def test_unreachable_comfyui_returns_transient_error(sample_templates):
     respx.post(f"{COMFYUI_URL}/prompt").mock(
         side_effect=httpx.ConnectError("Connection refused")
     )
-    result = await comfyclaude.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+    result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
     assert result["retry_suggested"] is True
@@ -166,7 +166,7 @@ async def test_unreachable_comfyui_returns_transient_error(sample_templates):
 
 @pytest.mark.anyio
 async def test_missing_template_returns_terminal_error(templates_dir):
-    result = await comfyclaude.comfyui.queue_prompt("nonexistent", {"prompt": "hello"})
+    result = await slop_studio.comfyui.queue_prompt("nonexistent", {"prompt": "hello"})
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_inputs"
     assert result["retry_suggested"] is False
@@ -175,7 +175,7 @@ async def test_missing_template_returns_terminal_error(templates_dir):
 
 @pytest.mark.anyio
 async def test_invalid_aspect_ratio_returns_terminal_error(sample_templates):
-    result = await comfyclaude.comfyui.queue_prompt(
+    result = await slop_studio.comfyui.queue_prompt(
         "test_template", {"prompt": "hello"}, aspect_ratio="21:9"
     )
     assert result["status"] == "error"
@@ -186,7 +186,7 @@ async def test_invalid_aspect_ratio_returns_terminal_error(sample_templates):
 
 @pytest.mark.anyio
 async def test_missing_required_input_returns_terminal_error(sample_templates):
-    result = await comfyclaude.comfyui.queue_prompt("test_template", {})
+    result = await slop_studio.comfyui.queue_prompt("test_template", {})
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_inputs"
     assert result["retry_suggested"] is False
@@ -199,7 +199,7 @@ async def test_comfyui_400_returns_terminal_error(sample_templates):
     respx.post(f"{COMFYUI_URL}/prompt").mock(
         return_value=httpx.Response(400, text="Invalid workflow")
     )
-    result = await comfyclaude.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+    result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_workflow"
     assert result["retry_suggested"] is False
@@ -211,7 +211,7 @@ async def test_comfyui_503_returns_transient_error(sample_templates):
     respx.post(f"{COMFYUI_URL}/prompt").mock(
         return_value=httpx.Response(503, text="Service Unavailable")
     )
-    result = await comfyclaude.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+    result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
     assert result["retry_suggested"] is True
@@ -257,7 +257,7 @@ async def test_check_job_single_check_completed(templates_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED)
     )
-    result = await comfyclaude.comfyui.check_job("abc-123")
+    result = await slop_studio.comfyui.check_job("abc-123")
     assert result["status"] == "completed"
     assert result["prompt_id"] == "abc-123"
     assert "9" in result["outputs"]
@@ -269,7 +269,7 @@ async def test_check_job_single_check_pending(templates_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_PENDING)
     )
-    result = await comfyclaude.comfyui.check_job("abc-123")
+    result = await slop_studio.comfyui.check_job("abc-123")
     assert result == {"status": "pending", "prompt_id": "abc-123"}
 
 
@@ -279,7 +279,7 @@ async def test_check_job_single_check_running(templates_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_RUNNING)
     )
-    result = await comfyclaude.comfyui.check_job("abc-123")
+    result = await slop_studio.comfyui.check_job("abc-123")
     assert result == {"status": "running", "prompt_id": "abc-123"}
 
 
@@ -291,14 +291,14 @@ async def test_check_job_polling_returns_completed(templates_dir, monkeypatch):
     async def mock_sleep(seconds):
         sleep_calls.append(seconds)
 
-    monkeypatch.setattr(comfyclaude.comfyui.asyncio, "sleep", mock_sleep)
+    monkeypatch.setattr(slop_studio.comfyui.asyncio, "sleep", mock_sleep)
 
     route = respx.get(f"{COMFYUI_URL}/history/abc-123")
     route.side_effect = [
         httpx.Response(200, json=HISTORY_RUNNING),
         httpx.Response(200, json=HISTORY_COMPLETED),
     ]
-    result = await comfyclaude.comfyui.check_job("abc-123", wait=30)
+    result = await slop_studio.comfyui.check_job("abc-123", wait=30)
     assert result["status"] == "completed"
     assert result["prompt_id"] == "abc-123"
     assert len(sleep_calls) == 1
@@ -312,14 +312,14 @@ async def test_check_job_early_return_on_completion(templates_dir, monkeypatch):
     async def mock_sleep(seconds):
         sleep_calls.append(seconds)
 
-    monkeypatch.setattr(comfyclaude.comfyui.asyncio, "sleep", mock_sleep)
+    monkeypatch.setattr(slop_studio.comfyui.asyncio, "sleep", mock_sleep)
 
     route = respx.get(f"{COMFYUI_URL}/history/abc-123")
     route.side_effect = [
         httpx.Response(200, json=HISTORY_RUNNING),
         httpx.Response(200, json=HISTORY_COMPLETED),
     ]
-    result = await comfyclaude.comfyui.check_job("abc-123", wait=30)
+    result = await slop_studio.comfyui.check_job("abc-123", wait=30)
     assert result["status"] == "completed"
     # Only one sleep call — returned early after first poll
     assert len(sleep_calls) == 1
@@ -332,12 +332,12 @@ async def test_check_job_poll_timeout_returns_running(templates_dir, monkeypatch
     async def mock_sleep(seconds):
         pass
 
-    monkeypatch.setattr(comfyclaude.comfyui.asyncio, "sleep", mock_sleep)
+    monkeypatch.setattr(slop_studio.comfyui.asyncio, "sleep", mock_sleep)
 
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_RUNNING)
     )
-    result = await comfyclaude.comfyui.check_job("abc-123", wait=10)
+    result = await slop_studio.comfyui.check_job("abc-123", wait=10)
     assert result == {"status": "running", "prompt_id": "abc-123"}
 
 
@@ -347,7 +347,7 @@ async def test_check_job_failed_returns_error(templates_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_FAILED)
     )
-    result = await comfyclaude.comfyui.check_job("abc-123")
+    result = await slop_studio.comfyui.check_job("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "generation_failed"
     assert result["retry_suggested"] is False
@@ -359,7 +359,7 @@ async def test_check_job_unreachable_returns_transient_error(templates_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         side_effect=httpx.ConnectError("Connection refused")
     )
-    result = await comfyclaude.comfyui.check_job("abc-123")
+    result = await slop_studio.comfyui.check_job("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
     assert result["retry_suggested"] is True
@@ -373,12 +373,12 @@ async def test_check_job_poll_interval_is_3_seconds(templates_dir, monkeypatch):
     async def mock_sleep(seconds):
         sleep_calls.append(seconds)
 
-    monkeypatch.setattr(comfyclaude.comfyui.asyncio, "sleep", mock_sleep)
+    monkeypatch.setattr(slop_studio.comfyui.asyncio, "sleep", mock_sleep)
 
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_RUNNING)
     )
-    await comfyclaude.comfyui.check_job("abc-123", wait=10)
+    await slop_studio.comfyui.check_job("abc-123", wait=10)
     assert all(s == 3 for s in sleep_calls)
     assert len(sleep_calls) > 0
 
@@ -391,12 +391,12 @@ async def test_check_job_wait_capped_at_45(templates_dir, monkeypatch):
     async def mock_sleep(seconds):
         sleep_calls.append(seconds)
 
-    monkeypatch.setattr(comfyclaude.comfyui.asyncio, "sleep", mock_sleep)
+    monkeypatch.setattr(slop_studio.comfyui.asyncio, "sleep", mock_sleep)
 
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_RUNNING)
     )
-    await comfyclaude.comfyui.check_job("abc-123", wait=120)
+    await slop_studio.comfyui.check_job("abc-123", wait=120)
     total_elapsed = sum(sleep_calls)
     assert total_elapsed <= 45
     # 45s / 3s = 15 max iterations
@@ -405,9 +405,9 @@ async def test_check_job_wait_capped_at_45(templates_dir, monkeypatch):
 
 @pytest.mark.anyio
 async def test_mcp_check_job_registered():
-    import comfyclaude.config as _config
-    import comfyclaude.comfyui as _comfyui
-    import comfyclaude.server as _server
+    import slop_studio.config as _config
+    import slop_studio.comfyui as _comfyui
+    import slop_studio.server as _server
 
     importlib.reload(_config)
     importlib.reload(_comfyui)
@@ -420,9 +420,9 @@ async def test_mcp_check_job_registered():
 
 @pytest.mark.anyio
 async def test_mcp_queue_prompt_registered():
-    import comfyclaude.config as _config
-    import comfyclaude.comfyui as _comfyui
-    import comfyclaude.server as _server
+    import slop_studio.config as _config
+    import slop_studio.comfyui as _comfyui
+    import slop_studio.server as _server
 
     importlib.reload(_config)
     importlib.reload(_comfyui)
@@ -459,7 +459,7 @@ def output_dir(tmp_path, monkeypatch):
     """Override OUTPUT_DIR to use tmp_path for test isolation."""
     out = tmp_path / "output"
     out.mkdir()
-    monkeypatch.setattr(comfyclaude.comfyui, "OUTPUT_DIR", str(out))
+    monkeypatch.setattr(slop_studio.comfyui, "OUTPUT_DIR", str(out))
     return out
 
 
@@ -472,7 +472,7 @@ async def test_get_image_completed_returns_file_path(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/view").mock(
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "success"
     assert result["prompt_id"] == "abc-123"
     assert os.path.isabs(result["file_path"])
@@ -490,7 +490,7 @@ async def test_get_image_saves_in_date_directory(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/view").mock(
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     today = date.today().isoformat()
     expected_path = output_dir / today / "ComfyUI_00042_.png"
     assert result["file_path"] == str(expected_path)
@@ -511,7 +511,7 @@ async def test_get_image_creates_date_directory(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/view").mock(
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
-    await comfyclaude.comfyui.get_image("abc-123")
+    await slop_studio.comfyui.get_image("abc-123")
     assert date_dir.exists()
 
 
@@ -534,7 +534,7 @@ async def test_get_image_sanitizes_filename(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/view").mock(
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     today = date.today().isoformat()
     expected_path = output_dir / today / "passwd"
     assert result["file_path"] == str(expected_path)
@@ -547,7 +547,7 @@ async def test_get_image_pending_returns_error(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_PENDING)
     )
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_inputs"
     assert result["retry_suggested"] is False
@@ -559,7 +559,7 @@ async def test_get_image_running_returns_error(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_RUNNING)
     )
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_inputs"
     assert result["retry_suggested"] is False
@@ -571,7 +571,7 @@ async def test_get_image_completed_no_output_returns_error(templates_dir, output
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_NO_OUTPUT)
     )
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "completed_no_output"
     assert result["retry_suggested"] is False
@@ -587,7 +587,7 @@ async def test_get_image_storage_error(templates_dir, output_dir, monkeypatch):
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
     monkeypatch.setattr(os, "makedirs", lambda *a, **kw: (_ for _ in ()).throw(OSError("Permission denied")))
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "storage_error"
     assert result["retry_suggested"] is True
@@ -599,7 +599,7 @@ async def test_get_image_unreachable_returns_transient_error(templates_dir, outp
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         side_effect=httpx.ConnectError("Connection refused")
     )
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
     assert result["retry_suggested"] is True
@@ -607,9 +607,9 @@ async def test_get_image_unreachable_returns_transient_error(templates_dir, outp
 
 @pytest.mark.anyio
 async def test_mcp_get_image_registered():
-    import comfyclaude.config as _config
-    import comfyclaude.comfyui as _comfyui
-    import comfyclaude.server as _server
+    import slop_studio.config as _config
+    import slop_studio.comfyui as _comfyui
+    import slop_studio.server as _server
 
     importlib.reload(_config)
     importlib.reload(_comfyui)
@@ -629,7 +629,7 @@ async def test_get_image_view_http_error_returns_transient_error(templates_dir, 
     respx.get(f"{COMFYUI_URL}/view").mock(
         return_value=httpx.Response(404, text="Not Found")
     )
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
     assert result["retry_suggested"] is True
@@ -641,7 +641,7 @@ async def test_fetch_job_status_non_json_returns_failed(templates_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, text="not json")
     )
-    result = await comfyclaude.comfyui.check_job("abc-123")
+    result = await slop_studio.comfyui.check_job("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "generation_failed"
 
@@ -660,7 +660,7 @@ async def test_get_image_dot_filename_returns_error(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=history_dot)
     )
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "completed_no_output"
 
@@ -682,7 +682,7 @@ async def test_get_image_passes_subfolder_to_view(templates_dir, output_dir):
     view_route = respx.get(f"{COMFYUI_URL}/view").mock(
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
-    await comfyclaude.comfyui.get_image("abc-123")
+    await slop_studio.comfyui.get_image("abc-123")
     request = view_route.calls.last.request
     assert "subfolder=subfolder_name" in str(request.url)
 
@@ -696,7 +696,7 @@ def test_inject_inputs_missing_node_id_skips(caplog):
     meta_inputs = {
         "prompt": {"node_id": "99", "field": "text", "type": "required"},
     }
-    comfyclaude.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
+    slop_studio.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
     # Node 6 should be untouched
     assert workflow["6"]["inputs"]["text"] == ""
     assert "not found in workflow" in caplog.text
@@ -708,7 +708,7 @@ def test_inject_inputs_missing_inputs_key_skips(caplog):
     meta_inputs = {
         "prompt": {"node_id": "6", "field": "text", "type": "required"},
     }
-    comfyclaude.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
+    slop_studio.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
     assert "inputs" not in workflow["6"]
     assert "no 'inputs' key" in caplog.text
 
@@ -719,7 +719,7 @@ def test_inject_inputs_incomplete_definition_skips(caplog):
     meta_inputs = {
         "prompt": {"field": "text", "type": "required"},  # missing node_id
     }
-    comfyclaude.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
+    slop_studio.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
     assert workflow["6"]["inputs"]["text"] == ""
     assert "Incomplete input definition" in caplog.text
 
@@ -731,7 +731,7 @@ def test_inject_resolution_invalid_aspect_ratio_skips(caplog):
         "aspect_ratios": {"1:1": {"width": 1024, "height": 1024}},
         "resolution_nodes": [{"node_id": "5", "width_field": "width", "height_field": "height"}],
     }
-    comfyclaude.comfyui._inject_resolution(workflow, meta, "5:3")
+    slop_studio.comfyui._inject_resolution(workflow, meta, "5:3")
     assert workflow["5"]["inputs"]["width"] == 1024  # unchanged
     assert "not found in meta" in caplog.text
 
@@ -743,7 +743,7 @@ def test_inject_resolution_missing_inputs_key_skips(caplog):
         "aspect_ratios": {"16:9": {"width": 1344, "height": 768}},
         "resolution_nodes": [{"node_id": "5", "width_field": "width", "height_field": "height"}],
     }
-    comfyclaude.comfyui._inject_resolution(workflow, meta, "16:9")
+    slop_studio.comfyui._inject_resolution(workflow, meta, "16:9")
     assert "inputs" not in workflow["5"]
     assert "no 'inputs' key" in caplog.text
 
@@ -755,7 +755,7 @@ def test_inject_resolution_missing_node_skips(caplog):
         "aspect_ratios": {"16:9": {"width": 1344, "height": 768}},
         "resolution_nodes": [{"node_id": "99", "width_field": "width", "height_field": "height"}],
     }
-    comfyclaude.comfyui._inject_resolution(workflow, meta, "16:9")
+    slop_studio.comfyui._inject_resolution(workflow, meta, "16:9")
     assert workflow["5"]["inputs"]["width"] == 1024  # unchanged
     assert "not found in workflow" in caplog.text
 
@@ -781,7 +781,7 @@ async def test_get_image_filename_collision_appends_suffix(templates_dir, output
     date_dir.mkdir(parents=True, exist_ok=True)
     (date_dir / "ComfyUI_00042_.png").write_bytes(b"existing")
 
-    result = await comfyclaude.comfyui.get_image("abc-123")
+    result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "success"
     # Should have a suffixed filename
     assert result["file_path"].endswith("ComfyUI_00042__001.png")

@@ -11,3 +11,6 @@ wheels/
 
 # Generated images
 output/
+
+# slop
+SATHIAS.md

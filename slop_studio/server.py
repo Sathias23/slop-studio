@@ -5,7 +5,7 @@ import logging
 import httpx
 from fastmcp import FastMCP
 
-from comfyclaude.config import COMFYUI_URL
+from slop_studio.config import COMFYUI_URL
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +34,10 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     yield {}
 
 
-mcp = FastMCP("comfyclaude", lifespan=lifespan)
+mcp = FastMCP("slop-studio", lifespan=lifespan)
 
 
-from comfyclaude import comfyui, templates
+from slop_studio import comfyui, templates
 
 
 @mcp.tool()
@@ -104,6 +104,21 @@ async def update_template(
     aspect ratios).
     """
     return await templates.update_template(name, workflow_json, metadata)
+
+
+@mcp.tool()
+async def delete_template(name: str) -> dict:
+    """Delete a workflow template by name.
+
+    Removes both the workflow JSON and metadata sidecar files from the
+    templates directory. The template is immediately unavailable for use
+    with queue_prompt.
+
+    Use this when a template is outdated, broken, or no longer needed.
+    Template names cannot contain path characters (/, ..) or start with
+    a dot.
+    """
+    return await templates.delete_template(name)
 
 
 @mcp.tool()

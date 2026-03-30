@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-import comfyclaude.config as config_module
+import slop_studio.config as config_module
 
 
 def test_default_comfyui_url():
@@ -26,13 +26,13 @@ def test_env_override_comfyui_url(monkeypatch):
 
 
 def test_env_override_templates_dir(monkeypatch):
-    monkeypatch.setenv("COMFYCLAUDE_TEMPLATES_DIR", "/custom/templates")
+    monkeypatch.setenv("SLOP_STUDIO_TEMPLATES_DIR", "/custom/templates")
     importlib.reload(config_module)
     assert config_module.TEMPLATES_DIR == "/custom/templates"
 
 
 def test_env_override_output_dir(monkeypatch):
-    monkeypatch.setenv("COMFYCLAUDE_OUTPUT_DIR", "/custom/output")
+    monkeypatch.setenv("SLOP_STUDIO_OUTPUT_DIR", "/custom/output")
     importlib.reload(config_module)
     assert config_module.OUTPUT_DIR == "/custom/output"
 
@@ -44,14 +44,14 @@ def test_empty_comfyui_url_falls_back_to_default(monkeypatch):
 
 
 def test_empty_templates_dir_falls_back_to_default(monkeypatch):
-    monkeypatch.setenv("COMFYCLAUDE_TEMPLATES_DIR", "")
+    monkeypatch.setenv("SLOP_STUDIO_TEMPLATES_DIR", "")
     importlib.reload(config_module)
     assert os.path.isabs(config_module.TEMPLATES_DIR)
     assert config_module.TEMPLATES_DIR.endswith("templates")
 
 
 def test_empty_output_dir_falls_back_to_default(monkeypatch):
-    monkeypatch.setenv("COMFYCLAUDE_OUTPUT_DIR", "")
+    monkeypatch.setenv("SLOP_STUDIO_OUTPUT_DIR", "")
     importlib.reload(config_module)
     assert config_module.OUTPUT_DIR == "./output"
 

@@ -1,4 +1,4 @@
-# ComfyClaude
+# Slop Studio
 
 MCP server for conversational image generation via ComfyUI.
 
@@ -15,8 +15,8 @@ MCP server for conversational image generation via ComfyUI.
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/your-org/comfyclaude.git
-   cd comfyclaude
+   git clone https://github.com/Sathias23/slop-studio.git
+   cd slop-studio
    ```
 
 2. Install dependencies:
@@ -44,15 +44,15 @@ Add the following to your Claude Code MCP config (`~/.claude/mcp_servers.json` o
 ```json
 {
   "mcpServers": {
-    "comfyclaude": {
+    "slop-studio": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/comfyclaude", "main.py"]
+      "args": ["run", "--directory", "/path/to/slop-studio", "main.py"]
     }
   }
 }
 ```
 
-Replace `/path/to/comfyclaude` with the absolute path to the cloned repository.
+Replace `/path/to/slop-studio` with the absolute path to the cloned repository.
 
 ## Development
 

@@ -62,8 +62,8 @@ NFR4: No caching required — filesystem scan per call is sufficient for single-
 ### Additional Requirements
 
 - Starter template: `uv init` (application) + FastMCP conventions already selected. Project initialized with `uv init`.
-- Package layout with `comfyclaude/` package, `main.py` entry point supporting "serve" or "init" subcommands
-- Init command (`comfyclaude/init.py`): scaffold art project folders, copy starter templates, generate `.mcp.json` with repo path, copy slash commands and CLAUDE.md template
+- Package layout with `slop_studio/` package, `main.py` entry point supporting "serve" or "init" subcommands
+- Init command (`slop_studio/init.py`): scaffold art project folders, copy starter templates, generate `.mcp.json` with repo path, copy slash commands and CLAUDE.md template
 - Async architecture throughout: `async def` tools, `httpx.AsyncClient`, `asyncio.sleep` for polling
 - Dataclass-based `ErrorResponse` with `transient_error()` / `terminal_error()` helper functions — never construct error dicts manually
 - Meta-only template validation for MVP (cross-reference validation deferred to Phase 2)
@@ -141,7 +141,7 @@ So that all future tools have consistent error responses and configurable behavi
 **When** I run `uv sync`
 **Then** `fastmcp` and `httpx` are installed as dependencies, and `pytest` and `respx` as dev dependencies
 
-**Given** the `comfyclaude/` package exists
+**Given** the `slop_studio/` package exists
 **When** I inspect the module structure
 **Then** `__init__.py`, `config.py`, and `errors.py` are present
 
@@ -177,7 +177,7 @@ So that I get immediate feedback if my setup is broken rather than discovering i
 
 **Acceptance Criteria:**
 
-**Given** `comfyclaude/server.py` exists
+**Given** `slop_studio/server.py` exists
 **When** I inspect it
 **Then** it creates a `FastMCP` server instance with a descriptive name and registers it for stdio transport (FR30)
 
@@ -463,7 +463,7 @@ So that I can start generating images in Claude Code immediately without manual 
 
 **Given** the init command copies starter templates
 **When** I inspect the copied files
-**Then** they are identical to the originals in `comfyclaude/assets/starter-templates/`
+**Then** they are identical to the originals in `slop_studio/assets/starter-templates/`
 
 **Given** the init command completes
 **When** I open Claude Code in the scaffolded directory

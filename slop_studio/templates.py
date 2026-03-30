@@ -2,8 +2,8 @@ import json
 import logging
 from pathlib import Path
 
-from comfyclaude.config import TEMPLATES_DIR
-from comfyclaude.errors import terminal_error, transient_error
+from slop_studio.config import TEMPLATES_DIR
+from slop_studio.errors import terminal_error, transient_error
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +143,33 @@ async def add_template(name: str, workflow_json: dict, metadata: dict) -> dict:
 
     logger.info("Template added: %s", name)
     return {"status": "success", "name": name, "message": f"Template '{name}' added"}
+
+
+async def delete_template(name: str) -> dict:
+    """Delete a workflow template by name."""
+    name_err = _validate_template_name(name)
+    if name_err:
+        return terminal_error("invalid_inputs", name_err)
+
+    templates_path = Path(TEMPLATES_DIR)
+    meta_path = templates_path / f"{name}.meta.json"
+    workflow_path = templates_path / f"{name}.json"
+
+    if not meta_path.is_file():
+        return terminal_error("invalid_inputs", f"Template '{name}' not found")
+
+    try:
+        meta_path.unlink()
+    except OSError as exc:
+        return transient_error("storage_error", f"Failed to delete template '{name}': {exc}")
+
+    try:
+        workflow_path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("Template '%s' metadata deleted but workflow file could not be removed: %s", name, exc)
+
+    logger.info("Template deleted: %s", name)
+    return {"status": "success", "name": name, "message": f"Template '{name}' deleted"}
 
 
 async def update_template(

@@ -1,5 +1,5 @@
 [project]
-name = "comfyclaude"
+name = "slop-studio"
 version = "0.1.0"
 description = "MCP server for conversational image generation via ComfyUI"
 readme = "README.md"
@@ -8,6 +8,12 @@ dependencies = [
     "fastmcp>=3.1.1",
     "httpx>=0.28.1",
 ]
+
+[tool.setuptools.packages.find]
+include = ["slop_studio*"]
+
+[tool.setuptools.package-data]
+slop_studio = ["assets/**/*"]
 
 [dependency-groups]
 dev = [

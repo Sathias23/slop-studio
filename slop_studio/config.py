@@ -18,6 +18,6 @@ if not COMFYUI_URL.startswith(("http://", "https://")):
     )
 
 TEMPLATES_DIR = _env_or_default(
-    "COMFYCLAUDE_TEMPLATES_DIR", str(_PACKAGE_DIR.parent / "templates")
+    "SLOP_STUDIO_TEMPLATES_DIR", str(_PACKAGE_DIR.parent / "templates")
 )
-OUTPUT_DIR = _env_or_default("COMFYCLAUDE_OUTPUT_DIR", "./output")
+OUTPUT_DIR = _env_or_default("SLOP_STUDIO_OUTPUT_DIR", "./output")

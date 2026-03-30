@@ -1,4 +1,4 @@
-"""Manual testing script for ComfyClaude.
+"""Manual testing script for Slop Studio.
 
 Tests queue_prompt (Story 2.2) and check_job (Story 2.3) against a real ComfyUI instance.
 Set COMFYUI_URL env var if ComfyUI is not at http://localhost:8188.
@@ -12,7 +12,7 @@ import asyncio
 import json
 import sys
 
-from comfyclaude.comfyui import check_job, queue_prompt
+from slop_studio.comfyui import check_job, queue_prompt
 
 
 async def run_test(label: str, coro) -> dict:
@@ -24,7 +24,7 @@ async def run_test(label: str, coro) -> dict:
 
 
 async def main():
-    from comfyclaude.config import COMFYUI_URL, TEMPLATES_DIR
+    from slop_studio.config import COMFYUI_URL, TEMPLATES_DIR
 
     print(f"ComfyUI URL: {COMFYUI_URL}")
     print(f"Templates dir: {TEMPLATES_DIR}")

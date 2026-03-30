@@ -2,12 +2,12 @@ import importlib
 
 import pytest
 
-import comfyclaude.config
-import comfyclaude.comfyui
+import slop_studio.config
+import slop_studio.comfyui
 
 
 @pytest.fixture(autouse=True)
 def reload_config():
     yield
-    importlib.reload(comfyclaude.config)
-    importlib.reload(comfyclaude.comfyui)
+    importlib.reload(slop_studio.config)
+    importlib.reload(slop_studio.comfyui)

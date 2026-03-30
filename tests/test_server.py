@@ -4,21 +4,21 @@ import httpx
 import pytest
 import respx
 
-import comfyclaude.config
+import slop_studio.config
 
 
 @pytest.fixture
 def default_url():
     """Return the default COMFYUI_URL for use in tests."""
-    return comfyclaude.config.COMFYUI_URL
+    return slop_studio.config.COMFYUI_URL
 
 
 def _get_lifespan():
     """Import lifespan fresh after config reload."""
-    import comfyclaude.server
+    import slop_studio.server
 
-    importlib.reload(comfyclaude.server)
-    return comfyclaude.server.lifespan
+    importlib.reload(slop_studio.server)
+    return slop_studio.server.lifespan
 
 
 @pytest.mark.anyio
@@ -61,7 +61,7 @@ async def test_lifespan_fails_on_non_200_response(default_url):
 async def test_lifespan_uses_configured_url(monkeypatch):
     custom_url = "http://custom-host:9999"
     monkeypatch.setenv("COMFYUI_URL", custom_url)
-    importlib.reload(comfyclaude.config)
+    importlib.reload(slop_studio.config)
 
     respx.get(f"{custom_url}/system_stats").mock(
         return_value=httpx.Response(200, json={"system": {}})

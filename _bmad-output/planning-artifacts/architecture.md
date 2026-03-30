@@ -141,7 +141,7 @@ Python MCP server (integration layer) — not a web app, mobile app, or full-sta
 **Decision:** Package layout with init command
 
 ```
-comfyclaude/
+slop_studio/
   __init__.py
   server.py          # FastMCP server + tool registration
   comfyui.py         # httpx.AsyncClient for ComfyUI API
@@ -329,14 +329,14 @@ Agents MUST use these helpers — never construct error dicts manually.
 
 | FR Category | Module | Key Functions |
 |---|---|---|
-| Template Discovery (FR1-3) | `comfyclaude/templates.py` | `list_templates()`, `get_template()` |
-| Template Management (FR4-8) | `comfyclaude/templates.py` | `add_template()`, `update_template()`, `delete_template()`, validation |
-| Image Generation (FR9-13) | `comfyclaude/server.py` + `comfyclaude/comfyui.py` | `queue_prompt()`, input injection, seed randomization |
-| Job Monitoring (FR14-18) | `comfyclaude/comfyui.py` | `check_job()`, polling loop |
-| Image Retrieval (FR19-21) | `comfyclaude/comfyui.py` | `get_image()`, file path resolution, date organization |
-| Error Handling (FR22-25) | `comfyclaude/errors.py` | `ErrorResponse`, `transient_error()`, `terminal_error()` |
-| Configuration (FR26-28) | `comfyclaude/config.py` | Module-level constants from env vars |
-| Out-of-Box (FR29-30) | `comfyclaude/assets/` | Starter templates, init scaffolding |
+| Template Discovery (FR1-3) | `slop_studio/templates.py` | `list_templates()`, `get_template()` |
+| Template Management (FR4-8) | `slop_studio/templates.py` | `add_template()`, `update_template()`, `delete_template()`, validation |
+| Image Generation (FR9-13) | `slop_studio/server.py` + `slop_studio/comfyui.py` | `queue_prompt()`, input injection, seed randomization |
+| Job Monitoring (FR14-18) | `slop_studio/comfyui.py` | `check_job()`, polling loop |
+| Image Retrieval (FR19-21) | `slop_studio/comfyui.py` | `get_image()`, file path resolution, date organization |
+| Error Handling (FR22-25) | `slop_studio/errors.py` | `ErrorResponse`, `transient_error()`, `terminal_error()` |
+| Configuration (FR26-28) | `slop_studio/config.py` | Module-level constants from env vars |
+| Out-of-Box (FR29-30) | `slop_studio/assets/` | Starter templates, init scaffolding |
 
 ### Complete Project Directory Structure
 
@@ -348,7 +348,7 @@ ComfyClaude/
 ├── .gitignore
 ├── README.md                        # Setup instructions, MCP config snippet, quick-start
 │
-├── comfyclaude/
+├── slop_studio/
 │   ├── __init__.py                  # Package marker, version
 │   ├── server.py                    # FastMCP server instance, @mcp.tool() registrations
 │   ├── comfyui.py                   # httpx.AsyncClient wrapper: submit, poll, fetch image
@@ -408,7 +408,7 @@ ComfyClaude/
 
 **Init Boundary** (`init.py`):
 - Only module that writes to the target project folder (outside the repo)
-- Copies assets from `comfyclaude/assets/` to target directory
+- Copies assets from `slop_studio/assets/` to target directory
 - Generates `.mcp.json` with repo path interpolated
 - Never touches the server or ComfyUI — completely independent
 
@@ -443,7 +443,7 @@ Claude Code → (stdio/MCP) → server.py → templates.py → filesystem (templ
 
 **Non-Functional Requirements:** HTTP timeout (30s), polling strategy (3s/45s), fail-fast startup, stderr logging, and synchronous file I/O are all addressed in the architecture.
 
-**Architectural Addition:** The init command (`comfyclaude/init.py`) and project scaffolding (`.mcp.json`, slash commands, CLAUDE.md) were added during architecture to support the multi-project-folder workflow. This is additive to the PRD — no PRD requirements were removed or modified.
+**Architectural Addition:** The init command (`slop_studio/init.py`) and project scaffolding (`.mcp.json`, slash commands, CLAUDE.md) were added during architecture to support the multi-project-folder workflow. This is additive to the PRD — no PRD requirements were removed or modified.
 
 ### Implementation Readiness ✅
 
@@ -519,6 +519,6 @@ Claude Code → (stdio/MCP) → server.py → templates.py → filesystem (templ
 - Refer to this document for all architectural questions
 
 **First Implementation Priority:**
-1. Set up package structure (`comfyclaude/` with `__init__.py`, `config.py`, `errors.py`)
+1. Set up package structure (`slop_studio/` with `__init__.py`, `config.py`, `errors.py`)
 2. Add dependencies (`uv add fastmcp httpx`)
 3. Implement `server.py` with FastMCP instance and first tool (`list_templates`)
