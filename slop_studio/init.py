@@ -29,11 +29,9 @@ def init_project(target: Path) -> bool:
             "mcpServers": {
                 "slop-studio": {
                     "command": "uv",
-                    "args": ["run", "--directory", str(repo_path), "main.py"],
-                    "env": {
-                        "SLOP_STUDIO_OUTPUT_DIR": str(target / "output"),
-                        "SLOP_STUDIO_TEMPLATES_DIR": str(target / "templates"),
-                    }
+                    "args": ["run", "--directory", str(repo_path), "main.py",
+                             "--project-dir", str(target)],
+                    "env": {}
                 }
             }
         }
