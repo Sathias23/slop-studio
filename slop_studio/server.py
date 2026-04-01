@@ -37,7 +37,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 mcp = FastMCP("slop-studio", lifespan=lifespan)
 
 
-from slop_studio import comfyui, templates
+from slop_studio import comfyui, sloppify, templates
 
 
 @mcp.tool()
@@ -119,6 +119,33 @@ async def delete_template(name: str) -> dict:
     a dot.
     """
     return await templates.delete_template(name)
+
+
+@mcp.tool()
+async def sloppify_prompt(
+    prompt: str, top_k: int = 8, synonym_ratio: int = 100
+) -> dict:
+    """Sloppify a text prompt by replacing words with CLIP-similar tokens.
+
+    Uses CLIP ViT-B/32 token embeddings to find semantically similar words
+    and randomly swaps them in, producing surreal and unexpected prompts
+    that generate weird, creative images.
+
+    Parameters:
+    - prompt: The text prompt to sloppify.
+    - top_k: How many nearest CLIP neighbours to sample from (1-32).
+      Higher values = more variety but less semantic similarity. Default 8.
+    - synonym_ratio: Percentage of eligible words to replace (0-100).
+      100 = replace all words, 50 = replace half, 0 = no changes. Default 100.
+
+    Returns the sloppified prompt alongside the original. Feed the
+    sloppified_prompt into queue_prompt to generate an image.
+
+    Requires torch and clip to be installed (pip install torch
+    git+https://github.com/openai/CLIP.git). Returns a clear error
+    if dependencies are missing.
+    """
+    return await sloppify.sloppify_prompt(prompt, top_k, synonym_ratio)
 
 
 @mcp.tool()

@@ -15,6 +15,12 @@ include = ["slop_studio*"]
 [tool.setuptools.package-data]
 slop_studio = ["assets/**/*"]
 
+[project.optional-dependencies]
+sloppify = [
+    "torch",
+    "clip @ git+https://github.com/openai/CLIP.git",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

@@ -1,3 +1,10 @@
+## Deferred from: code review of sloppifier-synonymiser (2026-04-01)
+
+- **`sloppify_prompt` blocks asyncio event loop with synchronous CPU-heavy CLIP operations** (`slop_studio/sloppify.py`) — `_synonymise_word` runs torch cosine similarity synchronously inside an async function. Should use `asyncio.to_thread()` for long prompts. Low risk for interactive single-prompt use.
+- **Race condition in `_ensure_clip()` lazy initialization** (`slop_studio/sloppify.py`) — Two concurrent calls could both enter the loading block. Safe in single-threaded asyncio; add `asyncio.Lock` if threading is introduced.
+- **Unpinned `torch` and `clip` dependencies** (`pyproject.toml`) — No version constraints on optional deps. Pin to known-good versions when stability matters.
+- **No prompt length limit** (`slop_studio/sloppify.py`) — Unbounded input could block the event loop for minutes. Consider a max word count in a future hardening pass.
+
 ## Deferred from: code review of 3-2-delete-workflow-templates (2026-03-30)
 
 - **TOCTOU race between `is_file()` and `meta_path.unlink()`** (`slop_studio/templates.py`) — Concurrent delete between check and unlink raises `FileNotFoundError` (caught as OSError), returns misleading retryable `storage_error`. Systemic pattern across module; low risk for single-user tool.
