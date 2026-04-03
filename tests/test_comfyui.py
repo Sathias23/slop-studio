@@ -690,36 +690,39 @@ async def test_get_image_passes_subfolder_to_view(templates_dir, output_dir):
 # -- Injection guard tests --
 
 
-def test_inject_inputs_missing_node_id_skips(caplog):
+@pytest.mark.anyio
+async def test_inject_inputs_missing_node_id_skips(caplog):
     """_inject_inputs skips gracefully when node_id is not in workflow."""
     workflow = {"6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}}}
     meta_inputs = {
         "prompt": {"node_id": "99", "field": "text", "type": "required"},
     }
-    slop_studio.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
+    await slop_studio.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
     # Node 6 should be untouched
     assert workflow["6"]["inputs"]["text"] == ""
     assert "not found in workflow" in caplog.text
 
 
-def test_inject_inputs_missing_inputs_key_skips(caplog):
+@pytest.mark.anyio
+async def test_inject_inputs_missing_inputs_key_skips(caplog):
     """_inject_inputs skips when target node has no 'inputs' sub-key."""
     workflow = {"6": {"class_type": "CLIPTextEncode"}}  # no "inputs" key
     meta_inputs = {
         "prompt": {"node_id": "6", "field": "text", "type": "required"},
     }
-    slop_studio.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
+    await slop_studio.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
     assert "inputs" not in workflow["6"]
     assert "no 'inputs' key" in caplog.text
 
 
-def test_inject_inputs_incomplete_definition_skips(caplog):
+@pytest.mark.anyio
+async def test_inject_inputs_incomplete_definition_skips(caplog):
     """_inject_inputs skips when input_def is missing node_id or field."""
     workflow = {"6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}}}
     meta_inputs = {
         "prompt": {"field": "text", "type": "required"},  # missing node_id
     }
-    slop_studio.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
+    await slop_studio.comfyui._inject_inputs(workflow, meta_inputs, {"prompt": "hello"})
     assert workflow["6"]["inputs"]["text"] == ""
     assert "Incomplete input definition" in caplog.text
 
@@ -788,3 +791,192 @@ async def test_get_image_filename_collision_appends_suffix(templates_dir, output
     # Both files should exist
     assert (date_dir / "ComfyUI_00042_.png").exists()
     assert (date_dir / "ComfyUI_00042__001.png").exists()
+
+
+# ---------------------------------------------------------------------------
+# Image input support tests
+# ---------------------------------------------------------------------------
+
+EDIT_WORKFLOW = {
+    "1": {
+        "class_type": "LoadImage",
+        "inputs": {"image": "placeholder.png", "upload": "image"},
+    },
+    "6": {
+        "class_type": "CLIPTextEncode",
+        "inputs": {"text": "", "clip": ["4", 0]},
+    },
+}
+
+EDIT_META = {
+    "name": "test_edit_template",
+    "model": "test-model",
+    "description": "Test edit template with image input",
+    "expected_duration": "30 seconds",
+    "inputs": {
+        "prompt": {
+            "node_id": "6",
+            "field": "text",
+            "type": "required",
+            "description": "Edit instruction",
+        },
+        "image": {
+            "node_id": "1",
+            "field": "image",
+            "type": "required",
+            "input_type": "image",
+            "description": "Source image to edit",
+        },
+    },
+}
+
+
+def _create_test_image(path):
+    """Create a minimal valid PNG file for testing."""
+    from PIL import Image
+    Image.new("RGB", (10, 10), "red").save(path)
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_queue_prompt_with_image_input(templates_dir, tmp_path):
+    """Image inputs are uploaded before injection into the workflow."""
+    write_template(templates_dir, "test_edit_template", EDIT_WORKFLOW, EDIT_META)
+    img_path = tmp_path / "photo.png"
+    _create_test_image(img_path)
+
+    respx.post(f"{COMFYUI_URL}/upload/image").mock(
+        return_value=httpx.Response(
+            200, json={"name": "abc123.png", "subfolder": "", "type": "input"}
+        )
+    )
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(
+            200, json={"prompt_id": "edit-001", "number": 1, "node_errors": {}}
+        )
+    )
+
+    result = await slop_studio.comfyui.queue_prompt(
+        "test_edit_template",
+        {"prompt": "make it blue", "image": str(img_path)},
+    )
+
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "edit-001"
+
+    # Verify upload was called
+    upload_call = respx.calls[0]
+    assert "/upload/image" in str(upload_call.request.url)
+
+    # Verify the injected filename in the prompt
+    prompt_call = respx.calls[1]
+    body = json.loads(prompt_call.request.content)
+    assert body["prompt"]["1"]["inputs"]["image"] == "abc123.png"
+    assert body["prompt"]["6"]["inputs"]["text"] == "make it blue"
+
+
+@pytest.mark.anyio
+async def test_upload_rejects_non_image(templates_dir, tmp_path):
+    """Non-image files are rejected before upload."""
+    write_template(templates_dir, "test_edit_template", EDIT_WORKFLOW, EDIT_META)
+    fake = tmp_path / "not_an_image.png"
+    fake.write_text("this is not an image")
+
+    result = await slop_studio.comfyui.queue_prompt(
+        "test_edit_template",
+        {"prompt": "edit me", "image": str(fake)},
+    )
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation"
+    assert "not a valid image" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_upload_rejects_missing_file(templates_dir):
+    """Missing files are rejected."""
+    write_template(templates_dir, "test_edit_template", EDIT_WORKFLOW, EDIT_META)
+
+    result = await slop_studio.comfyui.queue_prompt(
+        "test_edit_template",
+        {"prompt": "edit me", "image": "/nonexistent/path.png"},
+    )
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation"
+    assert "not found" in result["error"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_upload_failure_returns_transient_error(templates_dir, tmp_path):
+    """Upload failure (ComfyUI down) returns transient error."""
+    write_template(templates_dir, "test_edit_template", EDIT_WORKFLOW, EDIT_META)
+    img_path = tmp_path / "photo.png"
+    _create_test_image(img_path)
+
+    respx.post(f"{COMFYUI_URL}/upload/image").mock(
+        side_effect=httpx.ConnectError("Connection refused")
+    )
+
+    result = await slop_studio.comfyui.queue_prompt(
+        "test_edit_template",
+        {"prompt": "edit me", "image": str(img_path)},
+    )
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "unreachable"
+    assert result["retry_suggested"] is True
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_text_only_template_unaffected(sample_templates):
+    """Existing text-only templates work unchanged (backwards compat)."""
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(
+            200, json={"prompt_id": "text-001", "number": 1, "node_errors": {}}
+        )
+    )
+
+    result = await slop_studio.comfyui.queue_prompt(
+        "test_template", {"prompt": "a cat"}
+    )
+
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "text-001"
+    # No upload call should have been made
+    assert len(respx.calls) == 1
+    assert "/prompt" in str(respx.calls[0].request.url)
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_optional_image_not_provided(templates_dir):
+    """Optional image input that isn't provided is skipped gracefully."""
+    meta_with_optional = {
+        **EDIT_META,
+        "inputs": {
+            "prompt": EDIT_META["inputs"]["prompt"],
+            "image": {
+                **EDIT_META["inputs"]["image"],
+                "type": "optional",
+            },
+        },
+    }
+    write_template(templates_dir, "test_edit_template", EDIT_WORKFLOW, meta_with_optional)
+
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(
+            200, json={"prompt_id": "opt-001", "number": 1, "node_errors": {}}
+        )
+    )
+
+    # Only provide prompt, omit image
+    result = await slop_studio.comfyui.queue_prompt(
+        "test_edit_template", {"prompt": "generate something"}
+    )
+
+    assert result["status"] == "success"
+    # Only the /prompt call, no /upload/image
+    assert len(respx.calls) == 1

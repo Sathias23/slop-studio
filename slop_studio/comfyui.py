@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -18,8 +19,49 @@ DEFAULT_POLL_INTERVAL = 3  # seconds between polls (FR16)
 MAX_POLL_DURATION = 45     # maximum total polling time in seconds (FR16)
 
 
-def _inject_inputs(workflow: dict, meta_inputs: dict, user_inputs: dict) -> None:
-    """Inject user-provided input values into the workflow nodes in-place."""
+async def _upload_image(file_path: str) -> str:
+    """Upload a local image file to ComfyUI's input directory.
+
+    Returns the ComfyUI filename for use in LoadImage nodes.
+    Raises ValueError for invalid/missing files, httpx errors for upload failures.
+    """
+    if not os.path.isfile(file_path):
+        raise ValueError(f"Image file not found: {file_path}")
+
+    from PIL import Image
+    try:
+        with Image.open(file_path) as img:
+            img.verify()
+    except Exception:
+        raise ValueError(f"File is not a valid image: {file_path}")
+
+    ext = os.path.splitext(file_path)[1].lower() or ".png"
+    mime_types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                  ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp"}
+    mime_type = mime_types.get(ext, "application/octet-stream")
+    upload_name = f"{uuid.uuid4().hex[:12]}{ext}"
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        with open(file_path, "rb") as f:
+            resp = await client.post(
+                f"{COMFYUI_URL}/upload/image",
+                files={"image": (upload_name, f, mime_type)},
+                data={"type": "input", "overwrite": "true"},
+            )
+        resp.raise_for_status()
+
+    data = resp.json()
+    if "name" not in data:
+        raise ValueError(f"ComfyUI upload response missing 'name' key: {str(data)[:200]}")
+    return data["name"]
+
+
+async def _inject_inputs(workflow: dict, meta_inputs: dict, user_inputs: dict) -> None:
+    """Inject user-provided input values into the workflow nodes in-place.
+
+    For inputs with input_type: "image", uploads the file to ComfyUI first
+    and injects the returned filename.
+    """
     for input_name, value in user_inputs.items():
         if input_name not in meta_inputs:
             continue
@@ -35,6 +77,10 @@ def _inject_inputs(workflow: dict, meta_inputs: dict, user_inputs: dict) -> None
         if "inputs" not in workflow[node_id]:
             logger.error("Node '%s' has no 'inputs' key in workflow", node_id)
             continue
+
+        if input_def.get("input_type") == "image":
+            value = await _upload_image(value)
+
         workflow[node_id]["inputs"][field] = value
 
 
@@ -120,7 +166,20 @@ async def queue_prompt(
 
     # Prepare workflow
     prepared = copy.deepcopy(workflow)
-    _inject_inputs(prepared, meta_inputs, inputs)
+    try:
+        await _inject_inputs(prepared, meta_inputs, inputs)
+    except ValueError as exc:
+        return terminal_error("validation", str(exc))
+    except httpx.RequestError:
+        return transient_error(
+            "unreachable",
+            f"Cannot upload image to ComfyUI at {COMFYUI_URL}",
+        )
+    except httpx.HTTPStatusError as exc:
+        return transient_error(
+            "unreachable",
+            f"ComfyUI image upload returned HTTP {exc.response.status_code}",
+        )
     _randomize_seeds(prepared)
     _inject_resolution(prepared, meta, aspect_ratio)
 

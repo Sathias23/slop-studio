@@ -1,0 +1,247 @@
+{
+  "1": {
+    "inputs": {
+      "image": "example.png",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Reference Image 1"
+    }
+  },
+  "2": {
+    "inputs": {
+      "image": "example.png",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Reference Image 2"
+    }
+  },
+  "3": {
+    "inputs": {
+      "unet_name": "flux-2-klein-9b-Q8_0.gguf"
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader (GGUF)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp4mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "5": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "6": {
+    "inputs": {
+      "text": "Apply the yellow C logo to the center hub of the steering wheel",
+      "clip": ["4", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "text": "",
+      "clip": ["4", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "image": ["1", 0],
+      "upscale_method": "nearest-exact",
+      "megapixels": 1
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "Scale Reference Image 1"
+    }
+  },
+  "9": {
+    "inputs": {
+      "image": ["2", 0],
+      "upscale_method": "nearest-exact",
+      "megapixels": 1
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "Scale Reference Image 2"
+    }
+  },
+  "10": {
+    "inputs": {
+      "image": ["8", 0]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "Get Image Size"
+    }
+  },
+  "11": {
+    "inputs": {
+      "pixels": ["8", 0],
+      "vae": ["5", 0]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode (Reference 1)"
+    }
+  },
+  "12": {
+    "inputs": {
+      "conditioning": ["6", 0],
+      "latent": ["11", 0]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "Reference Latent (Positive, Ref 1)"
+    }
+  },
+  "13": {
+    "inputs": {
+      "conditioning": ["7", 0],
+      "latent": ["11", 0]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "Reference Latent (Negative, Ref 1)"
+    }
+  },
+  "14": {
+    "inputs": {
+      "pixels": ["9", 0],
+      "vae": ["5", 0]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode (Reference 2)"
+    }
+  },
+  "15": {
+    "inputs": {
+      "conditioning": ["12", 0],
+      "latent": ["14", 0]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "Reference Latent (Positive, Ref 2)"
+    }
+  },
+  "16": {
+    "inputs": {
+      "conditioning": ["13", 0],
+      "latent": ["14", 0]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "Reference Latent (Negative, Ref 2)"
+    }
+  },
+  "17": {
+    "inputs": {
+      "model": ["3", 0],
+      "positive": ["15", 0],
+      "negative": ["16", 0],
+      "cfg": 5
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Guider"
+    }
+  },
+  "18": {
+    "inputs": {
+      "noise_seed": 0
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Random Noise"
+    }
+  },
+  "19": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSampler Select"
+    }
+  },
+  "20": {
+    "inputs": {
+      "steps": 20,
+      "width": ["10", 0],
+      "height": ["10", 1]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {
+      "title": "Flux2 Scheduler"
+    }
+  },
+  "21": {
+    "inputs": {
+      "width": ["10", 0],
+      "height": ["10", 1],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "Empty Flux 2 Latent"
+    }
+  },
+  "22": {
+    "inputs": {
+      "noise": ["18", 0],
+      "guider": ["17", 0],
+      "sampler": ["19", 0],
+      "sigmas": ["20", 0],
+      "latent_image": ["21", 0]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Sampler Custom Advanced"
+    }
+  },
+  "23": {
+    "inputs": {
+      "samples": ["22", 0],
+      "vae": ["5", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "24": {
+    "inputs": {
+      "filename_prefix": "Flux2-Klein-Edit",
+      "images": ["23", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

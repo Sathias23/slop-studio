@@ -1,0 +1,28 @@
+{
+  "name": "flux2_klein_edit",
+  "model": "flux-2-klein-9b-gguf",
+  "description": "Flux 2 Klein 9B multi-reference image editing pipeline. Edit images using text prompts with two reference images for style/content transfer via ReferenceLatent conditioning. 20 euler steps, cfg 5.",
+  "expected_duration": "45 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "6",
+      "field": "text",
+      "type": "required",
+      "description": "Text instruction describing the edit (e.g., 'Change the background to a forest' or 'Apply the logo to the steering wheel')"
+    },
+    "image": {
+      "node_id": "1",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Primary reference image to edit. Provides the content/layout to modify."
+    },
+    "reference_image": {
+      "node_id": "2",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Second reference image for style/material/branding transfer (e.g., a logo or texture to apply)."
+    }
+  }
+}
