@@ -13,7 +13,7 @@ from atproto_client.exceptions import (
     UnauthorizedError,
 )
 
-from slop_studio.config import BSKY_APP_PASSWORD, BSKY_HANDLE
+from slop_studio.config import get_bsky_credentials
 from slop_studio.errors import terminal_error, transient_error
 
 logger = logging.getLogger(__name__)
@@ -40,11 +40,11 @@ async def post_image(
     Returns a dict with status and post URI on success, or a structured error.
     """
     # --- Validate credentials ---
-    if not BSKY_HANDLE or not BSKY_APP_PASSWORD:
+    bsky_handle, bsky_app_password = get_bsky_credentials()
+    if not bsky_handle or not bsky_app_password:
         return terminal_error(
             "missing_config",
-            "BSKY_HANDLE and BSKY_APP_PASSWORD environment variables are required. "
-            "Create an app password at bsky.app > Settings > App Passwords.",
+            "Bluesky credentials not configured. Run: slop-studio auth",
         )
 
     # --- Normalise image entries ---
@@ -87,7 +87,7 @@ async def post_image(
     # --- Authenticate ---
     client = AsyncClient()
     try:
-        await client.login(BSKY_HANDLE, BSKY_APP_PASSWORD)
+        await client.login(bsky_handle, bsky_app_password)
     except UnauthorizedError:
         return terminal_error(
             "auth_failed",

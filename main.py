@@ -1,3 +1,9 @@
+"""Backwards-compatible entry point.
+
+Existing .mcp.json files reference ``uv run main.py``.  This shim
+delegates to the proper CLI so those configs keep working.
+"""
+
 import os
 import sys
 
@@ -8,29 +14,21 @@ if "--project-dir" in sys.argv:
         _project_dir = sys.argv[_idx + 1]
         os.environ.setdefault("SLOP_STUDIO_OUTPUT_DIR", os.path.join(_project_dir, "output"))
         os.environ.setdefault("SLOP_STUDIO_TEMPLATES_DIR", os.path.join(_project_dir, "templates"))
-        # Load .env from project dir so credentials don't need to live in .mcp.json
         from dotenv import load_dotenv
         load_dotenv(os.path.join(_project_dir, ".env"))
-        del sys.argv[_idx:_idx + 2]
+        # Rewrite argv so argparse in cli.main() sees: serve --project-dir <path>
+        sys.argv = [sys.argv[0], "serve", "--project-dir", _project_dir] + sys.argv[_idx + 2:]
     except IndexError:
         del sys.argv[_idx]
         print("Warning: --project-dir requires a path argument; ignoring", file=sys.stderr)
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "init":
-        from pathlib import Path
-        from slop_studio.init import init_project
-        target = Path(os.environ["SLOP_ORIG_DIR"]) if "SLOP_ORIG_DIR" in os.environ else Path.cwd()
-        success = init_project(target)
-        sys.exit(0 if success else 1)
-    elif len(sys.argv) > 1 and sys.argv[1] not in ("serve",):
-        print(f"Unknown command: {sys.argv[1]}", file=sys.stderr)
-        print("Usage: main.py [serve|init]", file=sys.stderr)
-        sys.exit(1)
-    else:
-        from slop_studio.server import mcp
-        mcp.run(transport="stdio")
+    from slop_studio.cli import main as cli_main
+    # If no subcommand given and invoked as main.py, default to serve
+    if len(sys.argv) < 2 or sys.argv[1] not in ("auth", "init", "serve"):
+        sys.argv.insert(1, "serve")
+    cli_main()
 
 
 if __name__ == "__main__":

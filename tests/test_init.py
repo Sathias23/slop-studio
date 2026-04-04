@@ -11,15 +11,11 @@ def test_init_creates_templates_dir(tmp_path):
     assert (tmp_path / "templates").is_dir()
 
 
-def test_init_copies_all_four_starter_templates(tmp_path):
+def test_init_copies_all_starter_templates(tmp_path):
     init_project(tmp_path)
-    names = {f.name for f in (tmp_path / "templates").iterdir()}
-    assert names == {
-        "flux2_klein.json",
-        "flux2_klein.meta.json",
-        "flux2_klein_ultrawide.json",
-        "flux2_klein_ultrawide.meta.json",
-    }
+    copied = {f.name for f in (tmp_path / "templates").iterdir()}
+    originals = {f.name for f in (ASSETS_DIR / "starter-templates").iterdir()}
+    assert copied == originals
 
 
 def test_init_templates_are_identical_to_originals(tmp_path):
@@ -38,27 +34,27 @@ def test_init_creates_mcp_json(tmp_path):
     assert "slop-studio" in config["mcpServers"]
 
 
-def test_init_mcp_json_command_is_uv(tmp_path):
+def test_init_mcp_json_command_is_slop_studio(tmp_path):
     init_project(tmp_path)
     config = json.loads((tmp_path / ".mcp.json").read_text())
     server = config["mcpServers"]["slop-studio"]
-    assert server["command"] == "uv"
+    assert server["command"] == "slop-studio"
 
 
-def test_init_mcp_json_uses_absolute_repo_path(tmp_path):
+def test_init_mcp_json_uses_serve_subcommand(tmp_path):
     init_project(tmp_path)
     config = json.loads((tmp_path / ".mcp.json").read_text())
     args = config["mcpServers"]["slop-studio"]["args"]
-    dir_idx = args.index("--directory")
-    repo_path = args[dir_idx + 1]
-    assert Path(repo_path).is_absolute()
+    assert args[0] == "serve"
 
 
-def test_init_mcp_json_includes_main_py(tmp_path):
+def test_init_mcp_json_includes_project_dir(tmp_path):
     init_project(tmp_path)
     config = json.loads((tmp_path / ".mcp.json").read_text())
     args = config["mcpServers"]["slop-studio"]["args"]
-    assert "main.py" in args
+    assert "--project-dir" in args
+    dir_idx = args.index("--project-dir")
+    assert Path(args[dir_idx + 1]).is_absolute()
 
 
 def test_init_creates_claude_commands_dir(tmp_path):

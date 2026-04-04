@@ -18,6 +18,9 @@ include = ["slop_studio*"]
 [tool.setuptools.package-data]
 slop_studio = ["assets/**/*"]
 
+[project.scripts]
+slop-studio = "slop_studio.cli:main"
+
 [project.optional-dependencies]
 sloppify = [
     "torch",

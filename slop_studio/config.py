@@ -22,5 +22,28 @@ TEMPLATES_DIR = _env_or_default(
 )
 OUTPUT_DIR = _env_or_default("SLOP_STUDIO_OUTPUT_DIR", "./output")
 
-BSKY_HANDLE = os.environ.get("BSKY_HANDLE", "")
-BSKY_APP_PASSWORD = os.environ.get("BSKY_APP_PASSWORD", "")
+def get_bsky_credentials() -> tuple[str, str]:
+    """Return (handle, app_password) using 3-tier fallback.
+
+    Precedence: env vars → ~/.config/slop-studio/credentials.json → ("", "").
+    """
+    handle = os.environ.get("BSKY_HANDLE", "")
+    app_password = os.environ.get("BSKY_APP_PASSWORD", "")
+    if handle and app_password:
+        return handle, app_password
+
+    # Fall back to central credentials file
+    import json
+    creds_file = Path.home() / ".config" / "slop-studio" / "credentials.json"
+    if creds_file.is_file():
+        try:
+            data = json.loads(creds_file.read_text())
+            bsky = data.get("bluesky", {})
+            file_handle = bsky.get("handle", "")
+            file_password = bsky.get("app_password", "")
+            if file_handle and file_password:
+                return file_handle, file_password
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return handle, app_password

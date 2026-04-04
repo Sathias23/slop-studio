@@ -12,7 +12,6 @@ ASSETS_DIR = Path(__file__).parent / "assets"
 def init_project(target: Path) -> bool:
     """Scaffold an art project directory with starter templates, MCP config, and slash commands."""
     target = target.resolve()
-    repo_path = Path(__file__).parent.parent.resolve()
 
     # 1. Copy starter templates
     templates_dir = target / "templates"
@@ -28,9 +27,8 @@ def init_project(target: Path) -> bool:
         mcp_config = {
             "mcpServers": {
                 "slop-studio": {
-                    "command": "uv",
-                    "args": ["run", "--directory", str(repo_path), "main.py",
-                             "--project-dir", str(target)],
+                    "command": "slop-studio",
+                    "args": ["serve", "--project-dir", str(target)],
                     "env": {}
                 }
             }
