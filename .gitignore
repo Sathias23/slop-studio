@@ -15,6 +15,11 @@ output/
 # macOS
 .DS_Store
 
+# Environment and MCP config
+.env
+.env.*
+.mcp.json
+
 # Dev tooling
 .claude/
 _bmad/
