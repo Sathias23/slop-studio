@@ -8,6 +8,9 @@ if "--project-dir" in sys.argv:
         _project_dir = sys.argv[_idx + 1]
         os.environ.setdefault("SLOP_STUDIO_OUTPUT_DIR", os.path.join(_project_dir, "output"))
         os.environ.setdefault("SLOP_STUDIO_TEMPLATES_DIR", os.path.join(_project_dir, "templates"))
+        # Load .env from project dir so credentials don't need to live in .mcp.json
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(_project_dir, ".env"))
         del sys.argv[_idx:_idx + 2]
     except IndexError:
         del sys.argv[_idx]
