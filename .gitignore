@@ -12,5 +12,8 @@ wheels/
 # Generated images
 output/
 
+# macOS
+.DS_Store
+
 # slop
 SATHIAS.md
