@@ -15,5 +15,10 @@ output/
 # macOS
 .DS_Store
 
-# slop
+# Dev tooling
+.claude/
+_bmad/
+_bmad-output/
+TODO_*
+manual_test.py
 SATHIAS.md
