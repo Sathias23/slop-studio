@@ -1,3 +1,7 @@
+## Deferred from: code review of bsky-posting (2026-04-04)
+
+- **`len()` character count vs grapheme clusters** (`slop_studio/bluesky.py`) — Bluesky's 300-character limit is defined in graphemes, but the implementation uses Python `len()` (code points). Posts with emoji ZWJ sequences could be rejected when valid, or accepted when too long. Low risk for typical AI art captions; fix with a grapheme-counting library if users hit boundary issues.
+
 ## Deferred from: code review of sloppifier-synonymiser (2026-04-01)
 
 - **`sloppify_prompt` blocks asyncio event loop with synchronous CPU-heavy CLIP operations** (`slop_studio/sloppify.py`) — `_synonymise_word` runs torch cosine similarity synchronously inside an async function. Should use `asyncio.to_thread()` for long prompts. Low risk for interactive single-prompt use.
