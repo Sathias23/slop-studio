@@ -1812,6 +1812,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
+    { name = "pillow" },
 ]
 
 [package.optional-dependencies]
@@ -1831,6 +1832,7 @@ requires-dist = [
     { name = "clip", marker = "extra == 'sloppify'", git = "https://github.com/openai/CLIP.git" },
     { name = "fastmcp", specifier = ">=3.1.1" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pillow", specifier = ">=11.0.0" },
     { name = "torch", marker = "extra == 'sloppify'" },
 ]
 provides-extras = ["sloppify"]
