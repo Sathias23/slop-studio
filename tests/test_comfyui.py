@@ -404,7 +404,8 @@ async def test_check_job_wait_capped_at_45(templates_dir, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_mcp_check_job_registered():
+async def test_mcp_check_job_not_registered():
+    """check_job is deprecated — verify it is no longer exposed as a tool."""
     import slop_studio.config as _config
     import slop_studio.comfyui as _comfyui
     import slop_studio.server as _server
@@ -415,7 +416,7 @@ async def test_mcp_check_job_registered():
 
     tools = await _server.mcp.list_tools()
     tool_names = [t.name for t in tools]
-    assert "check_job" in tool_names
+    assert "check_job" not in tool_names
 
 
 @pytest.mark.anyio

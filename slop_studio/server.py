@@ -37,7 +37,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 mcp = FastMCP("slop-studio", lifespan=lifespan)
 
 
-from slop_studio import bluesky, comfyui, sloppify, templates
+from slop_studio import bluesky, comfyui, templates
 
 
 @mcp.tool()
@@ -121,31 +121,8 @@ async def delete_template(name: str) -> dict:
     return await templates.delete_template(name)
 
 
-@mcp.tool()
-async def sloppify_prompt(
-    prompt: str, top_k: int = 8, synonym_ratio: int = 100
-) -> dict:
-    """Sloppify a text prompt by replacing words with CLIP-similar tokens.
-
-    Uses CLIP ViT-B/32 token embeddings to find semantically similar words
-    and randomly swaps them in, producing surreal and unexpected prompts
-    that generate weird, creative images.
-
-    Parameters:
-    - prompt: The text prompt to sloppify.
-    - top_k: How many nearest CLIP neighbours to sample from (1-32).
-      Higher values = more variety but less semantic similarity. Default 8.
-    - synonym_ratio: Percentage of eligible words to replace (0-100).
-      100 = replace all words, 50 = replace half, 0 = no changes. Default 100.
-
-    Returns the sloppified prompt alongside the original. Feed the
-    sloppified_prompt into queue_prompt to generate an image.
-
-    Requires torch and clip to be installed (pip install torch
-    git+https://github.com/openai/CLIP.git). Returns a clear error
-    if dependencies are missing.
-    """
-    return await sloppify.sloppify_prompt(prompt, top_k, synonym_ratio)
+# sloppify_prompt is experimental — code lives in slop_studio/sloppify.py
+# but is not registered as a tool until stabilized.
 
 
 @mcp.tool()
@@ -168,22 +145,8 @@ async def queue_prompt(
     return await comfyui.queue_prompt(template_name, inputs, aspect_ratio)
 
 
-@mcp.tool()
-async def check_job(prompt_id: str, wait: int = 0) -> dict:
-    """Check the status of a submitted image generation job.
-
-    Returns the current job status: pending (queued), running (processing),
-    completed (with output details), or failed (with error message).
-
-    By default performs a single non-blocking check. Set wait (in seconds)
-    to poll until completion or timeout. Polls every 3 seconds, capped at
-    45 seconds maximum.
-
-    After queue_prompt returns a prompt_id, call this with wait=30 to poll
-    for completion. If status is still 'running', call again. Once status
-    is 'completed', call get_image to retrieve the output file path.
-    """
-    return await comfyui.check_job(prompt_id, wait)
+# check_job is deprecated in favour of check_next_job.
+# Code lives in slop_studio/comfyui.py but is no longer registered as a tool.
 
 
 @mcp.tool()
