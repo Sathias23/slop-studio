@@ -21,13 +21,21 @@ logger = logging.getLogger(__name__)
 BLOB_LIMIT = 1_000_000  # Bluesky 1 MB blob upload limit
 
 
+MAX_IMAGES = 4  # Bluesky's per-post image limit
+
+
 async def post_image(
-    image_path: str,
-    text: str,
-    alt_text: str,
+    image_path: str | None = None,
+    text: str = "",
+    alt_text: str = "",
     tags: list[str] | None = None,
+    images: list[dict] | None = None,
 ) -> dict:
-    """Upload an image and post it to Bluesky.
+    """Upload image(s) and post to Bluesky.
+
+    Accepts either the legacy single-image params (image_path + alt_text) or a
+    list of ``images`` dicts, each with ``path`` and ``alt_text`` keys.
+    Providing both is an error.
 
     Returns a dict with status and post URI on success, or a structured error.
     """
@@ -39,10 +47,10 @@ async def post_image(
             "Create an app password at bsky.app > Settings > App Passwords.",
         )
 
-    # --- Validate image file ---
-    path = Path(image_path)
-    if not path.is_file():
-        return terminal_error("file_not_found", f"Image file not found: {image_path}")
+    # --- Normalise image entries ---
+    entries = _normalise_image_entries(image_path, alt_text, images)
+    if isinstance(entries, dict):
+        return entries  # validation error
 
     # --- Build rich text with hashtag facets ---
     tb = _build_post_text(text, tags)
@@ -54,20 +62,27 @@ async def post_image(
             "Shorten the text or reduce tags.",
         )
 
-    # --- Read and compress image ---
-    try:
-        image_data = path.read_bytes()
-    except OSError as e:
-        return terminal_error("file_not_found", f"Cannot read image: {e}")
-
-    if len(image_data) > BLOB_LIMIT:
-        image_data = _compress_image(image_data)
-        if image_data is None:
+    # --- Validate all files exist and read bytes ---
+    image_payloads: list[tuple[bytes, str]] = []
+    for entry in entries:
+        path = Path(entry["path"])
+        if not path.is_file():
             return terminal_error(
-                "compression_failed",
-                f"Image is too large and could not be compressed under {BLOB_LIMIT} bytes "
-                "even at minimum JPEG quality.",
+                "file_not_found", f"Image file not found: {entry['path']}"
             )
+        try:
+            data = path.read_bytes()
+        except OSError as e:
+            return terminal_error("file_not_found", f"Cannot read image: {e}")
+        if len(data) > BLOB_LIMIT:
+            data = _compress_image(data)
+            if data is None:
+                return terminal_error(
+                    "compression_failed",
+                    f"Image {entry['path']} is too large and could not be compressed "
+                    f"under {BLOB_LIMIT} bytes even at minimum JPEG quality.",
+                )
+        image_payloads.append((data, entry["alt_text"]))
 
     # --- Authenticate ---
     client = AsyncClient()
@@ -83,27 +98,25 @@ async def post_image(
             "network_error", f"Cannot reach Bluesky: {str(e)[:200]}"
         )
 
-    # --- Upload blob ---
-    try:
-        uploaded = await client.upload_blob(image_data)
-    except BadRequestError as e:
-        return terminal_error(
-            "blob_upload_failed", f"Image upload rejected: {str(e)[:200]}"
-        )
-    except (NetworkError, InvokeTimeoutError, RequestException) as e:
-        return transient_error(
-            "network_error", f"Image upload failed: {str(e)[:200]}"
+    # --- Upload blobs ---
+    embed_images = []
+    for data, entry_alt in image_payloads:
+        try:
+            uploaded = await client.upload_blob(data)
+        except BadRequestError as e:
+            return terminal_error(
+                "blob_upload_failed", f"Image upload rejected: {str(e)[:200]}"
+            )
+        except (NetworkError, InvokeTimeoutError, RequestException) as e:
+            return transient_error(
+                "network_error", f"Image upload failed: {str(e)[:200]}"
+            )
+        embed_images.append(
+            models.AppBskyEmbedImages.Image(alt=entry_alt, image=uploaded.blob)
         )
 
     # --- Build embed and post ---
-    embed = models.AppBskyEmbedImages.Main(
-        images=[
-            models.AppBskyEmbedImages.Image(
-                alt=alt_text,
-                image=uploaded.blob,
-            )
-        ]
-    )
+    embed = models.AppBskyEmbedImages.Main(images=embed_images)
 
     try:
         post = await client.send_post(tb, embed=embed)
@@ -113,6 +126,43 @@ async def post_image(
         return terminal_error("invalid_request", f"Post rejected: {str(e)[:200]}")
 
     return {"status": "success", "uri": post.uri, "cid": post.cid}
+
+
+def _normalise_image_entries(
+    image_path: str | None,
+    alt_text: str,
+    images: list[dict] | None,
+) -> list[dict] | dict:
+    """Return a uniform list of {path, alt_text} dicts, or an error dict."""
+    if image_path and images:
+        return terminal_error(
+            "validation_failed",
+            "Provide either image_path or images, not both.",
+        )
+    if images is not None:
+        if not images:
+            return terminal_error(
+                "validation_failed", "images list must not be empty."
+            )
+        if len(images) > MAX_IMAGES:
+            return terminal_error(
+                "validation_failed",
+                f"Bluesky supports at most {MAX_IMAGES} images per post, "
+                f"got {len(images)}.",
+            )
+        for i, entry in enumerate(images):
+            if not isinstance(entry, dict) or "path" not in entry or "alt_text" not in entry:
+                return terminal_error(
+                    "validation_failed",
+                    f"images[{i}] must be a dict with 'path' and 'alt_text' keys.",
+                )
+        return images
+    if image_path:
+        return [{"path": image_path, "alt_text": alt_text}]
+    return terminal_error(
+        "validation_failed",
+        "Provide either image_path or images.",
+    )
 
 
 def _build_post_text(

@@ -202,25 +202,36 @@ async def get_image(prompt_id: str) -> dict:
 
 @mcp.tool()
 async def post_to_bluesky(
-    image_path: str,
     text: str,
-    alt_text: str,
+    image_path: str | None = None,
+    alt_text: str = "",
     tags: list[str] | None = None,
+    images: list[dict] | None = None,
 ) -> dict:
-    """Post a generated image to Bluesky.
+    """Post generated image(s) to Bluesky (up to 4).
 
-    Uploads the image and creates a post with the given text. Hashtags are
+    Uploads image(s) and creates a post with the given text. Hashtags are
     rendered as proper AT Protocol tag facets (clickable and searchable).
     Images over 1 MB are automatically compressed to JPEG.
+
+    Provide EITHER image_path + alt_text for a single image, OR images for
+    multiple. Do not provide both.
 
     Requires BSKY_HANDLE and BSKY_APP_PASSWORD environment variables.
     Create an app password at bsky.app > Settings > App Passwords.
 
     Args:
-        image_path: Absolute path to the image file (from get_image output).
         text: Post text (max 300 characters including tags).
-        alt_text: Image description for accessibility. Describe what the
-                  image shows and note that it is AI-generated.
+        image_path: Absolute path to a single image file (legacy).
+        alt_text: Alt text for the single image_path.
         tags: Optional hashtags without #. e.g. ["aiart", "comfyui"]
+        images: List of image dicts, each with "path" and "alt_text" keys.
+                Up to 4. e.g. [{"path": "/out/a.png", "alt_text": "desc"}]
     """
-    return await bluesky.post_image(image_path, text, alt_text, tags)
+    return await bluesky.post_image(
+        image_path=image_path,
+        text=text,
+        alt_text=alt_text,
+        tags=tags,
+        images=images,
+    )
