@@ -187,6 +187,25 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
 
 
 @mcp.tool()
+async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
+    """Poll multiple generation jobs and return all that complete or fail.
+
+    Accepts a list of prompt_ids from previous queue_prompt calls. Polls all
+    jobs each cycle and collects every job that finishes within the wait window.
+    Failed jobs are retried up to 3 times before being reported.
+
+    Returns completed jobs (with outputs), failed jobs (with errors), and
+    remaining prompt_ids still in progress. The caller should call get_image
+    for each completed job, then call check_next_job again with the remaining
+    IDs until all are resolved.
+
+    Use this instead of check_job when you have multiple jobs queued.
+    Avoids redundant pending checks by batching all IDs into one polling loop.
+    """
+    return await comfyui.check_next_job(prompt_ids, wait)
+
+
+@mcp.tool()
 async def get_image(prompt_id: str) -> dict:
     """Retrieve the output image from a completed generation job.
 

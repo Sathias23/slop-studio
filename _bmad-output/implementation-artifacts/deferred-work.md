@@ -1,3 +1,7 @@
+## Deferred from: code review of check-next-job (2026-04-05)
+
+- **Uncaught httpx.RequestError subclasses in `check_next_job`** (`slop_studio/comfyui.py`) — Only `ConnectError`, `TimeoutException`, and `HTTPStatusError` are caught; `ReadError`, `RemoteProtocolError`, etc. propagate unhandled. Same pre-existing gap as `check_job` (see deferred from 2-3/2-4). Fix both together.
+
 ## Deferred from: code review of bsky-posting (2026-04-04)
 
 - **`len()` character count vs grapheme clusters** (`slop_studio/bluesky.py`) — Bluesky's 300-character limit is defined in graphemes, but the implementation uses Python `len()` (code points). Posts with emoji ZWJ sequences could be rejected when valid, or accepted when too long. Low risk for typical AI art captions; fix with a grapheme-counting library if users hit boundary issues.

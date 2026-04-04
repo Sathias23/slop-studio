@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import time
 import uuid
 from datetime import date
 from pathlib import Path
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL = 3  # seconds between polls (FR16)
 MAX_POLL_DURATION = 45     # maximum total polling time in seconds (FR16)
+MAX_FAILURE_RETRIES = 3    # retry failed jobs this many times before reporting
 
 
 async def _upload_image(file_path: str) -> str:
@@ -322,6 +324,95 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
 
     # Timeout reached, still running/pending
     return _format_result(prompt_id, result)
+
+
+async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
+    """Poll multiple jobs, return all that complete/fail within the wait window."""
+    if not prompt_ids:
+        return terminal_error("invalid_input", "prompt_ids list is empty")
+
+    effective_wait = min(wait, MAX_POLL_DURATION)
+    remaining = list(dict.fromkeys(prompt_ids))  # deduplicate, preserve order
+    failure_counts: dict[str, int] = {}
+    completed: list[dict] = []
+    failed: list[dict] = []
+
+    async def _poll_cycle():
+        """Poll all remaining IDs, collect completed/failed."""
+        still_remaining = []
+        for pid in list(remaining):
+            try:
+                result = await _fetch_job_status(pid)
+            except (httpx.ConnectError, httpx.TimeoutException):
+                still_remaining.append(pid)
+                return transient_error(
+                    "unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}"
+                )
+            except httpx.HTTPStatusError as exc:
+                still_remaining.append(pid)
+                return transient_error(
+                    "unreachable", f"ComfyUI returned HTTP {exc.response.status_code}"
+                )
+
+            if result["state"] == "completed":
+                completed.append({
+                    "prompt_id": pid,
+                    "outputs": result.get("outputs", {}),
+                })
+            elif result["state"] == "failed":
+                failure_counts[pid] = failure_counts.get(pid, 0) + 1
+                if failure_counts[pid] >= MAX_FAILURE_RETRIES:
+                    failed.append({
+                        "prompt_id": pid,
+                        "error": result.get("error", "Job failed in ComfyUI"),
+                    })
+                else:
+                    still_remaining.append(pid)
+            else:
+                still_remaining.append(pid)
+        remaining.clear()
+        remaining.extend(still_remaining)
+        return None  # no error
+
+    # Initial poll
+    err = await _poll_cycle()
+    if err is not None:
+        return err
+
+    if completed or failed or effective_wait <= 0:
+        return _build_batch_result(completed, failed, remaining)
+
+    # Polling loop — use wall clock to avoid overshoot from slow cycles
+    deadline = time.monotonic() + effective_wait
+    while time.monotonic() < deadline:
+        await asyncio.sleep(DEFAULT_POLL_INTERVAL)
+
+        err = await _poll_cycle()
+        if err is not None:
+            return err
+
+        if completed or failed:
+            return _build_batch_result(completed, failed, remaining)
+
+    # Timeout — nothing resolved
+    return {
+        "status": "waiting",
+        "completed": [],
+        "failed": [],
+        "remaining": list(remaining),
+    }
+
+
+def _build_batch_result(
+    completed: list[dict], failed: list[dict], remaining: list[str]
+) -> dict:
+    """Build the response dict for check_next_job."""
+    return {
+        "status": "completed",
+        "completed": completed,
+        "failed": failed,
+        "remaining": list(remaining),
+    }
 
 
 async def get_image(prompt_id: str) -> dict:
