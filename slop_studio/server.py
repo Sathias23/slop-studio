@@ -37,7 +37,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 mcp = FastMCP("slop-studio", lifespan=lifespan)
 
 
-from slop_studio import comfyui, sloppify, templates
+from slop_studio import bluesky, comfyui, sloppify, templates
 
 
 @mcp.tool()
@@ -198,3 +198,29 @@ async def get_image(prompt_id: str) -> dict:
     still running, call check_job with wait first to poll for completion.
     """
     return await comfyui.get_image(prompt_id)
+
+
+@mcp.tool()
+async def post_to_bluesky(
+    image_path: str,
+    text: str,
+    alt_text: str,
+    tags: list[str] | None = None,
+) -> dict:
+    """Post a generated image to Bluesky.
+
+    Uploads the image and creates a post with the given text. Hashtags are
+    rendered as proper AT Protocol tag facets (clickable and searchable).
+    Images over 1 MB are automatically compressed to JPEG.
+
+    Requires BSKY_HANDLE and BSKY_APP_PASSWORD environment variables.
+    Create an app password at bsky.app > Settings > App Passwords.
+
+    Args:
+        image_path: Absolute path to the image file (from get_image output).
+        text: Post text (max 300 characters including tags).
+        alt_text: Image description for accessibility. Describe what the
+                  image shows and note that it is AI-generated.
+        tags: Optional hashtags without #. e.g. ["aiart", "comfyui"]
+    """
+    return await bluesky.post_image(image_path, text, alt_text, tags)

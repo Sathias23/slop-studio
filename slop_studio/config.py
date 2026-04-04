@@ -21,3 +21,6 @@ TEMPLATES_DIR = _env_or_default(
     "SLOP_STUDIO_TEMPLATES_DIR", str(_PACKAGE_DIR.parent / "templates")
 )
 OUTPUT_DIR = _env_or_default("SLOP_STUDIO_OUTPUT_DIR", "./output")
+
+BSKY_HANDLE = os.environ.get("BSKY_HANDLE", "")
+BSKY_APP_PASSWORD = os.environ.get("BSKY_APP_PASSWORD", "")
