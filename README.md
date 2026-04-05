@@ -93,6 +93,13 @@ Add your own by exporting a workflow from ComfyUI's browser UI and calling `add_
 
 Environment variables take precedence over `slop-studio auth` credentials. A project-level `.env` file is also supported.
 
+## Coming Soon
+
+- More workflow templates (SDXL, video, inpainting, LoRA stacks)
+- ComfyUI launcher and process management
+- Model downloading and management tools
+- Claude Code personas and lore system
+
 ## Development
 
 ```bash
