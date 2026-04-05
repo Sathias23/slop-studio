@@ -100,7 +100,7 @@ Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Three s
 - **flux2_klein_ultrawide** — 3440x1440 wallpapers with 4x upscale (~60s)
 - **flux2_klein_edit** — multi-reference image editing with style/content transfer (~60s)
 
-Add your own by exporting a workflow from ComfyUI's browser UI and calling `add_template`.
+The default templates run on 16GB of VRAM. Add your own by exporting a workflow from ComfyUI's browser UI and calling `add_template`.
 
 ## Configuration
 
@@ -121,6 +121,10 @@ Environment variables take precedence over `slop-studio auth` credentials. A pro
 - Model downloading and management tools
 - The Sloppifier — token and prompt manipulation tools
 - Claude Code personas and lore system
+
+## Troubleshooting
+
+**MCP server not connecting:** If you start Claude Code before ComfyUI is running, the MCP server won't be able to connect. Use the `/mcp` command inside Claude Code to reconnect after starting ComfyUI.
 
 ## Development
 
