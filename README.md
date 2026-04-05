@@ -98,6 +98,7 @@ Environment variables take precedence over `slop-studio auth` credentials. A pro
 - More workflow templates (SDXL, video, inpainting, LoRA stacks)
 - ComfyUI launcher and process management
 - Model downloading and management tools
+- The Sloppifier — token and prompt manipulation tools
 - Claude Code personas and lore system
 
 ## Development
