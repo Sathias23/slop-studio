@@ -27,6 +27,16 @@ uv tool install git+https://github.com/Sathias23/slop-studio.git
 
 This puts the `slop-studio` command on your PATH.
 
+### Install from source
+
+```bash
+git clone https://github.com/Sathias23/slop-studio.git
+cd slop-studio
+uv tool install -e .
+```
+
+This installs `slop-studio` on your PATH from your local clone. Changes you make to the source take effect immediately.
+
 ## Quick Start
 
 1. **Start ComfyUI** on your local machine or network.
