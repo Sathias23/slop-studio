@@ -21,6 +21,7 @@ output/
 .mcp.json
 
 # Dev tooling
+CLAUDE.md
 .claude/
 _bmad/
 _bmad-output/
