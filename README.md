@@ -2,6 +2,8 @@
 
 MCP server for conversational image generation via ComfyUI. Generate images through natural conversation in Claude Code — describe what you want, and slop-studio handles template selection, job submission, polling, and output.
 
+*slop-studio powers [@generatedhorror.bsky.social](https://bsky.app/profile/generatedhorror.bsky.social), my horror-themed AI art account.*
+
 ![Slop Studio](docs/image.png)
 
 ## Features
