@@ -4,6 +4,15 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 
 ![Slop Studio](docs/image.png)
 
+## Features
+
+- Conversational image generation through Claude Code
+- Support for text-to-image and image-to-image models, currently Flux.2 Klein (more to come)
+- Workflow template system with browsing, customization, and aspect ratios
+- Job queuing and automatic polling
+- Bluesky posting built in
+- One-command project scaffolding (`slop-studio init`)
+
 ## Prerequisites
 
 - Python 3.11+
