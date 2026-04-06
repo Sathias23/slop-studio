@@ -29,7 +29,7 @@ except ValueError:
 TEMPLATES_DIR = _env_or_default(
     "SLOP_STUDIO_TEMPLATES_DIR", str(_PACKAGE_DIR.parent / "templates")
 )
-OUTPUT_DIR = _env_or_default("SLOP_STUDIO_OUTPUT_DIR", "./output")
+OUTPUT_DIR = _env_or_default("SLOP_STUDIO_OUTPUT_DIR", str(Path.home() / "slop-studio" / "output"))
 
 def get_bsky_credentials() -> tuple[str, str]:
     """Return (handle, app_password) using 3-tier fallback.

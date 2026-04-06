@@ -1,5 +1,6 @@
 import importlib
 import os
+from pathlib import Path
 
 import pytest
 
@@ -16,7 +17,12 @@ def test_default_templates_dir_is_absolute():
 
 
 def test_default_output_dir():
-    assert config_module.OUTPUT_DIR == "./output"
+    assert os.path.isabs(config_module.OUTPUT_DIR)
+    assert config_module.OUTPUT_DIR.endswith("slop-studio/output")
+
+
+def test_default_output_dir_starts_with_home():
+    assert config_module.OUTPUT_DIR.startswith(str(Path.home()))
 
 
 def test_env_override_comfyui_url(monkeypatch):
@@ -53,7 +59,8 @@ def test_empty_templates_dir_falls_back_to_default(monkeypatch):
 def test_empty_output_dir_falls_back_to_default(monkeypatch):
     monkeypatch.setenv("SLOP_STUDIO_OUTPUT_DIR", "")
     importlib.reload(config_module)
-    assert config_module.OUTPUT_DIR == "./output"
+    assert os.path.isabs(config_module.OUTPUT_DIR)
+    assert config_module.OUTPUT_DIR.endswith("slop-studio/output")
 
 
 def test_trailing_slash_stripped(monkeypatch):
@@ -78,3 +85,10 @@ def test_plain_string_url_raises(monkeypatch):
     monkeypatch.setenv("COMFYUI_URL", "not-a-url")
     with pytest.raises(ValueError, match="must start with http"):
         importlib.reload(config_module)
+
+
+def test_project_dir_overrides_default_output_dir(monkeypatch):
+    """Simulate --project-dir by setting env var before config reload (same as cli.py)."""
+    monkeypatch.setenv("SLOP_STUDIO_OUTPUT_DIR", "/my-art/output")
+    importlib.reload(config_module)
+    assert config_module.OUTPUT_DIR == "/my-art/output"

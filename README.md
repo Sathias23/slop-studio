@@ -110,7 +110,7 @@ The default templates run on 16GB of VRAM. Add your own by exporting a workflow 
 | `COMFYUI_START_CMD` | — | Command to launch ComfyUI (e.g. `python /path/to/ComfyUI/main.py --port 8188`). When set, slop-studio starts and stops ComfyUI automatically. |
 | `COMFYUI_START_TIMEOUT` | `120` | Seconds to wait for ComfyUI to become ready after launch |
 | `SLOP_STUDIO_TEMPLATES_DIR` | `./templates` | Template directory |
-| `SLOP_STUDIO_OUTPUT_DIR` | `./output` | Output directory |
+| `SLOP_STUDIO_OUTPUT_DIR` | `~/slop-studio/output` | Output directory |
 | `BSKY_HANDLE` | — | Bluesky handle (overrides central config) |
 | `BSKY_APP_PASSWORD` | — | Bluesky app password (overrides central config) |
 
