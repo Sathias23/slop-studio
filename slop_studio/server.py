@@ -2,6 +2,7 @@ import asyncio
 import atexit
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import functools
 import logging
 import os
 import shlex
@@ -11,8 +12,29 @@ import httpx
 from fastmcp import FastMCP
 
 from slop_studio.config import COMFYUI_START_CMD, COMFYUI_START_TIMEOUT, COMFYUI_URL
+from slop_studio.errors import transient_error
 
 logger = logging.getLogger(__name__)
+
+
+def safe_tool(func):
+    """Wrap MCP tool handler with defensive error catching.
+
+    Catches all exceptions except BaseException subclasses (KeyboardInterrupt,
+    SystemExit). Logs full traceback to stderr, returns human-readable error.
+    """
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as exc:
+            logger.exception("Unhandled error in tool '%s'", func.__name__)
+            return transient_error(
+                "internal_error",
+                f"An internal error occurred in {func.__name__}: "
+                f"{type(exc).__name__}: {exc}",
+            )
+    return wrapper
 
 
 async def _wait_for_comfyui(url: str, timeout: float) -> bool:
@@ -142,6 +164,7 @@ from slop_studio import bluesky, comfyui, templates
 
 
 @mcp.tool()
+@safe_tool
 async def list_templates() -> dict:
     """List all available workflow templates with summary metadata.
 
@@ -157,6 +180,7 @@ async def list_templates() -> dict:
 
 
 @mcp.tool()
+@safe_tool
 async def get_template(template_name: str) -> dict:
     """Inspect a specific template's full metadata including input definitions.
 
@@ -172,6 +196,7 @@ async def get_template(template_name: str) -> dict:
 
 
 @mcp.tool()
+@safe_tool
 async def add_template(name: str, workflow_json: dict, metadata: dict) -> dict:
     """Add a new workflow template from an exported ComfyUI workflow.
 
@@ -191,6 +216,7 @@ async def add_template(name: str, workflow_json: dict, metadata: dict) -> dict:
 
 
 @mcp.tool()
+@safe_tool
 async def update_template(
     name: str, workflow_json: dict | None = None, metadata: dict | None = None
 ) -> dict:
@@ -208,6 +234,7 @@ async def update_template(
 
 
 @mcp.tool()
+@safe_tool
 async def delete_template(name: str) -> dict:
     """Delete a workflow template by name.
 
@@ -227,6 +254,7 @@ async def delete_template(name: str) -> dict:
 
 
 @mcp.tool()
+@safe_tool
 async def queue_prompt(
     template_name: str, inputs: dict, aspect_ratio: str | None = None
 ) -> dict:
@@ -251,6 +279,7 @@ async def queue_prompt(
 
 
 @mcp.tool()
+@safe_tool
 async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
     """Poll multiple generation jobs and return all that complete or fail.
 
@@ -270,6 +299,7 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
 
 
 @mcp.tool()
+@safe_tool
 async def get_image(prompt_id: str) -> dict:
     """Retrieve the output image from a completed generation job.
 
@@ -284,6 +314,7 @@ async def get_image(prompt_id: str) -> dict:
 
 
 @mcp.tool()
+@safe_tool
 async def post_to_bluesky(
     text: str,
     image_path: str | None = None,

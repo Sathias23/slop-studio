@@ -1,5 +1,10 @@
+import logging
 import os
+import tomllib
 from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
 
 
 def _env_or_default(key: str, default: str) -> str:
@@ -9,6 +14,48 @@ def _env_or_default(key: str, default: str) -> str:
 
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
+
+CONFIG_FILE = Path.home() / ".config" / "slop-studio" / "config.toml"
+
+
+def _load_config_toml() -> dict:
+    """Load ~/.config/slop-studio/config.toml, returning {} on any failure."""
+    try:
+        with open(CONFIG_FILE, "rb") as f:
+            return tomllib.load(f)
+    except FileNotFoundError:
+        return {}
+    except tomllib.TOMLDecodeError as e:
+        logger.warning("Invalid TOML in %s: %s — using defaults", CONFIG_FILE, e)
+        return {}
+    except OSError as e:
+        logger.warning("Cannot read %s: %s — using defaults", CONFIG_FILE, e)
+        return {}
+
+
+_TOML_CONFIG = _load_config_toml()
+
+
+def _resolve(env_key: str, toml_key: str, default: str) -> str:
+    """Resolve config value: env var → config.toml → default."""
+    env_val = os.environ.get(env_key, "")
+    if env_val:
+        return env_val
+    toml_val = _TOML_CONFIG.get(toml_key)
+    if toml_val is None or toml_val == "":
+        return default
+    if not isinstance(toml_val, str):
+        logger.warning(
+            "%s in %s must be a string, got %s — using default",
+            toml_key, CONFIG_FILE, type(toml_val).__name__,
+        )
+        return default
+    if not toml_val.strip():
+        logger.warning(
+            "%s in %s is blank — using default", toml_key, CONFIG_FILE,
+        )
+        return default
+    return toml_val
 
 COMFYUI_URL = _env_or_default("COMFYUI_URL", "http://localhost:8188").rstrip("/")
 
@@ -26,10 +73,10 @@ except ValueError:
         f"got: {os.environ.get('COMFYUI_START_TIMEOUT')!r}"
     )
 
-TEMPLATES_DIR = _env_or_default(
-    "SLOP_STUDIO_TEMPLATES_DIR", str(_PACKAGE_DIR.parent / "templates")
+TEMPLATES_DIR = _resolve(
+    "SLOP_STUDIO_TEMPLATES_DIR", "templates_dir", str(_PACKAGE_DIR.parent / "templates")
 )
-OUTPUT_DIR = _env_or_default("SLOP_STUDIO_OUTPUT_DIR", str(Path.home() / "slop-studio" / "output"))
+OUTPUT_DIR = _resolve("SLOP_STUDIO_OUTPUT_DIR", "output_dir", str(Path.home() / "slop-studio" / "output"))
 
 def get_bsky_credentials() -> tuple[str, str]:
     """Return (handle, app_password) using 3-tier fallback.
