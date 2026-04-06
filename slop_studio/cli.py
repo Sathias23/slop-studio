@@ -4,6 +4,8 @@ import argparse
 import getpass
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -49,6 +51,82 @@ def _init(args: argparse.Namespace) -> None:
     sys.exit(0 if success else 1)
 
 
+def _detect_slop_studio_path() -> tuple[str, list[str]]:
+    """Find the slop-studio binary; returns (command, extra_args_prefix).
+
+    When slop-studio is on PATH: ("path/to/slop-studio", [])
+    Fallback:                    ("uv", ["tool", "run", "slop-studio"])
+    """
+    path = shutil.which("slop-studio")
+    if path:
+        return path, []
+    return "uv", ["tool", "run", "slop-studio"]
+
+
+def _detect_comfyui() -> str:
+    """Check common ComfyUI locations, return start command or placeholder."""
+    import shlex
+
+    common_paths = [
+        Path.home() / "ComfyUI" / "main.py",
+        Path.home() / "comfyui" / "main.py",
+        Path("/opt/ComfyUI/main.py"),
+    ]
+    for p in common_paths:
+        if p.exists():
+            return f"{shlex.quote(sys.executable)} {shlex.quote(str(p))} --port 8188"
+    return f"{shlex.quote(sys.executable)} /path/to/ComfyUI/main.py --port 8188"
+
+
+def _copy_to_clipboard(text: str) -> None:
+    """Copy text to system clipboard if available."""
+    commands = [
+        ["pbcopy"],
+        ["xclip", "-selection", "clipboard"],
+        ["clip"],
+    ]
+    for cmd in commands:
+        if shutil.which(cmd[0]):
+            try:
+                subprocess.run(cmd, input=text.encode(), check=True, timeout=5)
+                print("Copied to clipboard.", file=sys.stderr)
+                return
+            except (subprocess.SubprocessError, subprocess.TimeoutExpired):
+                pass
+    print("Could not copy to clipboard — paste the JSON above manually.", file=sys.stderr)
+
+
+def _desktop_config(args: argparse.Namespace) -> None:
+    """Print claude_desktop_config.json snippet for Claude Desktop setup."""
+    command, extra_args = _detect_slop_studio_path()
+    comfyui_cmd = _detect_comfyui()
+
+    config = {
+        "mcpServers": {
+            "slop-studio": {
+                "command": command,
+                "args": extra_args + ["serve"],
+                "env": {
+                    "COMFYUI_URL": "http://localhost:8188",
+                    "COMFYUI_START_CMD": comfyui_cmd,
+                    "SLOP_STUDIO_OUTPUT_DIR": str(Path.home() / "slop-studio" / "output"),
+                },
+            }
+        }
+    }
+
+    snippet = json.dumps(config, indent=2)
+    print(snippet)
+    print("\nPaste this into your claude_desktop_config.json:", file=sys.stderr)
+    print("  macOS: ~/Library/Application Support/Claude/claude_desktop_config.json", file=sys.stderr)
+    print("  Windows: %APPDATA%\\Claude\\claude_desktop_config.json", file=sys.stderr)
+    print("  Linux: ~/.config/Claude/claude_desktop_config.json", file=sys.stderr)
+    print("\nThen restart Claude Desktop.", file=sys.stderr)
+
+    if args.copy:
+        _copy_to_clipboard(snippet)
+
+
 def _serve(args: argparse.Namespace) -> None:
     """Launch the MCP server."""
     # Handle --project-dir env setup before importing server
@@ -81,6 +159,10 @@ def main() -> None:
     serve_parser = subparsers.add_parser("serve", help="Launch the MCP server")
     serve_parser.add_argument("--project-dir", default=None, help="Art project directory for output/templates paths")
 
+    # desktop-config
+    dc_parser = subparsers.add_parser("desktop-config", help="Generate Claude Desktop config snippet")
+    dc_parser.add_argument("--copy", action="store_true", help="Copy snippet to clipboard")
+
     args = parser.parse_args()
 
     if args.command == "auth":
@@ -89,6 +171,8 @@ def main() -> None:
         _init(args)
     elif args.command == "serve":
         _serve(args)
+    elif args.command == "desktop-config":
+        _desktop_config(args)
     else:
         parser.print_help()
         sys.exit(1)
