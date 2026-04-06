@@ -122,6 +122,7 @@ Environment variables take precedence over `slop-studio auth` credentials. A pro
 - Model downloading and management tools
 - The Sloppifier — token and prompt manipulation tools
 - Claude Code personas and lore system
+- ComfyUI auto-restart on mid-session crash
 
 ## Troubleshooting
 
