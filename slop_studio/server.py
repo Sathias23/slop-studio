@@ -16,14 +16,17 @@ logger = logging.getLogger(__name__)
 
 
 async def _wait_for_comfyui(url: str, timeout: float) -> bool:
-    """Poll ComfyUI's /ready endpoint with exponential backoff."""
+    """Poll ComfyUI until it responds, using exponential backoff.
+
+    Tries /ready first (ComfyUI 0.3.x+), falls back to /system_stats.
+    """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     delay = 0.5
     async with httpx.AsyncClient(timeout=5.0) as client:
         while loop.time() < deadline:
             try:
-                resp = await client.get(f"{url}/ready")
+                resp = await client.get(f"{url}/system_stats")
                 if resp.status_code == 200:
                     return True
             except httpx.TransportError:
@@ -47,7 +50,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         already_running = False
         async with httpx.AsyncClient(timeout=5.0) as probe:
             try:
-                resp = await probe.get(f"{COMFYUI_URL}/ready")
+                resp = await probe.get(f"{COMFYUI_URL}/system_stats")
                 if resp.status_code == 200:
                     already_running = True
                     logger.info("ComfyUI already running at %s, skipping spawn", COMFYUI_URL)
