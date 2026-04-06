@@ -65,18 +65,19 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
                     *args,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
+                    start_new_session=True,
                 )
             except (FileNotFoundError, OSError) as exc:
                 logger.error("Failed to start ComfyUI: %s", exc)
                 raise
 
-            # Safety net for unclean exits
-            pid = process.pid
+            # Safety net for unclean exits — kill the whole process group
+            pgid = os.getpgid(process.pid)
 
             def _atexit_kill():
                 if process.returncode is None:
                     try:
-                        os.kill(pid, signal.SIGTERM)
+                        os.killpg(pgid, signal.SIGTERM)
                     except ProcessLookupError:
                         pass
 
@@ -84,7 +85,10 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 
             ready = await _wait_for_comfyui(COMFYUI_URL, COMFYUI_START_TIMEOUT)
             if not ready:
-                process.terminate()
+                try:
+                    os.killpg(pgid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
                 await process.wait()
                 raise RuntimeError(
                     f"ComfyUI started but did not become ready within {COMFYUI_START_TIMEOUT}s"
@@ -114,13 +118,20 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         yield {}
     finally:
         if process and process.returncode is None:
-            logger.info("Shutting down ComfyUI (pid=%d)", process.pid)
-            process.terminate()
+            pgid = os.getpgid(process.pid)
+            logger.info("Shutting down ComfyUI process group (pgid=%d)", pgid)
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             try:
                 await asyncio.wait_for(process.wait(), timeout=10.0)
             except asyncio.TimeoutError:
                 logger.warning("ComfyUI did not exit gracefully, killing")
-                process.kill()
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 await process.wait()
 
 
