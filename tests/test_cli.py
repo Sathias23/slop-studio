@@ -102,6 +102,21 @@ class TestMain:
         assert (tmp_path / ".mcp.json").exists()
 
 
+class TestBuildMcpb:
+    def test_build_mcpb_subcommand(self, tmp_path):
+        with patch("sys.argv", ["slop-studio", "build-mcpb", "--output-dir", str(tmp_path)]):
+            main()
+        mcpb_files = list(tmp_path.glob("*.mcpb"))
+        assert len(mcpb_files) == 1
+        assert "slop-studio-" in mcpb_files[0].name
+
+    def test_build_mcpb_prints_path(self, tmp_path, capsys):
+        with patch("sys.argv", ["slop-studio", "build-mcpb", "--output-dir", str(tmp_path)]):
+            main()
+        captured = capsys.readouterr()
+        assert ".mcpb" in captured.out
+
+
 class TestDesktopConfig:
     def test_outputs_valid_json(self, capsys):
         from slop_studio.cli import _desktop_config

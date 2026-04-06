@@ -1,0 +1,24 @@
+name: Build MCPB Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-mcpb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build .mcpb package
+        run: uv run python scripts/build_mcpb.py
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: slop-studio-*.mcpb

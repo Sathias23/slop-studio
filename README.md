@@ -62,7 +62,17 @@ This installs `slop-studio` on your PATH from your local clone. Changes you make
 
 slop-studio also works with the Claude Desktop app. Desktop uses a global config file instead of per-project `.mcp.json`.
 
-**Prerequisites:** Python 3.11+, ComfyUI installed, and `slop-studio` installed via `uv tool install slop-studio`.
+### One-Click Install
+
+Download the latest `slop-studio-*.mcpb` file from [GitHub Releases](https://github.com/Sathias23/slop-studio/releases) and double-click it. Claude Desktop will prompt you for:
+
+- **ComfyUI URL** — defaults to `http://localhost:8188`
+- **ComfyUI Start Command** — leave blank if ComfyUI is already running, or enter the full command (e.g., `python /path/to/ComfyUI/main.py --port 8188`)
+- **Output Directory** — where generated images are saved (defaults to `~/slop-studio/output`)
+
+That's it — restart Claude Desktop and slop-studio tools are ready to use.
+
+**Prerequisites for manual methods below:** Python 3.11+, ComfyUI installed, and `slop-studio` installed via `uv tool install slop-studio`.
 
 ### Automatic Setup
 
@@ -149,6 +159,7 @@ slop-studio auth            Configure Bluesky credentials
 slop-studio init            Scaffold an art project directory
 slop-studio serve           Launch the MCP server (used by .mcp.json)
 slop-studio desktop-config  Generate Claude Desktop config snippet
+slop-studio build-mcpb      Build .mcpb Desktop Extension package
 ```
 
 ## MCP Tools

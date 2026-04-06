@@ -640,3 +640,7 @@ async def post_to_bluesky(
         tags=tags,
         images=images,
     )
+
+
+if __name__ == "__main__":
+    mcp.run()

@@ -127,6 +127,30 @@ def _desktop_config(args: argparse.Namespace) -> None:
         _copy_to_clipboard(snippet)
 
 
+def _build_mcpb(args: argparse.Namespace) -> None:
+    """Build a .mcpb Desktop Extension package."""
+    import importlib.util
+
+    project_root = Path(__file__).resolve().parent.parent
+    build_script = project_root / "scripts" / "build_mcpb.py"
+    spec = importlib.util.spec_from_file_location("build_mcpb", build_script)
+    if spec is None or spec.loader is None:
+        print(f"error: could not load build script at {build_script}", file=sys.stderr)
+        sys.exit(1)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    output_dir = Path(args.output_dir).resolve() if args.output_dir else Path.cwd()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        output_path = mod.build_mcpb(project_root, output_dir)
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(output_path)
+
+
 def _serve(args: argparse.Namespace) -> None:
     """Launch the MCP server."""
     # Handle --project-dir env setup before importing server
@@ -163,6 +187,10 @@ def main() -> None:
     dc_parser = subparsers.add_parser("desktop-config", help="Generate Claude Desktop config snippet")
     dc_parser.add_argument("--copy", action="store_true", help="Copy snippet to clipboard")
 
+    # build-mcpb
+    mcpb_parser = subparsers.add_parser("build-mcpb", help="Build .mcpb Desktop Extension package")
+    mcpb_parser.add_argument("--output-dir", default=None, help="Output directory (default: current)")
+
     args = parser.parse_args()
 
     if args.command == "auth":
@@ -173,6 +201,8 @@ def main() -> None:
         _serve(args)
     elif args.command == "desktop-config":
         _desktop_config(args)
+    elif args.command == "build-mcpb":
+        _build_mcpb(args)
     else:
         parser.print_help()
         sys.exit(1)

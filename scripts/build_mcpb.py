@@ -1,0 +1,113 @@
+"""Build a .mcpb Desktop Extension package for slop-studio."""
+
+import json
+import sys
+import tomllib
+import zipfile
+from pathlib import Path
+
+EXCLUDE_DIRS = {
+    "tests", "output", ".git", "__pycache__", ".venv",
+    "_bmad-output", ".claude", ".devcontainer", "scripts",
+    ".venv-test", "research", ".github", "docs",
+}
+EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
+
+
+def build_mcpb(project_root: Path, output_dir: Path) -> Path:
+    """Build a .mcpb Desktop Extension package.
+
+    Args:
+        project_root: Root of the slop-studio repository.
+        output_dir: Directory to write the .mcpb file to.
+
+    Returns:
+        Path to the created .mcpb file.
+    """
+    with open(project_root / "pyproject.toml", "rb") as f:
+        pyproject = tomllib.load(f)
+    version = pyproject["project"]["version"]
+
+    # Validate manifest exists and version matches
+    manifest_path = project_root / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError("manifest.json not found in project root")
+
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+
+    if manifest.get("version") != version:
+        raise ValueError(
+            f"manifest.json version ({manifest.get('version')}) "
+            f"does not match pyproject.toml version ({version})"
+        )
+
+    output_path = output_dir / f"slop-studio-{version}.mcpb"
+
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Add manifest.json
+        zf.write(manifest_path, "manifest.json")
+
+        # Add pyproject.toml
+        zf.write(project_root / "pyproject.toml", "pyproject.toml")
+
+        # Add slop_studio/ package
+        slop_dir = project_root / "slop_studio"
+        for p in sorted(slop_dir.rglob("*")):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(project_root)
+            if any(part in EXCLUDE_DIRS for part in rel.parts):
+                continue
+            if p.suffix in EXCLUDE_SUFFIXES:
+                continue
+            arcname = str(rel)
+            zf.write(p, arcname)
+
+        # Add templates/
+        templates_dir = project_root / "templates"
+        if templates_dir.exists():
+            for p in sorted(templates_dir.rglob("*")):
+                if not p.is_file():
+                    continue
+                rel = p.relative_to(project_root)
+                if any(part in EXCLUDE_DIRS for part in rel.parts):
+                    continue
+                if p.suffix in EXCLUDE_SUFFIXES:
+                    continue
+                arcname = str(rel)
+                zf.write(p, arcname)
+
+    # Validate archive contents
+    expected = {"manifest.json", "pyproject.toml"}
+    with zipfile.ZipFile(output_path, "r") as zf:
+        names = set(zf.namelist())
+
+    missing = expected - names
+    if missing:
+        output_path.unlink()
+        raise RuntimeError(f"Archive missing expected files: {missing}")
+
+    has_server = any(n.startswith("slop_studio/") for n in names)
+    if not has_server:
+        output_path.unlink()
+        raise RuntimeError("Archive missing slop_studio/ package")
+
+    has_templates = any(n.startswith("templates/") for n in names)
+    if not has_templates:
+        output_path.unlink()
+        raise RuntimeError("Archive missing templates/ directory")
+
+    return output_path
+
+
+def main() -> None:
+    """CLI entry point for standalone use."""
+    project_root = Path(__file__).resolve().parent.parent
+    output_dir = Path.cwd()
+    output_path = build_mcpb(project_root, output_dir)
+    print(output_path)
+
+
+if __name__ == "__main__":
+    main()
