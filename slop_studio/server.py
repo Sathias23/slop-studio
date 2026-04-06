@@ -16,7 +16,7 @@ import httpx
 from fastmcp import FastMCP
 from fastmcp.server.context import Context
 
-from slop_studio.config import COMFYUI_START_CMD, COMFYUI_START_TIMEOUT, COMFYUI_URL, PID_FILE
+from slop_studio.config import COMFYUI_IDLE_TIMEOUT, COMFYUI_START_CMD, COMFYUI_START_TIMEOUT, COMFYUI_URL, PID_FILE
 from slop_studio.errors import transient_error
 
 logger = logging.getLogger(__name__)
@@ -50,14 +50,17 @@ class ComfyUIManager:
     verify it is healthy.
     """
 
-    def __init__(self, url: str, start_cmd: str, start_timeout: float):
+    def __init__(self, url: str, start_cmd: str, start_timeout: float, idle_timeout: int = 900):
         self._url = url
         self._start_cmd = start_cmd
         self._start_timeout = start_timeout
+        self._idle_timeout = idle_timeout
         self._process: asyncio.subprocess.Process | None = None
         self._managed: bool = False
         self._atexit_handler = None
         self._lock = asyncio.Lock()
+        self._last_activity: float = 0.0
+        self._idle_task: asyncio.Task | None = None
 
     def _write_pid_file(self) -> None:
         """Write the managed process PID to the PID file. Non-fatal on failure."""
@@ -75,6 +78,52 @@ class ComfyUIManager:
             PID_FILE.unlink(missing_ok=True)
         except OSError as exc:
             logger.warning("Failed to remove PID file %s: %s", PID_FILE, exc)
+
+    async def _cancel_idle_watcher(self) -> None:
+        """Cancel the idle watcher task if running."""
+        if self._idle_task is not None and not self._idle_task.done():
+            self._idle_task.cancel()
+            try:
+                await self._idle_task
+            except asyncio.CancelledError:
+                pass
+        self._idle_task = None
+
+    async def _idle_watcher(self) -> None:
+        """Background task that shuts down ComfyUI after idle timeout."""
+        try:
+            while True:
+                await asyncio.sleep(30)
+                if not self._process or not self._managed:
+                    break
+                elapsed = asyncio.get_running_loop().time() - self._last_activity
+                if elapsed < self._idle_timeout:
+                    continue
+                async with self._lock:
+                    # Re-check after acquiring lock — activity may have occurred
+                    elapsed = asyncio.get_running_loop().time() - self._last_activity
+                    if elapsed < self._idle_timeout:
+                        continue
+                    if not self._process or not self._managed:
+                        break
+                    logger.info("ComfyUI idle for %ds — shutting down", int(elapsed))
+                    self._idle_task = None
+                # Release the lock before shutdown — shutdown waits for process exit
+                # which can take up to 10s and would block all ensure_ready() calls.
+                await self.shutdown()
+                break
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Idle watcher encountered an error")
+
+    def _start_idle_watcher(self) -> None:
+        """Start the idle watcher task if conditions are met."""
+        if self._idle_timeout <= 0 or not self._managed:
+            return
+        if self._idle_task is not None and not self._idle_task.done():
+            return
+        self._idle_task = asyncio.create_task(self._idle_watcher())
 
     async def _wait_until_ready(self) -> bool:
         """Poll ComfyUI until it responds, using exponential backoff."""
@@ -106,6 +155,7 @@ class ComfyUIManager:
         """Kill the current managed process and reset state."""
         if not self._process:
             return
+        await self._cancel_idle_watcher()
         try:
             pgid = os.getpgid(self._process.pid)
             os.killpg(pgid, signal.SIGTERM)
@@ -196,8 +246,12 @@ class ComfyUIManager:
         """
         async with self._lock:
             try:
+                # Track activity for idle timeout
+                self._last_activity = asyncio.get_running_loop().time()
+
                 # Step 1: Quick health probe
                 if await self._probe_health():
+                    self._start_idle_watcher()
                     return None
 
                 # Step 2: Clean up dead or hung managed process
@@ -220,7 +274,10 @@ class ComfyUIManager:
 
                 # Step 3: Spawn if we have a start command
                 if self._start_cmd:
-                    return await self._spawn()
+                    result = await self._spawn()
+                    if result is None:
+                        self._start_idle_watcher()
+                    return result
 
                 # Step 4: No start command and ComfyUI unreachable
                 return transient_error(
@@ -236,6 +293,7 @@ class ComfyUIManager:
 
     async def shutdown(self) -> None:
         """Graceful shutdown: SIGTERM → wait 10s → SIGKILL."""
+        await self._cancel_idle_watcher()
         if not self._process or self._process.returncode is not None:
             return
         try:
@@ -373,7 +431,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         cleanup_orphan(PID_FILE)
     except Exception:
         logger.warning("Orphan cleanup failed — continuing startup", exc_info=True)
-    manager = ComfyUIManager(COMFYUI_URL, COMFYUI_START_CMD, COMFYUI_START_TIMEOUT)
+    manager = ComfyUIManager(COMFYUI_URL, COMFYUI_START_CMD, COMFYUI_START_TIMEOUT, COMFYUI_IDLE_TIMEOUT)
     try:
         yield {"comfyui_manager": manager}
     finally:

@@ -584,3 +584,240 @@ def test_orphan_cleanup_cmdline_check_failure_does_not_kill(tmp_path):
 
     assert not pid_file.exists()
     mock_killpg.assert_not_called()
+
+
+# --- Idle timeout tests ---
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_idle_watcher_shuts_down_after_timeout(default_url):
+    """AC1: After idle timeout, ComfyUI is gracefully shut down."""
+    manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10, idle_timeout=1)
+
+    mock_process = MagicMock()
+    mock_process.returncode = None
+    mock_process.pid = 55555
+    mock_process.wait = AsyncMock()
+
+    manager._process = mock_process
+    manager._managed = True
+    manager._last_activity = asyncio.get_event_loop().time()
+
+    with patch("os.getpgid", return_value=55555):
+        with patch("os.killpg"):
+            # Start the watcher manually with a short sleep interval
+            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                # Make sleep advance the clock so the timeout is exceeded
+                original_time = asyncio.get_event_loop().time
+
+                call_count = 0
+
+                async def fake_sleep(duration):
+                    nonlocal call_count
+                    call_count += 1
+                    # After first sleep, make time appear to have advanced past idle timeout
+                    manager._last_activity = original_time() - 2  # 2 seconds ago, timeout is 1
+
+                mock_sleep.side_effect = fake_sleep
+
+                manager._idle_task = asyncio.create_task(manager._idle_watcher())
+                await manager._idle_task
+
+    # Shutdown should have been called — process should be cleaned up
+    assert manager._process is None
+
+
+@pytest.mark.anyio
+async def test_idle_timer_resets_on_activity(default_url):
+    """AC4: Activity resets the idle timer — ComfyUI stays running."""
+    manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10, idle_timeout=2)
+
+    mock_process = MagicMock()
+    mock_process.returncode = None
+    mock_process.pid = 55555
+    mock_process.wait = AsyncMock()
+
+    manager._process = mock_process
+    manager._managed = True
+    manager._last_activity = asyncio.get_event_loop().time()
+
+    sleep_count = 0
+
+    async def fake_sleep(duration):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count == 1:
+            # Simulate activity: reset the timer
+            manager._last_activity = asyncio.get_event_loop().time()
+        elif sleep_count == 2:
+            # Second check: still within timeout, but let's stop the watcher
+            manager._process = None  # Causes the watcher to exit the loop
+
+    with patch("asyncio.sleep", new_callable=AsyncMock, side_effect=fake_sleep):
+        manager._idle_task = asyncio.create_task(manager._idle_watcher())
+        await manager._idle_task
+
+    # The watcher exited because _process was set to None, not because it shut down
+    # The fact that we got here without shutdown means the timer reset worked
+    assert sleep_count == 2
+
+
+@pytest.mark.anyio
+async def test_idle_timeout_zero_disables_watcher(default_url):
+    """AC5: idle_timeout=0 disables the idle watcher — no background task created."""
+    manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10, idle_timeout=0)
+    manager._managed = True
+
+    manager._start_idle_watcher()
+
+    assert manager._idle_task is None
+
+
+@pytest.mark.anyio
+async def test_idle_watcher_only_for_managed_process(default_url):
+    """Idle watcher is NOT started for external (unmanaged) ComfyUI."""
+    manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10, idle_timeout=60)
+    manager._managed = False
+
+    manager._start_idle_watcher()
+
+    assert manager._idle_task is None
+
+
+@pytest.mark.anyio
+async def test_idle_watcher_cancelled_on_shutdown(default_url):
+    """AC6: Idle watcher is cancelled cleanly on shutdown."""
+    manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10, idle_timeout=900)
+
+    mock_process = MagicMock()
+    mock_process.returncode = None
+    mock_process.pid = 55555
+    mock_process.wait = AsyncMock()
+
+    manager._process = mock_process
+    manager._managed = True
+    manager._last_activity = asyncio.get_event_loop().time()
+
+    # Start a real idle watcher that will block on sleep
+    manager._idle_task = asyncio.create_task(manager._idle_watcher())
+
+    # Give the task a moment to start
+    await asyncio.sleep(0)
+
+    with patch("os.getpgid", return_value=55555):
+        with patch("os.killpg"):
+            await manager.shutdown()
+
+    assert manager._idle_task is None
+    assert manager._process is None
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_respawn_after_idle_shutdown(default_url):
+    """AC3: After idle shutdown, next ensure_ready re-spawns ComfyUI and restarts watcher."""
+    manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10, idle_timeout=60)
+
+    # Simulate post-idle-shutdown state: no process, not managed
+    manager._process = None
+    manager._managed = False
+    manager._idle_task = None
+
+    call_count = 0
+
+    def side_effect(request):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise httpx.ConnectError("Connection refused")
+        return httpx.Response(200, json={"system": {}})
+
+    respx.get(f"{default_url}/system_stats").mock(side_effect=side_effect)
+
+    mock_process = MagicMock()
+    mock_process.returncode = None
+    mock_process.pid = 77777
+
+    with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
+        with patch("os.getpgid", return_value=77777):
+            result = await manager.ensure_ready()
+
+    assert result is None
+    assert manager._process is mock_process
+    assert manager._managed is True
+    # Idle watcher should have been started for the new process
+    assert manager._idle_task is not None
+    assert not manager._idle_task.done()
+
+    # Clean up the watcher task
+    try:
+        manager._idle_task.cancel()
+        await manager._idle_task
+    except asyncio.CancelledError:
+        pass
+
+
+def test_negative_idle_timeout_rejected(monkeypatch):
+    """AC: Negative COMFYUI_IDLE_TIMEOUT raises ValueError."""
+    monkeypatch.setenv("COMFYUI_IDLE_TIMEOUT", "-1")
+    with pytest.raises(ValueError, match="must be >= 0"):
+        importlib.reload(slop_studio.config)
+
+
+@pytest.mark.anyio
+async def test_idle_watcher_double_check_after_lock(default_url):
+    """Race condition prevention: activity between idle check and lock acquisition prevents shutdown."""
+    manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10, idle_timeout=1)
+
+    mock_process = MagicMock()
+    mock_process.returncode = None
+    mock_process.pid = 55555
+
+    manager._process = mock_process
+    manager._managed = True
+
+    original_time = asyncio.get_event_loop().time
+    sleep_count = 0
+
+    # Track whether shutdown was called
+    shutdown_called = False
+    original_shutdown = manager.shutdown
+
+    async def mock_shutdown():
+        nonlocal shutdown_called
+        shutdown_called = True
+
+    manager.shutdown = mock_shutdown
+
+    async def fake_sleep(duration):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count == 1:
+            # Set activity to the past so first check passes
+            manager._last_activity = original_time() - 2
+        elif sleep_count >= 2:
+            # Stop the loop
+            manager._process = None
+
+    # Patch lock to simulate activity during lock acquisition
+    original_lock = manager._lock
+
+    class FakeContextManager:
+        async def __aenter__(self_inner):
+            await original_lock.acquire()
+            # Simulate activity occurring while waiting for lock
+            manager._last_activity = original_time()
+            return self_inner
+
+        async def __aexit__(self_inner, *args):
+            original_lock.release()
+
+    manager._lock = FakeContextManager()
+
+    with patch("asyncio.sleep", new_callable=AsyncMock, side_effect=fake_sleep):
+        manager._idle_task = asyncio.create_task(manager._idle_watcher())
+        await manager._idle_task
+
+    # Shutdown should NOT have been called because activity happened after lock acquisition
+    assert not shutdown_called

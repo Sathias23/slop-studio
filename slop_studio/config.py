@@ -80,6 +80,11 @@ except ValueError:
         "COMFYUI_IDLE_TIMEOUT must be a whole number of seconds, "
         f"got: {os.environ.get('COMFYUI_IDLE_TIMEOUT')!r}"
     )
+if COMFYUI_IDLE_TIMEOUT < 0:
+    raise ValueError(
+        "COMFYUI_IDLE_TIMEOUT must be >= 0 (0 disables idle shutdown), "
+        f"got: {COMFYUI_IDLE_TIMEOUT}"
+    )
 
 TEMPLATES_DIR = _resolve(
     "SLOP_STUDIO_TEMPLATES_DIR", "templates_dir", str(_PACKAGE_DIR.parent / "templates")
