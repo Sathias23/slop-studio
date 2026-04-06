@@ -41,7 +41,7 @@ This installs `slop-studio` on your PATH from your local clone. Changes you make
 
 ## Quick Start
 
-1. **Start ComfyUI** on your local machine or network.
+1. **Start ComfyUI** on your local machine or network (or [set up automatic launch](#automatic-comfyui-management)).
 
 2. **Set up a project directory:**
 
@@ -115,6 +115,22 @@ The default templates run on 16GB of VRAM. Add your own by exporting a workflow 
 | `BSKY_APP_PASSWORD` | — | Bluesky app password (overrides central config) |
 
 Environment variables take precedence over `slop-studio auth` credentials. A project-level `.env` file is also supported.
+
+## Automatic ComfyUI Management
+
+By default, slop-studio expects ComfyUI to already be running. Set `COMFYUI_START_CMD` in your project's `.env` to have slop-studio manage ComfyUI's lifecycle automatically:
+
+```
+COMFYUI_START_CMD=/path/to/venv/bin/python /path/to/ComfyUI/main.py
+```
+
+**How it works:**
+
+- **On startup:** slop-studio checks if ComfyUI is already reachable. If it is, it connects to the existing instance. If not, it launches ComfyUI as a child process and polls until it's ready (up to `COMFYUI_START_TIMEOUT` seconds).
+- **On shutdown:** When you exit Claude Code or restart the MCP server, slop-studio sends SIGTERM to ComfyUI and waits for a clean exit. If ComfyUI doesn't stop within 10 seconds, it's forcefully killed.
+- **Already running:** If ComfyUI is already running when slop-studio starts, it skips the launch and connects to the existing instance. It won't shut down an instance it didn't start.
+
+> **Note:** Point `COMFYUI_START_CMD` at Python directly (not the `comfy` CLI), so slop-studio can manage the process lifecycle cleanly.
 
 ## Coming Soon
 
