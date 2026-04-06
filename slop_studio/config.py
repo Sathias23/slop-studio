@@ -16,6 +16,7 @@ def _env_or_default(key: str, default: str) -> str:
 _PACKAGE_DIR = Path(__file__).resolve().parent
 
 CONFIG_FILE = Path.home() / ".config" / "slop-studio" / "config.toml"
+PID_FILE = Path.home() / ".config" / "slop-studio" / "comfyui.pid"
 
 
 def _load_config_toml() -> dict:
@@ -71,6 +72,13 @@ except ValueError:
     raise ValueError(
         "COMFYUI_START_TIMEOUT must be a whole number of seconds, "
         f"got: {os.environ.get('COMFYUI_START_TIMEOUT')!r}"
+    )
+try:
+    COMFYUI_IDLE_TIMEOUT = int(_env_or_default("COMFYUI_IDLE_TIMEOUT", "900"))
+except ValueError:
+    raise ValueError(
+        "COMFYUI_IDLE_TIMEOUT must be a whole number of seconds, "
+        f"got: {os.environ.get('COMFYUI_IDLE_TIMEOUT')!r}"
     )
 
 TEMPLATES_DIR = _resolve(

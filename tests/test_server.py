@@ -1,6 +1,9 @@
 import asyncio
 import importlib
 import logging
+import os
+import signal
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -8,7 +11,7 @@ import pytest
 import respx
 
 import slop_studio.config
-from slop_studio.server import ComfyUIManager, safe_tool
+from slop_studio.server import ComfyUIManager, cleanup_orphan, safe_tool
 
 
 @pytest.fixture
@@ -388,3 +391,196 @@ async def test_safe_tool_preserves_function_metadata():
 
     assert my_documented_tool.__name__ == "my_documented_tool"
     assert my_documented_tool.__doc__ == "This is the docstring."
+
+
+# --- PID file tracking tests ---
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_spawn_writes_pid_file(default_url, tmp_path):
+    """After successful spawn, PID file exists and contains the process PID."""
+    pid_file = tmp_path / "comfyui.pid"
+    call_count = 0
+
+    def side_effect(request):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise httpx.ConnectError("Connection refused")
+        return httpx.Response(200, json={"system": {}})
+
+    respx.get(f"{default_url}/system_stats").mock(side_effect=side_effect)
+
+    mock_process = MagicMock()
+    mock_process.returncode = None
+    mock_process.pid = 12345
+
+    with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
+        with patch("os.getpgid", return_value=12345):
+            with patch("slop_studio.server.PID_FILE", pid_file):
+                manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10)
+                result = await manager.ensure_ready()
+
+    assert result is None
+    assert pid_file.exists()
+    assert pid_file.read_text() == "12345"
+
+
+@pytest.mark.anyio
+async def test_shutdown_removes_pid_file(default_url, tmp_path):
+    """After shutdown, PID file is removed."""
+    pid_file = tmp_path / "comfyui.pid"
+    pid_file.write_text("99999")
+
+    mock_process = MagicMock()
+    mock_process.returncode = None
+    mock_process.pid = 99999
+    mock_process.wait = AsyncMock()
+
+    with patch("os.getpgid", return_value=99999):
+        with patch("os.killpg"):
+            with patch("slop_studio.server.PID_FILE", pid_file):
+                manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
+                manager._process = mock_process
+                await manager.shutdown()
+
+    assert not pid_file.exists()
+
+
+@pytest.mark.anyio
+async def test_kill_process_removes_pid_file(default_url, tmp_path):
+    """After _kill_process(), PID file is removed."""
+    pid_file = tmp_path / "comfyui.pid"
+    pid_file.write_text("88888")
+
+    mock_process = MagicMock()
+    mock_process.returncode = None
+    mock_process.pid = 88888
+    mock_process.wait = AsyncMock()
+
+    with patch("os.getpgid", return_value=88888):
+        with patch("os.killpg"):
+            with patch("slop_studio.server.PID_FILE", pid_file):
+                manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
+                manager._process = mock_process
+                await manager._kill_process()
+
+    assert not pid_file.exists()
+    assert manager._process is None
+    assert manager._managed is False
+
+
+@pytest.mark.anyio
+async def test_pid_file_write_failure_does_not_crash(default_url, tmp_path, caplog):
+    """Mock PID file write to raise OSError — spawn still succeeds (NFR4)."""
+    call_count = 0
+
+    def side_effect(request):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise httpx.ConnectError("Connection refused")
+        return httpx.Response(200, json={"system": {}})
+
+    mock_process = MagicMock()
+    mock_process.returncode = None
+    mock_process.pid = 11111
+
+    with respx.mock:
+        respx.get(f"{default_url}/system_stats").mock(side_effect=side_effect)
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
+            with patch("os.getpgid", return_value=11111):
+                with patch("slop_studio.server.PID_FILE") as mock_pid:
+                    mock_pid.parent.mkdir = MagicMock()
+                    mock_pid.write_text = MagicMock(side_effect=OSError("Permission denied"))
+                    with caplog.at_level(logging.WARNING, logger="slop_studio.server"):
+                        manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10)
+                        result = await manager.ensure_ready()
+
+    # Spawn succeeded despite PID file write failure
+    assert result is None
+    assert manager._process is mock_process
+    assert any("Failed to write PID file" in r.message for r in caplog.records)
+
+
+# --- Orphan cleanup tests ---
+
+
+def test_orphan_cleanup_no_pid_file(tmp_path):
+    """No PID file exists — no errors."""
+    pid_file = tmp_path / "comfyui.pid"
+    cleanup_orphan(pid_file)  # Should not raise
+
+
+def test_orphan_cleanup_dead_process(tmp_path):
+    """Stale PID file with dead PID — file removed without error."""
+    pid_file = tmp_path / "comfyui.pid"
+    pid_file.write_text("999999")
+
+    with patch("os.kill", side_effect=ProcessLookupError):
+        cleanup_orphan(pid_file)
+
+    assert not pid_file.exists()
+
+
+def test_orphan_cleanup_pid_reuse_safety(tmp_path):
+    """PID belongs to non-ComfyUI process — NOT killed, PID file removed."""
+    pid_file = tmp_path / "comfyui.pid"
+    pid_file.write_text("12345")
+
+    with patch("os.kill"):  # Process is alive
+        with patch("slop_studio.server._get_process_cmdline", return_value="/usr/bin/firefox"):
+            cleanup_orphan(pid_file)
+
+    assert not pid_file.exists()
+
+
+def test_orphan_cleanup_kills_comfyui_process(tmp_path):
+    """Stale PID file with live ComfyUI process — killed and PID file removed."""
+    pid_file = tmp_path / "comfyui.pid"
+    pid_file.write_text("12345")
+
+    kill_calls = []
+
+    def mock_kill(pid, sig):
+        if sig == 0:
+            # First call: alive. After SIGTERM: dead.
+            if any(c[1] == 0 for c in kill_calls):
+                raise ProcessLookupError
+        kill_calls.append((pid, sig))
+
+    with patch("os.kill", side_effect=mock_kill):
+        with patch("slop_studio.server._get_process_cmdline", return_value="python main.py --comfyui-path /opt/ComfyUI"):
+            with patch("os.getpgid", return_value=12345):
+                with patch("os.killpg") as mock_killpg:
+                    cleanup_orphan(pid_file)
+
+    assert not pid_file.exists()
+    mock_killpg.assert_called_with(12345, signal.SIGTERM)
+
+
+def test_orphan_cleanup_invalid_pid_file(tmp_path, caplog):
+    """PID file contains garbage — warning logged and file removed."""
+    pid_file = tmp_path / "comfyui.pid"
+    pid_file.write_text("not-a-number")
+
+    with caplog.at_level(logging.WARNING, logger="slop_studio.server"):
+        cleanup_orphan(pid_file)
+
+    assert not pid_file.exists()
+    assert any("invalid content" in r.message for r in caplog.records)
+
+
+def test_orphan_cleanup_cmdline_check_failure_does_not_kill(tmp_path):
+    """If cmdline check returns None, process is NOT killed — safer to leave orphan."""
+    pid_file = tmp_path / "comfyui.pid"
+    pid_file.write_text("12345")
+
+    with patch("os.kill"):  # Process is alive
+        with patch("slop_studio.server._get_process_cmdline", return_value=None):
+            with patch("os.killpg") as mock_killpg:
+                cleanup_orphan(pid_file)
+
+    assert not pid_file.exists()
+    mock_killpg.assert_not_called()
