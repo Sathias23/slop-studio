@@ -28,3 +28,5 @@ _bmad-output/
 TODO_*
 manual_test.py
 SATHIAS.md
+.devcontainer/                                                                                                                                                                         
+.venv-test/  
