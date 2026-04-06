@@ -1,0 +1,33 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax", "style"],
+  "triggerOnUpdates": true,
+  "triggerOnDrafts": false,
+  "ignorePatterns": "templates/**\noutput/**\n_bmad/**\n_bmad-output/**\nslop_studio.egg-info/**\n.claude/**\ndocs/**\n**/__pycache__/**\n*.lock",
+  "rules": [
+    {
+      "id": "no-print",
+      "rule": "Use logging instead of print() for any output in library code.",
+      "scope": ["slop_studio/**/*.py"],
+      "severity": "medium"
+    },
+    {
+      "id": "error-handling",
+      "rule": "Use the structured error response helpers (terminal_error, transient_error) from slop_studio.errors instead of raising bare Exception or returning ad-hoc error dicts.",
+      "scope": ["slop_studio/**/*.py"],
+      "severity": "medium"
+    },
+    {
+      "id": "type-hints",
+      "rule": "Public functions should have type hints for parameters and return values.",
+      "scope": ["slop_studio/**/*.py"],
+      "severity": "low"
+    },
+    {
+      "id": "async-consistency",
+      "rule": "All I/O must be async. Use httpx.AsyncClient, not requests or other blocking HTTP clients. Never call synchronous blocking functions in async code paths.",
+      "scope": ["slop_studio/**/*.py"],
+      "severity": "high"
+    }
+  ]
+}

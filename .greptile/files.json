@@ -1,0 +1,16 @@
+{
+  "files": [
+    {
+      "path": "slop_studio/errors.py",
+      "description": "Custom exception hierarchy — reviewers should check that code uses these instead of generic exceptions"
+    },
+    {
+      "path": "slop_studio/server.py",
+      "description": "Main MCP server with tool handlers — core async architecture"
+    },
+    {
+      "path": "CLAUDE.md",
+      "description": "Project conventions and available MCP tools"
+    }
+  ]
+}
