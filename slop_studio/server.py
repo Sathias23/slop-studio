@@ -10,6 +10,7 @@ import signal
 
 import httpx
 from fastmcp import FastMCP
+from fastmcp.server.context import Context
 
 from slop_studio.config import COMFYUI_START_CMD, COMFYUI_START_TIMEOUT, COMFYUI_URL
 from slop_studio.errors import transient_error
@@ -37,124 +38,216 @@ def safe_tool(func):
     return wrapper
 
 
-async def _wait_for_comfyui(url: str, timeout: float) -> bool:
-    """Poll ComfyUI until it responds, using exponential backoff.
+class ComfyUIManager:
+    """Manages the ComfyUI subprocess lifecycle with lazy startup.
 
-    Tries /ready first (ComfyUI 0.3.x+), falls back to /system_stats.
+    ComfyUI is not started at server boot. Instead, ensure_ready() is called
+    before each queue_prompt to start ComfyUI on demand (if configured) and
+    verify it is healthy.
     """
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    delay = 0.5
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        while loop.time() < deadline:
+
+    def __init__(self, url: str, start_cmd: str, start_timeout: float):
+        self._url = url
+        self._start_cmd = start_cmd
+        self._start_timeout = start_timeout
+        self._process: asyncio.subprocess.Process | None = None
+        self._managed: bool = False
+        self._atexit_handler = None
+        self._lock = asyncio.Lock()
+
+    async def _wait_until_ready(self) -> bool:
+        """Poll ComfyUI until it responds, using exponential backoff."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._start_timeout
+        delay = 0.5
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            while loop.time() < deadline:
+                try:
+                    resp = await client.get(f"{self._url}/system_stats")
+                    if resp.status_code == 200:
+                        return True
+                except (httpx.TransportError, httpx.TimeoutException):
+                    pass
+                await asyncio.sleep(delay)
+                delay = min(delay * 1.5, 5.0)
+        return False
+
+    async def _probe_health(self) -> bool:
+        """Single health check request — pass/fail, no retries."""
+        async with httpx.AsyncClient(timeout=5.0) as client:
             try:
-                resp = await client.get(f"{url}/system_stats")
-                if resp.status_code == 200:
-                    return True
-            except httpx.TransportError:
+                resp = await client.get(f"{self._url}/system_stats")
+                return resp.status_code == 200
+            except (httpx.TransportError, httpx.TimeoutException):
+                return False
+
+    async def _kill_process(self) -> None:
+        """Kill the current managed process and reset state."""
+        if not self._process:
+            return
+        try:
+            pgid = os.getpgid(self._process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            try:
+                pgid = os.getpgid(self._process.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
                 pass
-            await asyncio.sleep(delay)
-            delay = min(delay * 1.5, 5.0)
-    return False
+            await self._process.wait()
+        self._process = None
+        self._managed = False
 
+    async def _spawn(self) -> dict | None:
+        """Spawn ComfyUI subprocess. Returns error dict on failure, None on success."""
+        args = shlex.split(self._start_cmd)
+        logger.info("Starting ComfyUI: %s", args)
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            logger.error("Failed to start ComfyUI: %s", exc)
+            return transient_error(
+                "unreachable",
+                f"Failed to start ComfyUI: {exc}",
+            )
 
-@asynccontextmanager
-async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
-    """Validate ComfyUI connectivity before accepting requests.
+        self._managed = True
 
-    When COMFYUI_START_CMD is set, spawns ComfyUI as a managed child process
-    and waits for it to become ready before proceeding.
-    """
-    process = None
+        # Safety net for unclean exits — kill the whole process group
+        try:
+            pgid = os.getpgid(self._process.pid)
+        except ProcessLookupError:
+            self._process = None
+            self._managed = False
+            return transient_error(
+                "unreachable",
+                "ComfyUI process exited immediately after spawn",
+            )
 
-    if COMFYUI_START_CMD:
-        # Skip spawn if ComfyUI is already reachable
-        already_running = False
-        async with httpx.AsyncClient(timeout=5.0) as probe:
-            try:
-                resp = await probe.get(f"{COMFYUI_URL}/system_stats")
-                if resp.status_code == 200:
-                    already_running = True
-                    logger.info("ComfyUI already running at %s, skipping spawn", COMFYUI_URL)
-            except httpx.TransportError:
-                pass
+        # Deregister previous atexit handler before registering a new one
+        if self._atexit_handler is not None:
+            atexit.unregister(self._atexit_handler)
 
-        if not already_running:
-            args = shlex.split(COMFYUI_START_CMD)
-            logger.info("Starting ComfyUI: %s", args)
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *args,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-            except (FileNotFoundError, OSError) as exc:
-                logger.error("Failed to start ComfyUI: %s", exc)
-                raise
-
-            # Safety net for unclean exits — kill the whole process group
-            pgid = os.getpgid(process.pid)
-
-            def _atexit_kill():
-                if process.returncode is None:
-                    try:
-                        os.killpg(pgid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
-
-            atexit.register(_atexit_kill)
-
-            ready = await _wait_for_comfyui(COMFYUI_URL, COMFYUI_START_TIMEOUT)
-            if not ready:
+        def _atexit_kill():
+            if self._process and self._process.returncode is None:
                 try:
                     os.killpg(pgid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
-                await process.wait()
-                raise RuntimeError(
-                    f"ComfyUI started but did not become ready within {COMFYUI_START_TIMEOUT}s"
-                )
-            logger.info("ComfyUI started and ready (pid=%d)", process.pid)
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            response = await client.get(f"{COMFYUI_URL}/system_stats")
-            response.raise_for_status()
-        except httpx.ConnectError:
-            logger.error("ComfyUI is unreachable at %s", COMFYUI_URL)
-            raise
-        except httpx.TimeoutException:
-            logger.error("ComfyUI connection timed out at %s", COMFYUI_URL)
-            raise
-        except httpx.HTTPStatusError as exc:
+        self._atexit_handler = _atexit_kill
+        atexit.register(_atexit_kill)
+
+        ready = await self._wait_until_ready()
+        if not ready:
             logger.error(
-                "ComfyUI returned HTTP %d at %s",
-                exc.response.status_code,
-                COMFYUI_URL,
+                "ComfyUI started but did not become ready within %ds",
+                self._start_timeout,
             )
-            raise
-    logger.info("ComfyUI reachable at %s", COMFYUI_URL)
+            await self._kill_process()
+            return transient_error(
+                "unreachable",
+                f"ComfyUI started but did not become ready within {self._start_timeout}s",
+            )
 
-    try:
-        yield {}
-    finally:
-        if process and process.returncode is None:
-            pgid = os.getpgid(process.pid)
-            logger.info("Shutting down ComfyUI process group (pgid=%d)", pgid)
+        logger.info("ComfyUI started and ready (pid=%d)", self._process.pid)
+        return None
+
+    async def ensure_ready(self) -> dict | None:
+        """Ensure ComfyUI is healthy and ready. Returns error dict on failure, None on success.
+
+        Flow:
+        1. Probe /system_stats — if healthy, return immediately
+        2. If unhealthy and _process exists with returncode set — dead process, cleanup
+        3. If unhealthy and _start_cmd is set — spawn and wait for ready
+        4. If unhealthy and no _start_cmd — return transient_error
+        """
+        async with self._lock:
             try:
-                os.killpg(pgid, signal.SIGTERM)
+                # Step 1: Quick health probe
+                if await self._probe_health():
+                    return None
+
+                # Step 2: Clean up dead or hung managed process
+                if self._process is not None:
+                    if self._process.returncode is not None:
+                        logger.warning(
+                            "ComfyUI process exited with code %d, re-spawning",
+                            self._process.returncode,
+                        )
+                        self._process = None
+                        self._managed = False
+                    elif self._managed:
+                        # Process alive but HTTP unresponsive — kill before respawn
+                        logger.warning(
+                            "ComfyUI process (pid=%d) alive but unresponsive, killing",
+                            self._process.pid,
+                        )
+                        await self._kill_process()
+
+                # Step 3: Spawn if we have a start command
+                if self._start_cmd:
+                    return await self._spawn()
+
+                # Step 4: No start command and ComfyUI unreachable
+                return transient_error(
+                    "unreachable",
+                    f"ComfyUI is not reachable at {self._url} and no COMFYUI_START_CMD is configured",
+                )
+            except Exception as exc:
+                logger.exception("Unexpected error in ensure_ready")
+                return transient_error(
+                    "unreachable",
+                    f"Failed to ensure ComfyUI is ready: {type(exc).__name__}: {exc}",
+                )
+
+    async def shutdown(self) -> None:
+        """Graceful shutdown: SIGTERM → wait 10s → SIGKILL."""
+        if not self._process or self._process.returncode is not None:
+            return
+        try:
+            pgid = os.getpgid(self._process.pid)
+        except ProcessLookupError:
+            self._process = None
+            return
+        logger.info("Shutting down ComfyUI process group (pgid=%d)", pgid)
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=10.0)
+        except asyncio.TimeoutError:
+            logger.warning("ComfyUI did not exit gracefully, killing")
+            try:
+                os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            try:
-                await asyncio.wait_for(process.wait(), timeout=10.0)
-            except asyncio.TimeoutError:
-                logger.warning("ComfyUI did not exit gracefully, killing")
-                try:
-                    os.killpg(pgid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                await process.wait()
+            await self._process.wait()
+        self._process = None
+
+
+@asynccontextmanager
+async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
+    """Create ComfyUIManager and yield it in the context dict.
+
+    ComfyUI is NOT started at boot — it will be spawned lazily on the first
+    queue_prompt call via manager.ensure_ready().
+    """
+    manager = ComfyUIManager(COMFYUI_URL, COMFYUI_START_CMD, COMFYUI_START_TIMEOUT)
+    try:
+        yield {"comfyui_manager": manager}
+    finally:
+        await manager.shutdown()
 
 
 mcp = FastMCP("slop-studio", lifespan=lifespan)
@@ -256,7 +349,8 @@ async def delete_template(name: str) -> dict:
 @mcp.tool()
 @safe_tool
 async def queue_prompt(
-    template_name: str, inputs: dict, aspect_ratio: str | None = None
+    template_name: str, inputs: dict, aspect_ratio: str | None = None,
+    ctx: Context = None,
 ) -> dict:
     """Submit an image generation job using a workflow template.
 
@@ -271,6 +365,10 @@ async def queue_prompt(
     Optional aspect_ratio overrides the default resolution (e.g., "16:9",
     "9:16", "1:1"). Use get_template to see supported aspect ratios.
     """
+    manager = ctx.lifespan_context["comfyui_manager"]
+    error = await manager.ensure_ready()
+    if error:
+        return error
     return await comfyui.queue_prompt(template_name, inputs, aspect_ratio)
 
 
