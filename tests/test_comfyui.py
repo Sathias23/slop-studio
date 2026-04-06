@@ -1,4 +1,7 @@
+import base64
+import builtins
 import importlib
+import io
 import json
 import os
 
@@ -452,7 +455,16 @@ HISTORY_COMPLETED_NO_OUTPUT = {
     }
 }
 
-FAKE_IMAGE_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+def _make_fake_image_bytes(width=64, height=64, mode="RGB") -> bytes:
+    """Create a minimal valid PNG image for testing."""
+    from PIL import Image as PILImage
+    import io as _io
+    img = PILImage.new(mode, (width, height), color=(255, 0, 0))
+    buf = _io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+FAKE_IMAGE_BYTES = _make_fake_image_bytes()
 
 
 @pytest.fixture
@@ -474,10 +486,14 @@ async def test_get_image_completed_returns_file_path(templates_dir, output_dir):
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
     result = await slop_studio.comfyui.get_image("abc-123")
-    assert result["status"] == "success"
-    assert result["prompt_id"] == "abc-123"
-    assert os.path.isabs(result["file_path"])
-    assert os.path.exists(result["file_path"])
+    assert isinstance(result, list)
+    assert len(result) == 2
+    text_block = result[1]
+    meta = json.loads(text_block.text)
+    assert meta["status"] == "success"
+    assert meta["prompt_id"] == "abc-123"
+    assert os.path.isabs(meta["file_path"])
+    assert os.path.exists(meta["file_path"])
 
 
 @pytest.mark.anyio
@@ -492,9 +508,11 @@ async def test_get_image_saves_in_date_directory(templates_dir, output_dir):
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
     result = await slop_studio.comfyui.get_image("abc-123")
+    text_block = result[1]
+    meta = json.loads(text_block.text)
     today = date.today().isoformat()
     expected_path = output_dir / today / "ComfyUI_00042_.png"
-    assert result["file_path"] == str(expected_path)
+    assert meta["file_path"] == str(expected_path)
 
 
 @pytest.mark.anyio
@@ -538,8 +556,9 @@ async def test_get_image_sanitizes_filename(templates_dir, output_dir):
     result = await slop_studio.comfyui.get_image("abc-123")
     today = date.today().isoformat()
     expected_path = output_dir / today / "passwd"
-    assert result["file_path"] == str(expected_path)
-    assert os.path.exists(result["file_path"])
+    meta = json.loads(result[1].text)
+    assert meta["file_path"] == str(expected_path)
+    assert os.path.exists(meta["file_path"])
 
 
 @pytest.mark.anyio
@@ -688,6 +707,131 @@ async def test_get_image_passes_subfolder_to_view(templates_dir, output_dir):
     assert "subfolder=subfolder_name" in str(request.url)
 
 
+# -- Hybrid image return tests (Story 2.2) --
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_returns_image_content_and_text_content(templates_dir, output_dir):
+    """Verify result is a list with ImageContent (type='image', mimeType='image/jpeg') and TextContent (type='text')."""
+    from mcp.types import ImageContent, TextContent
+
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
+    )
+    respx.get(f"{COMFYUI_URL}/view").mock(
+        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
+    )
+    result = await slop_studio.comfyui.get_image("abc-123")
+    assert isinstance(result, list)
+    assert len(result) == 2
+    assert isinstance(result[0], ImageContent)
+    assert result[0].type == "image"
+    assert result[0].mimeType == "image/jpeg"
+    assert len(result[0].data) > 0  # non-empty base64
+    assert isinstance(result[1], TextContent)
+    assert result[1].type == "text"
+    meta = json.loads(result[1].text)
+    assert meta["status"] == "success"
+    assert "file_path" in meta
+    assert "prompt_id" in meta
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_thumbnail_failure_falls_back_to_text_only(templates_dir, output_dir, monkeypatch):
+    """When generate_thumbnail raises, result is a single TextContent with file path (image still saved)."""
+    from mcp.types import TextContent
+
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
+    )
+    respx.get(f"{COMFYUI_URL}/view").mock(
+        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
+    )
+    monkeypatch.setattr(slop_studio.comfyui, "generate_thumbnail", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+    result = await slop_studio.comfyui.get_image("abc-123")
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert isinstance(result[0], TextContent)
+    meta = json.loads(result[0].text)
+    assert meta["status"] == "success"
+    assert os.path.exists(meta["file_path"])
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_saves_full_res_before_thumbnail(templates_dir, output_dir, monkeypatch):
+    """Verify the file is written to disk BEFORE generate_thumbnail is called."""
+    from datetime import date
+
+    call_order = []
+
+    original_open = builtins.open
+
+    def tracking_open(path, *args, **kwargs):
+        if isinstance(path, str) and "ComfyUI" in path and "wb" in args:
+            call_order.append("file_write")
+        return original_open(path, *args, **kwargs)
+
+    def tracking_thumbnail(*a, **kw):
+        call_order.append("generate_thumbnail")
+        raise RuntimeError("boom")
+
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
+    )
+    respx.get(f"{COMFYUI_URL}/view").mock(
+        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
+    )
+    monkeypatch.setattr(builtins, "open", tracking_open)
+    monkeypatch.setattr(slop_studio.comfyui, "generate_thumbnail", tracking_thumbnail)
+    result = await slop_studio.comfyui.get_image("abc-123")
+    meta = json.loads(result[0].text)
+    assert os.path.exists(meta["file_path"])
+    today = date.today().isoformat()
+    assert today in meta["file_path"]
+    # Verify ordering: file written to disk before thumbnail attempted
+    assert call_order == ["file_write", "generate_thumbnail"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_error_paths_still_return_dicts(templates_dir, output_dir):
+    """Verify all error paths (pending, running, failed, unreachable) still return error dicts."""
+    # Pending
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=HISTORY_PENDING)
+    )
+    result = await slop_studio.comfyui.get_image("abc-123")
+    assert isinstance(result, dict)
+    assert result["status"] == "error"
+
+    # Running
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=HISTORY_RUNNING)
+    )
+    result = await slop_studio.comfyui.get_image("abc-123")
+    assert isinstance(result, dict)
+    assert result["status"] == "error"
+
+    # Failed
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=HISTORY_FAILED)
+    )
+    result = await slop_studio.comfyui.get_image("abc-123")
+    assert isinstance(result, dict)
+    assert result["status"] == "error"
+
+    # Unreachable
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        side_effect=httpx.ConnectError("Connection refused")
+    )
+    result = await slop_studio.comfyui.get_image("abc-123")
+    assert isinstance(result, dict)
+    assert result["status"] == "error"
+
+
 # -- Injection guard tests --
 
 
@@ -786,9 +930,10 @@ async def test_get_image_filename_collision_appends_suffix(templates_dir, output
     (date_dir / "ComfyUI_00042_.png").write_bytes(b"existing")
 
     result = await slop_studio.comfyui.get_image("abc-123")
-    assert result["status"] == "success"
+    meta = json.loads(result[1].text)
+    assert meta["status"] == "success"
     # Should have a suffixed filename
-    assert result["file_path"].endswith("ComfyUI_00042__001.png")
+    assert meta["file_path"].endswith("ComfyUI_00042__001.png")
     # Both files should exist
     assert (date_dir / "ComfyUI_00042_.png").exists()
     assert (date_dir / "ComfyUI_00042__001.png").exists()
@@ -981,3 +1126,123 @@ async def test_optional_image_not_provided(templates_dir):
     assert result["status"] == "success"
     # Only the /prompt call, no /upload/image
     assert len(respx.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# generate_thumbnail tests
+# ---------------------------------------------------------------------------
+
+
+def _make_test_image(width: int, height: int, mode: str = "RGB") -> bytes:
+    """Create a test image and return as PNG bytes."""
+    from PIL import Image as PILImage
+    if mode == "RGBA":
+        color = (255, 0, 0, 128)
+    elif mode == "P":
+        # Create RGB first, then convert to palette mode
+        img = PILImage.new("RGB", (width, height), color=(255, 0, 0))
+        img = img.convert("P")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    elif mode == "L":
+        color = 128
+    else:
+        color = (255, 0, 0)
+    img = PILImage.new(mode, (width, height), color=color)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_generate_thumbnail_large_rgb():
+    """2048x2048 RGB PNG -> base64 JPEG fitting within 512x512."""
+    from PIL import Image as PILImage
+    image_bytes = _make_test_image(2048, 2048)
+    result = slop_studio.comfyui.generate_thumbnail(image_bytes)
+
+    # Decode and verify
+    decoded = base64.b64decode(result)
+    img = PILImage.open(io.BytesIO(decoded))
+    assert img.format == "JPEG"
+    assert img.size[0] <= 512
+    assert img.size[1] <= 512
+
+
+def test_generate_thumbnail_landscape_aspect_ratio():
+    """2048x1024 landscape -> preserves aspect ratio (512x256)."""
+    from PIL import Image as PILImage
+    image_bytes = _make_test_image(2048, 1024)
+    result = slop_studio.comfyui.generate_thumbnail(image_bytes)
+
+    decoded = base64.b64decode(result)
+    img = PILImage.open(io.BytesIO(decoded))
+    assert img.size == (512, 256)
+
+
+def test_generate_thumbnail_portrait_aspect_ratio():
+    """1024x2048 portrait -> preserves aspect ratio (256x512)."""
+    from PIL import Image as PILImage
+    image_bytes = _make_test_image(1024, 2048)
+    result = slop_studio.comfyui.generate_thumbnail(image_bytes)
+
+    decoded = base64.b64decode(result)
+    img = PILImage.open(io.BytesIO(decoded))
+    assert img.size == (256, 512)
+
+
+def test_generate_thumbnail_rgba_converts_to_rgb():
+    """RGBA image -> converts to RGB, valid JPEG output."""
+    from PIL import Image as PILImage
+    image_bytes = _make_test_image(800, 600, mode="RGBA")
+    result = slop_studio.comfyui.generate_thumbnail(image_bytes)
+
+    decoded = base64.b64decode(result)
+    img = PILImage.open(io.BytesIO(decoded))
+    assert img.format == "JPEG"
+    assert img.mode == "RGB"
+
+
+def test_generate_thumbnail_palette_mode_converts_to_rgb():
+    """Palette-mode (P) image -> converts to RGB, valid output."""
+    from PIL import Image as PILImage
+    image_bytes = _make_test_image(800, 600, mode="P")
+    result = slop_studio.comfyui.generate_thumbnail(image_bytes)
+
+    decoded = base64.b64decode(result)
+    img = PILImage.open(io.BytesIO(decoded))
+    assert img.format == "JPEG"
+    assert img.mode == "RGB"
+
+
+def test_generate_thumbnail_small_image_no_upscale():
+    """256x256 small image -> NOT upscaled, dimensions remain 256x256."""
+    from PIL import Image as PILImage
+    image_bytes = _make_test_image(256, 256)
+    result = slop_studio.comfyui.generate_thumbnail(image_bytes)
+
+    decoded = base64.b64decode(result)
+    img = PILImage.open(io.BytesIO(decoded))
+    assert img.size == (256, 256)
+
+
+def test_generate_thumbnail_output_under_100kb():
+    """Output base64 decodes to valid JPEG under 100KB."""
+    image_bytes = _make_test_image(2048, 2048)
+    result = slop_studio.comfyui.generate_thumbnail(image_bytes)
+
+    decoded = base64.b64decode(result)
+    assert len(decoded) < 100_000  # under 100KB
+
+
+def test_generate_thumbnail_corrupt_input_raises():
+    """Corrupt/invalid image bytes -> raises PIL.UnidentifiedImageError."""
+    from PIL import UnidentifiedImageError
+    with pytest.raises(UnidentifiedImageError):
+        slop_studio.comfyui.generate_thumbnail(b"not an image at all")
+
+
+def test_generate_thumbnail_empty_bytes_raises():
+    """Empty bytes -> raises ValueError."""
+    with pytest.raises(ValueError, match="empty"):
+        slop_studio.comfyui.generate_thumbnail(b"")

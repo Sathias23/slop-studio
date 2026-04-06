@@ -300,12 +300,17 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
 
 @mcp.tool()
 @safe_tool
-async def get_image(prompt_id: str) -> dict:
+async def get_image(prompt_id: str) -> dict | list:
     """Retrieve the output image from a completed generation job.
 
     Downloads the image from ComfyUI, saves it to the output directory
     organized by date ({output_dir}/{YYYY-MM-DD}/{filename}), and returns
-    the absolute file path.
+    an inline JPEG thumbnail preview alongside the full-resolution file path.
+
+    The response contains an ImageContent block (base64 JPEG thumbnail for
+    inline display) and a TextContent block with JSON metadata including
+    the absolute file path. If thumbnail generation fails, only the
+    TextContent block is returned (the full-res image is always saved).
 
     Call this after check_job returns status 'completed'. If the job is
     still running, call check_job with wait first to poll for completion.

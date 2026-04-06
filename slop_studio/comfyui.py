@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import copy
+import io
 import json
 import logging
 import os
@@ -10,6 +12,8 @@ from datetime import date
 from pathlib import Path
 
 import httpx
+from mcp.types import ImageContent, TextContent
+from PIL import Image
 
 from slop_studio.config import COMFYUI_URL, OUTPUT_DIR, TEMPLATES_DIR
 from slop_studio.errors import terminal_error, transient_error
@@ -21,6 +25,39 @@ MAX_POLL_DURATION = 45     # maximum total polling time in seconds (FR16)
 MAX_FAILURE_RETRIES = 3    # retry failed jobs this many times before reporting
 
 
+def generate_thumbnail(image_bytes: bytes, max_size: int = 512, quality: int = 80) -> str:
+    """Generate a base64-encoded JPEG thumbnail from raw image bytes.
+
+    Resizes to fit within max_size x max_size pixels (preserving aspect ratio,
+    never upscaling). Converts non-RGB modes (RGBA, P, L) to RGB for JPEG.
+
+    Args:
+        image_bytes: Raw image data (any PIL-supported format).
+        max_size: Maximum dimension in pixels (default 512).
+        quality: JPEG compression quality 1-95 (default 80).
+
+    Returns:
+        Base64-encoded JPEG string (no data URI prefix).
+
+    Raises:
+        PIL.UnidentifiedImageError: If image_bytes is not a valid image.
+        ValueError: If image_bytes is empty.
+    """
+    if not image_bytes:
+        raise ValueError("image_bytes is empty")
+
+    img = Image.open(io.BytesIO(image_bytes))
+
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+
+    img.thumbnail((max_size, max_size))
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 async def _upload_image(file_path: str) -> str:
     """Upload a local image file to ComfyUI's input directory.
 
@@ -30,7 +67,6 @@ async def _upload_image(file_path: str) -> str:
     if not os.path.isfile(file_path):
         raise ValueError(f"Image file not found: {file_path}")
 
-    from PIL import Image
     try:
         with Image.open(file_path) as img:
             img.verify()
@@ -415,7 +451,7 @@ def _build_batch_result(
     }
 
 
-async def get_image(prompt_id: str) -> dict:
+async def get_image(prompt_id: str) -> dict | list:
     """Retrieve completed image, save to output directory, return absolute path."""
     # 1. Check job status
     try:
@@ -508,4 +544,20 @@ async def get_image(prompt_id: str) -> dict:
     abs_path = os.path.abspath(output_path)
     logger.info("Image saved: %s", abs_path)
 
-    return {"status": "success", "file_path": abs_path, "prompt_id": prompt_id}
+    metadata = json.dumps({
+        "status": "success",
+        "file_path": abs_path,
+        "prompt_id": prompt_id,
+    })
+
+    # Generate thumbnail for inline display
+    try:
+        thumbnail_b64 = generate_thumbnail(image_bytes)
+    except Exception:
+        logger.warning("Thumbnail generation failed for %s, returning text-only", abs_path, exc_info=True)
+        return [TextContent(type="text", text=metadata)]
+
+    return [
+        ImageContent(type="image", data=thumbnail_b64, mimeType="image/jpeg"),
+        TextContent(type="text", text=metadata),
+    ]
