@@ -43,38 +43,50 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     process = None
 
     if COMFYUI_START_CMD:
-        args = shlex.split(COMFYUI_START_CMD)
-        logger.info("Starting ComfyUI: %s", args)
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-        except (FileNotFoundError, OSError) as exc:
-            logger.error("Failed to start ComfyUI: %s", exc)
-            raise
+        # Skip spawn if ComfyUI is already reachable
+        already_running = False
+        async with httpx.AsyncClient(timeout=5.0) as probe:
+            try:
+                resp = await probe.get(f"{COMFYUI_URL}/ready")
+                if resp.status_code == 200:
+                    already_running = True
+                    logger.info("ComfyUI already running at %s, skipping spawn", COMFYUI_URL)
+            except httpx.TransportError:
+                pass
 
-        # Safety net for unclean exits
-        pid = process.pid
+        if not already_running:
+            args = shlex.split(COMFYUI_START_CMD)
+            logger.info("Starting ComfyUI: %s", args)
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            except (FileNotFoundError, OSError) as exc:
+                logger.error("Failed to start ComfyUI: %s", exc)
+                raise
 
-        def _atexit_kill():
-            if process.returncode is None:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
+            # Safety net for unclean exits
+            pid = process.pid
 
-        atexit.register(_atexit_kill)
+            def _atexit_kill():
+                if process.returncode is None:
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
 
-        ready = await _wait_for_comfyui(COMFYUI_URL, COMFYUI_START_TIMEOUT)
-        if not ready:
-            process.terminate()
-            await process.wait()
-            raise RuntimeError(
-                f"ComfyUI started but did not become ready within {COMFYUI_START_TIMEOUT}s"
-            )
-        logger.info("ComfyUI started and ready (pid=%d)", process.pid)
+            atexit.register(_atexit_kill)
+
+            ready = await _wait_for_comfyui(COMFYUI_URL, COMFYUI_START_TIMEOUT)
+            if not ready:
+                process.terminate()
+                await process.wait()
+                raise RuntimeError(
+                    f"ComfyUI started but did not become ready within {COMFYUI_START_TIMEOUT}s"
+                )
+            logger.info("ComfyUI started and ready (pid=%d)", process.pid)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
