@@ -8,6 +8,29 @@ logger = logging.getLogger(__name__)
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 
+# Common locations where ComfyUI may be installed
+_COMFYUI_SEARCH_PATHS = [
+    Path.home() / "ComfyUI",
+    Path.home() / "comfyui",
+    Path("/opt/ComfyUI"),
+    Path("/opt/comfyui"),
+]
+
+
+def _detect_comfyui_start_cmd() -> str:
+    """Try to find a ComfyUI installation and return a start command, or empty string."""
+    # Check if 'comfyui' is on PATH
+    if shutil.which("comfyui"):
+        return "comfyui"
+
+    # Check common install directories for main.py
+    for candidate in _COMFYUI_SEARCH_PATHS:
+        main_py = candidate / "main.py"
+        if main_py.is_file():
+            return f"python {main_py}"
+
+    return ""
+
 
 def init_project(target: Path) -> bool:
     """Scaffold an art project directory with starter templates, MCP config, and slash commands."""
@@ -24,12 +47,24 @@ def init_project(target: Path) -> bool:
     if mcp_json_path.exists():
         print(f"Warning: {mcp_json_path} already exists — skipping", file=sys.stderr)
     else:
+        start_cmd = _detect_comfyui_start_cmd()
+        env = {}
+        if start_cmd:
+            env["COMFYUI_START_CMD"] = start_cmd
+            print(f"  Detected ComfyUI: {start_cmd}")
+        else:
+            env["COMFYUI_START_CMD"] = "python ~/ComfyUI/main.py"
+            print(
+                "  ComfyUI not found on PATH or in common locations.\n"
+                "  Edit .mcp.json to set COMFYUI_START_CMD to your ComfyUI start command."
+            )
+
         mcp_config = {
             "mcpServers": {
                 "slop-studio": {
                     "command": "slop-studio",
                     "args": ["serve", "--project-dir", str(target)],
-                    "env": {}
+                    "env": env
                 }
             }
         }

@@ -1,9 +1,10 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from slop_studio.init import init_project, ASSETS_DIR
+from slop_studio.init import init_project, _detect_comfyui_start_cmd, ASSETS_DIR
 
 
 def test_init_creates_templates_dir(tmp_path):
@@ -94,3 +95,45 @@ def test_init_idempotent_second_run(tmp_path):
 
 def test_init_returns_true_on_success(tmp_path):
     assert init_project(tmp_path) is True
+
+
+def test_init_mcp_json_includes_comfyui_start_cmd(tmp_path):
+    init_project(tmp_path)
+    config = json.loads((tmp_path / ".mcp.json").read_text())
+    env = config["mcpServers"]["slop-studio"]["env"]
+    assert "COMFYUI_START_CMD" in env
+    assert env["COMFYUI_START_CMD"] != ""
+
+
+def test_init_detects_comfyui_on_path(tmp_path):
+    with patch("shutil.which", return_value="/usr/local/bin/comfyui"):
+        cmd = _detect_comfyui_start_cmd()
+    assert cmd == "comfyui"
+
+
+def test_init_detects_comfyui_main_py(tmp_path):
+    comfyui_dir = tmp_path / "ComfyUI"
+    comfyui_dir.mkdir()
+    (comfyui_dir / "main.py").write_text("# ComfyUI")
+    search_paths = [comfyui_dir]
+    with patch("shutil.which", return_value=None), \
+         patch("slop_studio.init._COMFYUI_SEARCH_PATHS", search_paths):
+        cmd = _detect_comfyui_start_cmd()
+    assert cmd == f"python {comfyui_dir / 'main.py'}"
+
+
+def test_init_falls_back_to_placeholder_when_not_found(tmp_path):
+    with patch("shutil.which", return_value=None), \
+         patch("slop_studio.init._COMFYUI_SEARCH_PATHS", []):
+        init_project(tmp_path)
+    config = json.loads((tmp_path / ".mcp.json").read_text())
+    env = config["mcpServers"]["slop-studio"]["env"]
+    assert env["COMFYUI_START_CMD"] == "python ~/ComfyUI/main.py"
+
+
+def test_init_uses_detected_comfyui_cmd(tmp_path):
+    with patch("slop_studio.init._detect_comfyui_start_cmd", return_value="comfyui"):
+        init_project(tmp_path)
+    config = json.loads((tmp_path / ".mcp.json").read_text())
+    env = config["mcpServers"]["slop-studio"]["env"]
+    assert env["COMFYUI_START_CMD"] == "comfyui"
