@@ -17,6 +17,15 @@ if not COMFYUI_URL.startswith(("http://", "https://")):
         f"COMFYUI_URL must start with http:// or https://, got: {COMFYUI_URL!r}"
     )
 
+COMFYUI_START_CMD = _env_or_default("COMFYUI_START_CMD", "")
+try:
+    COMFYUI_START_TIMEOUT = int(_env_or_default("COMFYUI_START_TIMEOUT", "120"))
+except ValueError:
+    raise ValueError(
+        "COMFYUI_START_TIMEOUT must be a whole number of seconds, "
+        f"got: {os.environ.get('COMFYUI_START_TIMEOUT')!r}"
+    )
+
 TEMPLATES_DIR = _env_or_default(
     "SLOP_STUDIO_TEMPLATES_DIR", str(_PACKAGE_DIR.parent / "templates")
 )

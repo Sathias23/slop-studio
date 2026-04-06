@@ -107,6 +107,8 @@ The default templates run on 16GB of VRAM. Add your own by exporting a workflow 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `COMFYUI_URL` | `http://localhost:8188` | ComfyUI server address |
+| `COMFYUI_START_CMD` | — | Command to launch ComfyUI (e.g. `python /path/to/ComfyUI/main.py --port 8188`). When set, slop-studio starts and stops ComfyUI automatically. |
+| `COMFYUI_START_TIMEOUT` | `120` | Seconds to wait for ComfyUI to become ready after launch |
 | `SLOP_STUDIO_TEMPLATES_DIR` | `./templates` | Template directory |
 | `SLOP_STUDIO_OUTPUT_DIR` | `./output` | Output directory |
 | `BSKY_HANDLE` | — | Bluesky handle (overrides central config) |
@@ -117,14 +119,13 @@ Environment variables take precedence over `slop-studio auth` credentials. A pro
 ## Coming Soon
 
 - More workflow templates (SDXL, video, inpainting, LoRA stacks)
-- ComfyUI launcher and process management
 - Model downloading and management tools
 - The Sloppifier — token and prompt manipulation tools
 - Claude Code personas and lore system
 
 ## Troubleshooting
 
-**MCP server not connecting:** If you start Claude Code before ComfyUI is running, the MCP server won't be able to connect. Use the `/mcp` command inside Claude Code to reconnect after starting ComfyUI.
+**MCP server not connecting:** If you start Claude Code before ComfyUI is running, the MCP server won't be able to connect. Use the `/mcp` command inside Claude Code to reconnect after starting ComfyUI. Alternatively, set `COMFYUI_START_CMD` in your `.env` to have slop-studio launch ComfyUI automatically.
 
 ## Development
 

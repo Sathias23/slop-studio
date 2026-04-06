@@ -1,18 +1,81 @@
+import asyncio
+import atexit
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import logging
+import os
+import shlex
+import signal
 
 import httpx
 from fastmcp import FastMCP
 
-from slop_studio.config import COMFYUI_URL
+from slop_studio.config import COMFYUI_START_CMD, COMFYUI_START_TIMEOUT, COMFYUI_URL
 
 logger = logging.getLogger(__name__)
 
 
+async def _wait_for_comfyui(url: str, timeout: float) -> bool:
+    """Poll ComfyUI's /ready endpoint with exponential backoff."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    delay = 0.5
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        while loop.time() < deadline:
+            try:
+                resp = await client.get(f"{url}/ready")
+                if resp.status_code == 200:
+                    return True
+            except httpx.TransportError:
+                pass
+            await asyncio.sleep(delay)
+            delay = min(delay * 1.5, 5.0)
+    return False
+
+
 @asynccontextmanager
 async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
-    """Validate ComfyUI connectivity before accepting requests."""
+    """Validate ComfyUI connectivity before accepting requests.
+
+    When COMFYUI_START_CMD is set, spawns ComfyUI as a managed child process
+    and waits for it to become ready before proceeding.
+    """
+    process = None
+
+    if COMFYUI_START_CMD:
+        args = shlex.split(COMFYUI_START_CMD)
+        logger.info("Starting ComfyUI: %s", args)
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            logger.error("Failed to start ComfyUI: %s", exc)
+            raise
+
+        # Safety net for unclean exits
+        pid = process.pid
+
+        def _atexit_kill():
+            if process.returncode is None:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+
+        atexit.register(_atexit_kill)
+
+        ready = await _wait_for_comfyui(COMFYUI_URL, COMFYUI_START_TIMEOUT)
+        if not ready:
+            process.terminate()
+            await process.wait()
+            raise RuntimeError(
+                f"ComfyUI started but did not become ready within {COMFYUI_START_TIMEOUT}s"
+            )
+        logger.info("ComfyUI started and ready (pid=%d)", process.pid)
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             response = await client.get(f"{COMFYUI_URL}/system_stats")
@@ -31,7 +94,19 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
             )
             raise
     logger.info("ComfyUI reachable at %s", COMFYUI_URL)
-    yield {}
+
+    try:
+        yield {}
+    finally:
+        if process and process.returncode is None:
+            logger.info("Shutting down ComfyUI (pid=%d)", process.pid)
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning("ComfyUI did not exit gracefully, killing")
+                process.kill()
+                await process.wait()
 
 
 mcp = FastMCP("slop-studio", lifespan=lifespan)
