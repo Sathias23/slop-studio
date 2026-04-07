@@ -66,16 +66,19 @@ def _detect_slop_studio_path() -> tuple[str, list[str]]:
 def _detect_comfyui() -> str:
     """Check common ComfyUI locations, return start command or placeholder."""
     import shlex
+    from slop_studio.init import _find_python_for
 
     common_paths = [
-        Path.home() / "ComfyUI" / "main.py",
-        Path.home() / "comfyui" / "main.py",
-        Path("/opt/ComfyUI/main.py"),
+        Path.home() / "ComfyUI",
+        Path.home() / "comfyui",
+        Path("/opt/ComfyUI"),
+        Path("/opt/comfyui"),
     ]
-    for p in common_paths:
-        if p.exists():
-            return f"{shlex.quote(sys.executable)} {shlex.quote(str(p))} --port 8188"
-    return f"{shlex.quote(sys.executable)} /path/to/ComfyUI/main.py --port 8188"
+    for d in common_paths:
+        if (d / "main.py").exists():
+            python = _find_python_for(d)
+            return f"{python} {shlex.quote(str(d / 'main.py'))} --port 8188"
+    return "python3 /path/to/ComfyUI/main.py --port 8188"
 
 
 def _copy_to_clipboard(text: str) -> None:

@@ -65,7 +65,7 @@ if not COMFYUI_URL.startswith(("http://", "https://")):
         f"COMFYUI_URL must start with http:// or https://, got: {COMFYUI_URL!r}"
     )
 
-COMFYUI_START_CMD = _env_or_default("COMFYUI_START_CMD", "")
+COMFYUI_START_CMD = _resolve("COMFYUI_START_CMD", "comfyui_start_cmd", "")
 try:
     COMFYUI_START_TIMEOUT = int(_env_or_default("COMFYUI_START_TIMEOUT", "120"))
 except ValueError:

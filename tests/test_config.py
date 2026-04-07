@@ -214,3 +214,37 @@ def test_config_toml_whitespace_only_value_warns(monkeypatch, tmp_path, caplog):
         importlib.reload(config_module)
     assert config_module.OUTPUT_DIR == str(tmp_path / "slop-studio" / "output")
     assert any("is blank" in msg for msg in caplog.messages)
+
+
+# --- COMFYUI_START_CMD config.toml integration ---
+
+
+def test_comfyui_start_cmd_from_config_toml(monkeypatch, tmp_path):
+    """comfyui_start_cmd in config.toml is used when env var is unset."""
+    _setup_config_toml(
+        monkeypatch, tmp_path,
+        'comfyui_start_cmd = "python3 /home/user/ComfyUI/main.py"\n',
+    )
+    monkeypatch.delenv("COMFYUI_START_CMD", raising=False)
+    importlib.reload(config_module)
+    assert config_module.COMFYUI_START_CMD == "python3 /home/user/ComfyUI/main.py"
+
+
+def test_comfyui_start_cmd_env_wins_over_toml(monkeypatch, tmp_path):
+    """Env var COMFYUI_START_CMD takes priority over config.toml."""
+    _setup_config_toml(
+        monkeypatch, tmp_path,
+        'comfyui_start_cmd = "from-toml"\n',
+    )
+    monkeypatch.setenv("COMFYUI_START_CMD", "from-env")
+    importlib.reload(config_module)
+    assert config_module.COMFYUI_START_CMD == "from-env"
+
+
+def test_comfyui_start_cmd_defaults_to_empty(monkeypatch, tmp_path):
+    """No env var, no config.toml → empty string (auto-start disabled)."""
+    _setup_config_toml(monkeypatch, tmp_path)
+    (tmp_path / ".config" / "slop-studio" / "config.toml").unlink(missing_ok=True)
+    monkeypatch.delenv("COMFYUI_START_CMD", raising=False)
+    importlib.reload(config_module)
+    assert config_module.COMFYUI_START_CMD == ""
