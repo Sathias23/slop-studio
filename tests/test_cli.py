@@ -167,23 +167,31 @@ class TestDesktopConfig:
         assert command == "uv"
         assert "slop-studio" in extra
 
-    def test_detect_comfyui_found(self, tmp_path, monkeypatch):
-        from slop_studio.cli import _detect_comfyui
+    def test_resolve_comfyui_cmd_found(self, tmp_path, monkeypatch):
+        from slop_studio.cli import _resolve_comfyui_cmd
+        from unittest.mock import patch
 
         comfyui_dir = tmp_path / "ComfyUI"
         comfyui_dir.mkdir()
         main_py = comfyui_dir / "main.py"
         main_py.write_text("# ComfyUI")
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        result = _detect_comfyui()
+        with patch("sys.stdin") as mock_stdin, \
+             patch("slop_studio.init._COMFYUI_SEARCH_PATHS", [comfyui_dir]), \
+             patch("slop_studio.init._load_config_toml", return_value={}):
+            mock_stdin.isatty.return_value = False
+            result = _resolve_comfyui_cmd()
         assert str(main_py) in result
         assert "python" in result
 
-    def test_detect_comfyui_not_found(self, tmp_path, monkeypatch):
-        from slop_studio.cli import _detect_comfyui
+    def test_resolve_comfyui_cmd_not_found(self, tmp_path, monkeypatch):
+        from slop_studio.cli import _resolve_comfyui_cmd
+        from unittest.mock import patch
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        result = _detect_comfyui()
+        with patch("sys.stdin") as mock_stdin, \
+             patch("slop_studio.init._load_config_toml", return_value={}):
+            mock_stdin.isatty.return_value = False
+            result = _resolve_comfyui_cmd()
         assert "/path/to/" in result
 
     def test_copy_flag_attempts_clipboard(self, capsys, monkeypatch):

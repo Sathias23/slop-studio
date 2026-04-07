@@ -63,22 +63,39 @@ def _detect_slop_studio_path() -> tuple[str, list[str]]:
     return "uv", ["tool", "run", "slop-studio"]
 
 
-def _detect_comfyui() -> str:
-    """Check common ComfyUI locations, return start command or placeholder."""
-    import shlex
-    from slop_studio.init import _find_python_for
+def _resolve_comfyui_cmd() -> str:
+    """Resolve ComfyUI start command using the same flow as init.
 
-    common_paths = [
-        Path.home() / "ComfyUI",
-        Path.home() / "comfyui",
-        Path("/opt/ComfyUI"),
-        Path("/opt/comfyui"),
-    ]
-    for d in common_paths:
-        if (d / "main.py").exists():
-            python = _find_python_for(d)
-            return f"{python} {shlex.quote(str(d / 'main.py'))} --port 8188"
-    return "python3 /path/to/ComfyUI/main.py --port 8188"
+    Interactive (TTY): prompts for ComfyUI dir + venv, saves to config.toml.
+    Non-interactive: uses saved config, auto-detection, or placeholder.
+    """
+    from slop_studio.init import (
+        _detect_comfyui_dir, _build_start_cmd, _load_config_toml,
+        _prompt_comfyui_setup, _detect_comfyui_start_cmd,
+    )
+
+    saved_config = _load_config_toml()
+    detected_dir = _detect_comfyui_dir()
+
+    if sys.stdin.isatty():
+        if detected_dir:
+            print(f"  Found ComfyUI at {detected_dir}", file=sys.stderr)
+        else:
+            print("  ComfyUI not found on PATH or in common locations.", file=sys.stderr)
+        cmd = _prompt_comfyui_setup(saved_config, detected_dir)
+        if cmd:
+            return cmd
+
+    # Non-interactive or prompt returned nothing
+    saved_cmd = saved_config.get("comfyui_start_cmd", "")
+    if saved_cmd:
+        return saved_cmd
+
+    detected = _detect_comfyui_start_cmd()
+    if detected:
+        return detected
+
+    return "python3 /path/to/ComfyUI/main.py"
 
 
 def _copy_to_clipboard(text: str) -> None:
@@ -102,7 +119,7 @@ def _copy_to_clipboard(text: str) -> None:
 def _desktop_config(args: argparse.Namespace) -> None:
     """Print claude_desktop_config.json snippet for Claude Desktop setup."""
     command, extra_args = _detect_slop_studio_path()
-    comfyui_cmd = _detect_comfyui()
+    comfyui_cmd = _resolve_comfyui_cmd()
 
     config = {
         "mcpServers": {
