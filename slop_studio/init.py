@@ -66,38 +66,93 @@ def _save_to_config_toml(key: str, value: str) -> None:
     _CONFIG_FILE.write_text("\n".join(lines) + "\n")
 
 
-def _read_saved_comfyui_cmd() -> str:
-    """Return saved comfyui_start_cmd from config.toml, or empty string."""
-    return _load_config_toml().get("comfyui_start_cmd", "")
+def _python_from_venv(venv_dir: Path) -> str | None:
+    """Return the python executable inside a venv, or None if not found."""
+    for candidate in [
+        venv_dir / "bin" / "python",
+        venv_dir / "Scripts" / "python.exe",
+    ]:
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
-def _prompt_comfyui_cmd(saved_default: str) -> str:
-    """Interactively ask the user for their ComfyUI start command.
+def _detect_comfyui_dir() -> Path | None:
+    """Check common ComfyUI locations, return the directory or None."""
+    for candidate in _COMFYUI_SEARCH_PATHS:
+        if (candidate / "main.py").is_file():
+            return candidate
+    return None
 
-    Shows *saved_default* in brackets if available. Returns the command string,
-    or empty string if the user provides no input and there is no default.
-    """
-    if saved_default:
-        prompt = f"  ComfyUI start command [{saved_default}]: "
+
+def _build_start_cmd(comfyui_dir: Path, venv_dir: Path | None = None) -> str:
+    """Construct a start command from a ComfyUI dir and optional venv."""
+    if venv_dir:
+        python_path = _python_from_venv(venv_dir)
+        if python_path:
+            return f"{shlex.quote(python_path)} {shlex.quote(str(comfyui_dir / 'main.py'))}"
+    python = _find_python_for(comfyui_dir)
+    return f"{python} {shlex.quote(str(comfyui_dir / 'main.py'))}"
+
+
+def _prompt_path(label: str, default: str) -> str:
+    """Prompt for a filesystem path, showing default in brackets."""
+    if default:
+        answer = input(f"  {label} [{default}]: ").strip()
     else:
-        prompt = "  ComfyUI start command (e.g. python3 ~/ComfyUI/main.py): "
+        answer = input(f"  {label}: ").strip()
+    return answer if answer else default
 
-    answer = input(prompt).strip()
-    return answer if answer else saved_default
+
+def _prompt_comfyui_setup(saved_config: dict, detected_dir: Path | None) -> str | None:
+    """Interactively ask the user for ComfyUI dir and venv. Returns start command or None."""
+    saved_dir = saved_config.get("comfyui_dir", "")
+    saved_venv = saved_config.get("comfyui_venv", "")
+
+    # Default to detected dir, then saved dir
+    default_dir = str(detected_dir) if detected_dir else saved_dir
+
+    dir_str = _prompt_path("ComfyUI directory", default_dir)
+    if not dir_str:
+        return None
+
+    comfyui_dir = Path(dir_str).expanduser().resolve()
+    if not (comfyui_dir / "main.py").is_file():
+        print(f"  Warning: {comfyui_dir / 'main.py'} not found")
+
+    # Check for venv inside ComfyUI dir first
+    builtin_venv = comfyui_dir / "venv"
+    if _python_from_venv(builtin_venv):
+        default_venv = str(builtin_venv)
+    else:
+        default_venv = saved_venv
+
+    venv_str = _prompt_path("Python venv directory", default_venv)
+    venv_dir = Path(venv_str).expanduser().resolve() if venv_str else None
+
+    if venv_dir and not _python_from_venv(venv_dir):
+        print(f"  Warning: no python found in {venv_dir}/bin/ or {venv_dir}/Scripts/")
+
+    cmd = _build_start_cmd(comfyui_dir, venv_dir)
+
+    # Save paths and constructed command for next time
+    _save_to_config_toml("comfyui_dir", str(comfyui_dir))
+    if venv_dir:
+        _save_to_config_toml("comfyui_venv", str(venv_dir))
+    _save_to_config_toml("comfyui_start_cmd", cmd)
+    print(f"  Saved to {_CONFIG_FILE}")
+
+    return cmd
 
 
 def _detect_comfyui_start_cmd() -> str:
     """Try to find a ComfyUI installation and return a start command, or empty string."""
-    # Check if 'comfyui' is on PATH
     if shutil.which("comfyui"):
         return "comfyui"
 
-    # Check common install directories for main.py
-    for candidate in _COMFYUI_SEARCH_PATHS:
-        main_py = candidate / "main.py"
-        if main_py.is_file():
-            python = _find_python_for(candidate)
-            return f"{python} {shlex.quote(str(main_py))}"
+    detected = _detect_comfyui_dir()
+    if detected:
+        return _build_start_cmd(detected)
 
     return ""
 
@@ -117,41 +172,40 @@ def init_project(target: Path) -> bool:
     if mcp_json_path.exists():
         print(f"Warning: {mcp_json_path} already exists — skipping", file=sys.stderr)
     else:
-        detected = _detect_comfyui_start_cmd()
-        saved = _read_saved_comfyui_cmd()
-        # Best available default: saved config > auto-detected > placeholder
-        default_cmd = saved or detected or ""
         env = {}
+        saved_config = _load_config_toml()
+        detected_dir = _detect_comfyui_dir()
 
         if sys.stdin.isatty():
-            if detected and not saved:
-                print(f"  Detected ComfyUI: {detected}")
-            elif not detected and not saved:
+            if detected_dir:
+                print(f"  Found ComfyUI at {detected_dir}")
+            else:
                 print("  ComfyUI not found on PATH or in common locations.")
-            start_cmd = _prompt_comfyui_cmd(default_cmd)
+            start_cmd = _prompt_comfyui_setup(saved_config, detected_dir)
             if start_cmd:
-                if start_cmd != saved:
-                    _save_to_config_toml("comfyui_start_cmd", start_cmd)
-                    print(f"  Saved to {_CONFIG_FILE}")
                 env["COMFYUI_START_CMD"] = start_cmd
             else:
                 env["COMFYUI_START_CMD"] = "python3 ~/ComfyUI/main.py"
                 print(
-                    "  No command provided.\n"
+                    "  No directory provided.\n"
                     "  Edit .mcp.json to set COMFYUI_START_CMD to your ComfyUI start command."
                 )
-        elif saved:
-            env["COMFYUI_START_CMD"] = saved
-            print(f"  Using saved ComfyUI command: {saved}")
-        elif detected:
-            env["COMFYUI_START_CMD"] = detected
-            print(f"  Detected ComfyUI: {detected}")
         else:
-            env["COMFYUI_START_CMD"] = "python3 ~/ComfyUI/main.py"
-            print(
-                "  ComfyUI not found on PATH or in common locations.\n"
-                "  Edit .mcp.json to set COMFYUI_START_CMD to your ComfyUI start command."
-            )
+            # Non-interactive: use saved command, or auto-detect, or placeholder
+            saved_cmd = saved_config.get("comfyui_start_cmd", "")
+            if saved_cmd:
+                env["COMFYUI_START_CMD"] = saved_cmd
+                print(f"  Using saved ComfyUI command: {saved_cmd}")
+            elif detected_dir:
+                start_cmd = _build_start_cmd(detected_dir)
+                env["COMFYUI_START_CMD"] = start_cmd
+                print(f"  Detected ComfyUI: {start_cmd}")
+            else:
+                env["COMFYUI_START_CMD"] = "python3 ~/ComfyUI/main.py"
+                print(
+                    "  ComfyUI not found on PATH or in common locations.\n"
+                    "  Edit .mcp.json to set COMFYUI_START_CMD to your ComfyUI start command."
+                )
 
         mcp_config = {
             "mcpServers": {
