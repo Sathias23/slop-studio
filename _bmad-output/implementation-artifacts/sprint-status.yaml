@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-05
-last_updated: 2026-04-06  # Story 4.3 review
+last_updated: 2026-04-06  # Story 4.3 done
 project: ComfyClaude
 project_key: NOKEY
 tracking_system: file-system
@@ -66,5 +66,5 @@ development_status:
   epic-4: in-progress
   4-1-manual-claude-desktop-configuration: done
   4-2-mcpb-desktop-extension-package: done
-  4-3-cross-platform-process-management: review
+  4-3-cross-platform-process-management: done
   epic-4-retrospective: optional

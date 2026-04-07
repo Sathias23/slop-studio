@@ -1,6 +1,6 @@
 # Story 4.3: Cross-Platform Process Management
 
-Status: review
+Status: done
 
 ## Story
 
@@ -302,6 +302,23 @@ Claude Opus 4.6 (1M context)
 ### Change Log
 
 - 2026-04-06: Implemented cross-platform process management abstraction layer (Story 4.3)
+
+### Review Findings
+
+- [x] [Review][Decision] DN1: `shutdown()` skip SIGTERM resolved — changed to use `graceful_kill()` via `asyncio.to_thread`; `_kill_process()` stays force-kill (only called for confirmed-unresponsive processes)
+- [x] [Review][Patch] P1: Missing `await self._process.wait()` after SIGKILL timeout — fixed in `_kill_process` [server.py]
+- [x] [Review][Patch] P2: `shutdown()` never resets `self._managed = False` — fixed [server.py]
+- [x] [Review][Patch] P3: `graceful_kill` blocking loop in async context — fixed: `cleanup_orphan` made async, uses `asyncio.to_thread` [server.py]
+- [x] [Review][Patch] P4: `is_process_alive` Windows: substring PID match — fixed: uses regex non-digit boundary [process.py]
+- [x] [Review][Patch] P5: `spawn_subprocess` Windows overwrites `creationflags` — fixed: uses `|=` [process.py]
+- [x] [Review][Patch] P6: `graceful_kill` Unix: pgid queried twice — fixed: captured once before SIGTERM [process.py]
+- [x] [Review][Patch] P7: `PermissionError` from `os.killpg` uncaught — fixed in `kill_process_tree` and `graceful_kill` [process.py]
+- [x] [Review][Patch] P8: `_atexit_kill` guards on wrong `self._process` — fixed: captures `spawn_proc` at registration [server.py]
+- [x] [Review][Patch] P9: `taskkill` return code discarded silently — fixed: logs debug on failure [process.py]
+- [x] [Review][Defer] W1: `get_process_cmdline` inconsistent return format (null bytes Linux vs trailing newline macOS) [process.py:146–156] — deferred, pre-existing moved behaviour; callers work correctly
+- [x] [Review][Defer] W2: `get_process_cmdline` uses deprecated `wmic` on Windows 11 24H2+ [process.py:135–145] — deferred, spec Dev Notes explicitly acknowledged and accepted this risk
+- [x] [Review][Defer] W3: `_idle_watcher`/`ensure_ready` potential race condition [server.py] — deferred, pre-existing, not introduced by this story
+- [x] [Review][Defer] W4: Test coverage gaps for SIGTERM-first shutdown semantics — deferred, depends on DN1 resolution
 
 ### File List
 

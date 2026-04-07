@@ -161,7 +161,8 @@ class ComfyUIManager:
         try:
             await asyncio.wait_for(self._process.wait(), timeout=5.0)
         except asyncio.TimeoutError:
-            pass
+            logger.warning("Process (pid=%d) did not exit within 5s after SIGKILL", self._process.pid)
+            await self._process.wait()
         self._process = None
         self._managed = False
         self._remove_pid_file()
@@ -200,9 +201,10 @@ class ComfyUIManager:
 
         # Safety net for unclean exits — kill the whole process tree
         spawn_pid = self._process.pid
+        spawn_proc = self._process  # capture reference; self._process may change on respawn
 
         def _atexit_kill():
-            if self._process and self._process.returncode is None:
+            if spawn_proc.returncode is None:
                 kill_process_tree(spawn_pid)
 
         self._atexit_handler = _atexit_kill
@@ -287,23 +289,19 @@ class ComfyUIManager:
             return
         if not is_process_alive(self._process.pid):
             self._process = None
+            self._managed = False
             self._remove_pid_file()
             return
         logger.info("Shutting down ComfyUI (pid=%d)", self._process.pid)
-        kill_process_tree(self._process.pid)
-        try:
-            await asyncio.wait_for(self._process.wait(), timeout=10.0)
-        except asyncio.TimeoutError:
-            logger.warning("ComfyUI did not exit after kill_process_tree")
+        await asyncio.to_thread(graceful_kill, self._process.pid, timeout=10.0)
+        await self._process.wait()
+        self._managed = False
         self._process = None
         self._remove_pid_file()
 
 
-def cleanup_orphan(pid_file) -> None:
-    """Kill an orphaned ComfyUI process from a previous crash, if any.
-
-    Runs synchronously at startup, before the event loop.
-    """
+async def cleanup_orphan(pid_file) -> None:
+    """Kill an orphaned ComfyUI process from a previous crash, if any."""
     if not pid_file.is_file():
         return
 
@@ -342,7 +340,7 @@ def cleanup_orphan(pid_file) -> None:
 
     # Confirmed ComfyUI orphan — kill process tree
     logger.info("Killing orphaned ComfyUI process (pid=%d)", pid)
-    graceful_kill(pid, timeout=5.0)
+    await asyncio.to_thread(graceful_kill, pid, timeout=5.0)
 
     pid_file.unlink(missing_ok=True)
     logger.info("Orphaned ComfyUI process cleaned up")
@@ -356,7 +354,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     queue_prompt call via manager.ensure_ready().
     """
     try:
-        cleanup_orphan(PID_FILE)
+        await cleanup_orphan(PID_FILE)
     except Exception:
         logger.warning("Orphan cleanup failed — continuing startup", exc_info=True)
     manager = ComfyUIManager(COMFYUI_URL, COMFYUI_START_CMD, COMFYUI_START_TIMEOUT, COMFYUI_IDLE_TIMEOUT)

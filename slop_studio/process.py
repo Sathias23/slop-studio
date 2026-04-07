@@ -8,6 +8,7 @@ os.getpgid directly — use these functions instead.
 import asyncio
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -30,7 +31,7 @@ async def spawn_subprocess(*args, **kwargs) -> asyncio.subprocess.Process:
     On Windows: uses CREATE_NEW_PROCESS_GROUP for subprocess isolation.
     """
     if IS_WINDOWS:
-        kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP
+        kwargs["creationflags"] = kwargs.get("creationflags", 0) | CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
     return await asyncio.create_subprocess_exec(*args, **kwargs)
@@ -43,15 +44,17 @@ def kill_process_tree(pid: int) -> None:
     On Windows: uses taskkill /T /F /PID for tree kill.
     """
     if IS_WINDOWS:
-        subprocess.run(
+        result = subprocess.run(
             ["taskkill", "/T", "/F", "/PID", str(pid)],
             capture_output=True,
         )
+        if result.returncode != 0:
+            logger.debug("taskkill /F failed for pid %d: %s", pid, result.stderr)
     else:
         try:
             pgid = os.getpgid(pid)
             os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
 
 
@@ -81,8 +84,12 @@ def graceful_kill(pid: int, timeout: float = 5.0) -> None:
     else:
         try:
             pgid = os.getpgid(pid)
+        except (ProcessLookupError, PermissionError):
+            return
+
+        try:
             os.killpg(pgid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             return
 
         # Wait for exit
@@ -92,11 +99,10 @@ def graceful_kill(pid: int, timeout: float = 5.0) -> None:
                 return
             time.sleep(0.1)
 
-        # Force kill
+        # Force kill — reuse pgid captured at start to avoid PID reuse hazard
         try:
-            pgid = os.getpgid(pid)
             os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
 
 
@@ -112,7 +118,7 @@ def is_process_alive(pid: int) -> bool:
             capture_output=True,
             text=True,
         )
-        return str(pid) in result.stdout
+        return bool(re.search(rf"(?<!\d){re.escape(str(pid))}(?!\d)", result.stdout))
     else:
         try:
             os.kill(pid, 0)

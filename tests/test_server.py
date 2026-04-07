@@ -436,7 +436,7 @@ async def test_shutdown_removes_pid_file(default_url, tmp_path):
     mock_process.wait = AsyncMock()
 
     with patch("slop_studio.server.is_process_alive", return_value=True):
-        with patch("slop_studio.server.kill_process_tree"):
+        with patch("slop_studio.server.graceful_kill"):
             with patch("slop_studio.server.PID_FILE", pid_file):
                 manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
                 manager._process = mock_process
@@ -503,36 +503,40 @@ async def test_pid_file_write_failure_does_not_crash(default_url, tmp_path, capl
 # --- Orphan cleanup tests ---
 
 
-def test_orphan_cleanup_no_pid_file(tmp_path):
+@pytest.mark.anyio
+async def test_orphan_cleanup_no_pid_file(tmp_path):
     """No PID file exists — no errors."""
     pid_file = tmp_path / "comfyui.pid"
-    cleanup_orphan(pid_file)  # Should not raise
+    await cleanup_orphan(pid_file)  # Should not raise
 
 
-def test_orphan_cleanup_dead_process(tmp_path):
+@pytest.mark.anyio
+async def test_orphan_cleanup_dead_process(tmp_path):
     """Stale PID file with dead PID — file removed without error."""
     pid_file = tmp_path / "comfyui.pid"
     pid_file.write_text("999999")
 
     with patch("slop_studio.server.is_process_alive", return_value=False):
-        cleanup_orphan(pid_file)
+        await cleanup_orphan(pid_file)
 
     assert not pid_file.exists()
 
 
-def test_orphan_cleanup_pid_reuse_safety(tmp_path):
+@pytest.mark.anyio
+async def test_orphan_cleanup_pid_reuse_safety(tmp_path):
     """PID belongs to non-ComfyUI process — NOT killed, PID file removed."""
     pid_file = tmp_path / "comfyui.pid"
     pid_file.write_text("12345")
 
     with patch("slop_studio.server.is_process_alive", return_value=True):
         with patch("slop_studio.server.get_process_cmdline", return_value="/usr/bin/firefox"):
-            cleanup_orphan(pid_file)
+            await cleanup_orphan(pid_file)
 
     assert not pid_file.exists()
 
 
-def test_orphan_cleanup_kills_comfyui_process(tmp_path):
+@pytest.mark.anyio
+async def test_orphan_cleanup_kills_comfyui_process(tmp_path):
     """Stale PID file with live ComfyUI process — killed and PID file removed."""
     pid_file = tmp_path / "comfyui.pid"
     pid_file.write_text("12345")
@@ -540,25 +544,27 @@ def test_orphan_cleanup_kills_comfyui_process(tmp_path):
     with patch("slop_studio.server.is_process_alive", return_value=True):
         with patch("slop_studio.server.get_process_cmdline", return_value="python main.py --comfyui-path /opt/ComfyUI"):
             with patch("slop_studio.server.graceful_kill") as mock_graceful:
-                cleanup_orphan(pid_file)
+                await cleanup_orphan(pid_file)
 
     assert not pid_file.exists()
     mock_graceful.assert_called_once_with(12345, timeout=5.0)
 
 
-def test_orphan_cleanup_invalid_pid_file(tmp_path, caplog):
+@pytest.mark.anyio
+async def test_orphan_cleanup_invalid_pid_file(tmp_path, caplog):
     """PID file contains garbage — warning logged and file removed."""
     pid_file = tmp_path / "comfyui.pid"
     pid_file.write_text("not-a-number")
 
     with caplog.at_level(logging.WARNING, logger="slop_studio.server"):
-        cleanup_orphan(pid_file)
+        await cleanup_orphan(pid_file)
 
     assert not pid_file.exists()
     assert any("invalid content" in r.message for r in caplog.records)
 
 
-def test_orphan_cleanup_cmdline_check_failure_does_not_kill(tmp_path):
+@pytest.mark.anyio
+async def test_orphan_cleanup_cmdline_check_failure_does_not_kill(tmp_path):
     """If cmdline check returns None, process is NOT killed — safer to leave orphan."""
     pid_file = tmp_path / "comfyui.pid"
     pid_file.write_text("12345")
@@ -566,7 +572,7 @@ def test_orphan_cleanup_cmdline_check_failure_does_not_kill(tmp_path):
     with patch("slop_studio.server.is_process_alive", return_value=True):
         with patch("slop_studio.server.get_process_cmdline", return_value=None):
             with patch("slop_studio.server.graceful_kill") as mock_graceful:
-                cleanup_orphan(pid_file)
+                await cleanup_orphan(pid_file)
 
     assert not pid_file.exists()
     mock_graceful.assert_not_called()
@@ -591,7 +597,7 @@ async def test_idle_watcher_shuts_down_after_timeout(default_url):
     manager._last_activity = asyncio.get_event_loop().time()
 
     with patch("slop_studio.server.is_process_alive", return_value=True):
-        with patch("slop_studio.server.kill_process_tree"):
+        with patch("slop_studio.server.graceful_kill"):
             # Start the watcher manually with a short sleep interval
             with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
                 # Make sleep advance the clock so the timeout is exceeded
@@ -692,7 +698,7 @@ async def test_idle_watcher_cancelled_on_shutdown(default_url):
     await asyncio.sleep(0)
 
     with patch("slop_studio.server.is_process_alive", return_value=True):
-        with patch("slop_studio.server.kill_process_tree"):
+        with patch("slop_studio.server.graceful_kill"):
             await manager.shutdown()
 
     assert manager._idle_task is None
