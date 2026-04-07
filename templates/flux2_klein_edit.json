@@ -72,7 +72,8 @@
     "inputs": {
       "image": ["1", 0],
       "upscale_method": "nearest-exact",
-      "megapixels": 1
+      "megapixels": 1,
+      "resolution_steps": 64
     },
     "class_type": "ImageScaleToTotalPixels",
     "_meta": {
@@ -83,7 +84,8 @@
     "inputs": {
       "image": ["2", 0],
       "upscale_method": "nearest-exact",
-      "megapixels": 1
+      "megapixels": 1,
+      "resolution_steps": 64
     },
     "class_type": "ImageScaleToTotalPixels",
     "_meta": {
