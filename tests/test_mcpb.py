@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from slop_studio.mcpb import build_mcpb
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -26,14 +28,7 @@ def pyproject_version():
 
 def _build(tmp_path):
     """Helper: build .mcpb and return path."""
-    import importlib.util
-
-    build_script = PROJECT_ROOT / "scripts" / "build_mcpb.py"
-    spec = importlib.util.spec_from_file_location("build_mcpb", build_script)
-    assert spec is not None and spec.loader is not None, f"Could not load {build_script}"
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.build_mcpb(PROJECT_ROOT, tmp_path)
+    return build_mcpb(PROJECT_ROOT, tmp_path)
 
 
 class TestManifest:
@@ -167,3 +162,8 @@ class TestBuildScript:
                 assert not name.startswith("_bmad-output/")
                 assert not name.startswith(".claude/")
                 assert not name.startswith(".devcontainer/")
+
+    def test_excludes_mcpb_build_module(self, tmp_path):
+        output = _build(tmp_path)
+        with zipfile.ZipFile(output) as zf:
+            assert "slop_studio/mcpb.py" not in zf.namelist()
