@@ -4,13 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import functools
 import logging
-import os
-from pathlib import Path
-import platform
 import shlex
-import signal
-import subprocess
-import time
 
 import httpx
 from fastmcp import FastMCP
@@ -18,6 +12,13 @@ from fastmcp.server.context import Context
 
 from slop_studio.config import COMFYUI_IDLE_TIMEOUT, COMFYUI_START_CMD, COMFYUI_START_TIMEOUT, COMFYUI_URL, PID_FILE
 from slop_studio.errors import transient_error
+from slop_studio.process import (
+    get_process_cmdline,
+    graceful_kill,
+    is_process_alive,
+    kill_process_tree,
+    spawn_subprocess,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,20 +157,11 @@ class ComfyUIManager:
         if not self._process:
             return
         await self._cancel_idle_watcher()
-        try:
-            pgid = os.getpgid(self._process.pid)
-            os.killpg(pgid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+        kill_process_tree(self._process.pid)
         try:
             await asyncio.wait_for(self._process.wait(), timeout=5.0)
         except asyncio.TimeoutError:
-            try:
-                pgid = os.getpgid(self._process.pid)
-                os.killpg(pgid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            await self._process.wait()
+            pass
         self._process = None
         self._managed = False
         self._remove_pid_file()
@@ -179,11 +171,10 @@ class ComfyUIManager:
         args = shlex.split(self._start_cmd)
         logger.info("Starting ComfyUI: %s", args)
         try:
-            self._process = await asyncio.create_subprocess_exec(
+            self._process = await spawn_subprocess(
                 *args,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
-                start_new_session=True,
             )
         except (FileNotFoundError, OSError) as exc:
             logger.error("Failed to start ComfyUI: %s", exc)
@@ -194,10 +185,8 @@ class ComfyUIManager:
 
         self._managed = True
 
-        # Safety net for unclean exits — kill the whole process group
-        try:
-            pgid = os.getpgid(self._process.pid)
-        except ProcessLookupError:
+        # Verify the process is still alive after spawn
+        if not is_process_alive(self._process.pid):
             self._process = None
             self._managed = False
             return transient_error(
@@ -209,12 +198,12 @@ class ComfyUIManager:
         if self._atexit_handler is not None:
             atexit.unregister(self._atexit_handler)
 
+        # Safety net for unclean exits — kill the whole process tree
+        spawn_pid = self._process.pid
+
         def _atexit_kill():
             if self._process and self._process.returncode is None:
-                try:
-                    os.killpg(pgid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
+                kill_process_tree(spawn_pid)
 
         self._atexit_handler = _atexit_kill
         atexit.register(_atexit_kill)
@@ -296,50 +285,21 @@ class ComfyUIManager:
         await self._cancel_idle_watcher()
         if not self._process or self._process.returncode is not None:
             return
-        try:
-            pgid = os.getpgid(self._process.pid)
-        except ProcessLookupError:
+        if not is_process_alive(self._process.pid):
             self._process = None
             self._remove_pid_file()
             return
-        logger.info("Shutting down ComfyUI process group (pgid=%d)", pgid)
-        try:
-            os.killpg(pgid, signal.SIGTERM)
-        except ProcessLookupError:
-            self._remove_pid_file()
-            return
+        logger.info("Shutting down ComfyUI (pid=%d)", self._process.pid)
+        kill_process_tree(self._process.pid)
         try:
             await asyncio.wait_for(self._process.wait(), timeout=10.0)
         except asyncio.TimeoutError:
-            logger.warning("ComfyUI did not exit gracefully, killing")
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            await self._process.wait()
+            logger.warning("ComfyUI did not exit after kill_process_tree")
         self._process = None
         self._remove_pid_file()
 
 
-def _get_process_cmdline(pid: int) -> str | None:
-    """Read the command line of a process. Returns None if unreadable."""
-    try:
-        if platform.system() == "Linux":
-            raw = Path(f"/proc/{pid}/cmdline").read_bytes()
-            return raw.decode(errors="replace")
-        else:
-            result = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "command="],
-                capture_output=True, text=True,
-            )
-            if result.returncode == 0:
-                return result.stdout
-        return None
-    except Exception:
-        return None
-
-
-def cleanup_orphan(pid_file: Path) -> None:
+def cleanup_orphan(pid_file) -> None:
     """Kill an orphaned ComfyUI process from a previous crash, if any.
 
     Runs synchronously at startup, before the event loop.
@@ -365,21 +325,13 @@ def cleanup_orphan(pid_file: Path) -> None:
         return
 
     # Check if process is alive
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        # Process already dead (AC #5)
+    if not is_process_alive(pid):
         logger.info("Stale PID file %s (pid=%d already dead) — removing", pid_file, pid)
-        pid_file.unlink(missing_ok=True)
-        return
-    except PermissionError:
-        # Process exists but we can't signal it — not ours to kill
-        logger.warning("PID %d exists but not owned by us — removing stale PID file", pid)
         pid_file.unlink(missing_ok=True)
         return
 
     # PID reuse safety (AC #6): verify it's actually ComfyUI
-    cmdline = _get_process_cmdline(pid)
+    cmdline = get_process_cmdline(pid)
     if cmdline is None or "comfyui" not in cmdline.lower():
         logger.warning(
             "PID %d is alive but not ComfyUI (cmdline: %r) — removing stale PID file",
@@ -388,33 +340,9 @@ def cleanup_orphan(pid_file: Path) -> None:
         pid_file.unlink(missing_ok=True)
         return
 
-    # Confirmed ComfyUI orphan — kill process group (AC #4)
+    # Confirmed ComfyUI orphan — kill process tree
     logger.info("Killing orphaned ComfyUI process (pid=%d)", pid)
-    try:
-        pgid = os.getpgid(pid)
-    except ProcessLookupError:
-        pid_file.unlink(missing_ok=True)
-        return
-
-    try:
-        os.killpg(pgid, signal.SIGTERM)
-    except ProcessLookupError:
-        pid_file.unlink(missing_ok=True)
-        return
-
-    # Wait up to 5s for graceful exit
-    for _ in range(50):
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            break
-        time.sleep(0.1)
-    else:
-        # Still alive, force kill
-        try:
-            os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+    graceful_kill(pid, timeout=5.0)
 
     pid_file.unlink(missing_ok=True)
     logger.info("Orphaned ComfyUI process cleaned up")

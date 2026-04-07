@@ -1,9 +1,6 @@
 import asyncio
 import importlib
 import logging
-import os
-import signal
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -126,8 +123,8 @@ async def test_ensure_ready_spawns_on_first_call(default_url):
     mock_process.returncode = None
     mock_process.pid = 12345
 
-    with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
-        with patch("os.getpgid", return_value=12345):
+    with patch("slop_studio.server.spawn_subprocess", new_callable=AsyncMock, return_value=mock_process):
+        with patch("slop_studio.server.is_process_alive", return_value=True):
             manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10)
             result = await manager.ensure_ready()
 
@@ -161,8 +158,8 @@ async def test_ensure_ready_respawns_after_crash(default_url):
     new_process.returncode = None
     new_process.pid = 99999
 
-    with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=new_process):
-        with patch("os.getpgid", return_value=99999):
+    with patch("slop_studio.server.spawn_subprocess", new_callable=AsyncMock, return_value=new_process):
+        with patch("slop_studio.server.is_process_alive", return_value=True):
             manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10)
             manager._process = dead_process
 
@@ -218,9 +215,9 @@ async def test_ensure_ready_spawn_timeout_returns_error(default_url):
     mock_process.pid = 54321
     mock_process.wait = AsyncMock()
 
-    with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
-        with patch("os.getpgid", return_value=54321):
-            with patch("os.killpg") as mock_killpg:
+    with patch("slop_studio.server.spawn_subprocess", new_callable=AsyncMock, return_value=mock_process):
+        with patch("slop_studio.server.is_process_alive", return_value=True):
+            with patch("slop_studio.server.kill_process_tree") as mock_kill_tree:
                 manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=0.1)
                 result = await manager.ensure_ready()
 
@@ -230,7 +227,7 @@ async def test_ensure_ready_spawn_timeout_returns_error(default_url):
     assert "did not become ready" in result["error"]
     assert manager._process is None
     # Verify the process was killed
-    mock_killpg.assert_called()
+    mock_kill_tree.assert_called()
 
 
 @pytest.mark.anyio
@@ -416,8 +413,8 @@ async def test_spawn_writes_pid_file(default_url, tmp_path):
     mock_process.returncode = None
     mock_process.pid = 12345
 
-    with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
-        with patch("os.getpgid", return_value=12345):
+    with patch("slop_studio.server.spawn_subprocess", new_callable=AsyncMock, return_value=mock_process):
+        with patch("slop_studio.server.is_process_alive", return_value=True):
             with patch("slop_studio.server.PID_FILE", pid_file):
                 manager = ComfyUIManager(default_url, start_cmd="/usr/bin/comfyui", start_timeout=10)
                 result = await manager.ensure_ready()
@@ -438,8 +435,8 @@ async def test_shutdown_removes_pid_file(default_url, tmp_path):
     mock_process.pid = 99999
     mock_process.wait = AsyncMock()
 
-    with patch("os.getpgid", return_value=99999):
-        with patch("os.killpg"):
+    with patch("slop_studio.server.is_process_alive", return_value=True):
+        with patch("slop_studio.server.kill_process_tree"):
             with patch("slop_studio.server.PID_FILE", pid_file):
                 manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
                 manager._process = mock_process
@@ -459,12 +456,11 @@ async def test_kill_process_removes_pid_file(default_url, tmp_path):
     mock_process.pid = 88888
     mock_process.wait = AsyncMock()
 
-    with patch("os.getpgid", return_value=88888):
-        with patch("os.killpg"):
-            with patch("slop_studio.server.PID_FILE", pid_file):
-                manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
-                manager._process = mock_process
-                await manager._kill_process()
+    with patch("slop_studio.server.kill_process_tree"):
+        with patch("slop_studio.server.PID_FILE", pid_file):
+            manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
+            manager._process = mock_process
+            await manager._kill_process()
 
     assert not pid_file.exists()
     assert manager._process is None
@@ -489,8 +485,8 @@ async def test_pid_file_write_failure_does_not_crash(default_url, tmp_path, capl
 
     with respx.mock:
         respx.get(f"{default_url}/system_stats").mock(side_effect=side_effect)
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
-            with patch("os.getpgid", return_value=11111):
+        with patch("slop_studio.server.spawn_subprocess", new_callable=AsyncMock, return_value=mock_process):
+            with patch("slop_studio.server.is_process_alive", return_value=True):
                 with patch("slop_studio.server.PID_FILE") as mock_pid:
                     mock_pid.parent.mkdir = MagicMock()
                     mock_pid.write_text = MagicMock(side_effect=OSError("Permission denied"))
@@ -518,7 +514,7 @@ def test_orphan_cleanup_dead_process(tmp_path):
     pid_file = tmp_path / "comfyui.pid"
     pid_file.write_text("999999")
 
-    with patch("os.kill", side_effect=ProcessLookupError):
+    with patch("slop_studio.server.is_process_alive", return_value=False):
         cleanup_orphan(pid_file)
 
     assert not pid_file.exists()
@@ -529,8 +525,8 @@ def test_orphan_cleanup_pid_reuse_safety(tmp_path):
     pid_file = tmp_path / "comfyui.pid"
     pid_file.write_text("12345")
 
-    with patch("os.kill"):  # Process is alive
-        with patch("slop_studio.server._get_process_cmdline", return_value="/usr/bin/firefox"):
+    with patch("slop_studio.server.is_process_alive", return_value=True):
+        with patch("slop_studio.server.get_process_cmdline", return_value="/usr/bin/firefox"):
             cleanup_orphan(pid_file)
 
     assert not pid_file.exists()
@@ -541,23 +537,13 @@ def test_orphan_cleanup_kills_comfyui_process(tmp_path):
     pid_file = tmp_path / "comfyui.pid"
     pid_file.write_text("12345")
 
-    kill_calls = []
-
-    def mock_kill(pid, sig):
-        if sig == 0:
-            # First call: alive. After SIGTERM: dead.
-            if any(c[1] == 0 for c in kill_calls):
-                raise ProcessLookupError
-        kill_calls.append((pid, sig))
-
-    with patch("os.kill", side_effect=mock_kill):
-        with patch("slop_studio.server._get_process_cmdline", return_value="python main.py --comfyui-path /opt/ComfyUI"):
-            with patch("os.getpgid", return_value=12345):
-                with patch("os.killpg") as mock_killpg:
-                    cleanup_orphan(pid_file)
+    with patch("slop_studio.server.is_process_alive", return_value=True):
+        with patch("slop_studio.server.get_process_cmdline", return_value="python main.py --comfyui-path /opt/ComfyUI"):
+            with patch("slop_studio.server.graceful_kill") as mock_graceful:
+                cleanup_orphan(pid_file)
 
     assert not pid_file.exists()
-    mock_killpg.assert_called_with(12345, signal.SIGTERM)
+    mock_graceful.assert_called_once_with(12345, timeout=5.0)
 
 
 def test_orphan_cleanup_invalid_pid_file(tmp_path, caplog):
@@ -577,13 +563,13 @@ def test_orphan_cleanup_cmdline_check_failure_does_not_kill(tmp_path):
     pid_file = tmp_path / "comfyui.pid"
     pid_file.write_text("12345")
 
-    with patch("os.kill"):  # Process is alive
-        with patch("slop_studio.server._get_process_cmdline", return_value=None):
-            with patch("os.killpg") as mock_killpg:
+    with patch("slop_studio.server.is_process_alive", return_value=True):
+        with patch("slop_studio.server.get_process_cmdline", return_value=None):
+            with patch("slop_studio.server.graceful_kill") as mock_graceful:
                 cleanup_orphan(pid_file)
 
     assert not pid_file.exists()
-    mock_killpg.assert_not_called()
+    mock_graceful.assert_not_called()
 
 
 # --- Idle timeout tests ---
@@ -604,8 +590,8 @@ async def test_idle_watcher_shuts_down_after_timeout(default_url):
     manager._managed = True
     manager._last_activity = asyncio.get_event_loop().time()
 
-    with patch("os.getpgid", return_value=55555):
-        with patch("os.killpg"):
+    with patch("slop_studio.server.is_process_alive", return_value=True):
+        with patch("slop_studio.server.kill_process_tree"):
             # Start the watcher manually with a short sleep interval
             with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
                 # Make sleep advance the clock so the timeout is exceeded
@@ -705,8 +691,8 @@ async def test_idle_watcher_cancelled_on_shutdown(default_url):
     # Give the task a moment to start
     await asyncio.sleep(0)
 
-    with patch("os.getpgid", return_value=55555):
-        with patch("os.killpg"):
+    with patch("slop_studio.server.is_process_alive", return_value=True):
+        with patch("slop_studio.server.kill_process_tree"):
             await manager.shutdown()
 
     assert manager._idle_task is None
@@ -739,8 +725,8 @@ async def test_respawn_after_idle_shutdown(default_url):
     mock_process.returncode = None
     mock_process.pid = 77777
 
-    with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
-        with patch("os.getpgid", return_value=77777):
+    with patch("slop_studio.server.spawn_subprocess", new_callable=AsyncMock, return_value=mock_process):
+        with patch("slop_studio.server.is_process_alive", return_value=True):
             result = await manager.ensure_ready()
 
     assert result is None
