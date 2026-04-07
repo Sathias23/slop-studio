@@ -12,7 +12,6 @@ from datetime import date
 from pathlib import Path
 
 import httpx
-from mcp.types import ImageContent, TextContent
 from PIL import Image
 
 from slop_studio.config import COMFYUI_URL, OUTPUT_DIR, TEMPLATES_DIR
@@ -544,20 +543,16 @@ async def get_image(prompt_id: str) -> dict | list:
     abs_path = os.path.abspath(output_path)
     logger.info("Image saved: %s", abs_path)
 
-    metadata = json.dumps({
+    result = {
         "status": "success",
         "file_path": abs_path,
         "prompt_id": prompt_id,
-    })
+    }
 
-    # Generate thumbnail for inline display
+    # Generate thumbnail for inline display via data URI
     try:
-        thumbnail_b64 = generate_thumbnail(image_bytes)
+        result["thumbnail_base64"] = generate_thumbnail(image_bytes)
     except Exception:
-        logger.warning("Thumbnail generation failed for %s, returning text-only", abs_path, exc_info=True)
-        return [TextContent(type="text", text=metadata)]
+        logger.warning("Thumbnail generation failed for %s", abs_path, exc_info=True)
 
-    return [
-        ImageContent(type="image", data=thumbnail_b64, mimeType="image/jpeg"),
-        TextContent(type="text", text=metadata),
-    ]
+    return result

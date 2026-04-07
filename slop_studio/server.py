@@ -517,12 +517,10 @@ async def get_image(prompt_id: str) -> dict | list:
 
     Downloads the image from ComfyUI, saves it to the output directory
     organized by date ({output_dir}/{YYYY-MM-DD}/{filename}), and returns
-    an inline JPEG thumbnail preview alongside the full-resolution file path.
+    the absolute file path plus a base64 JPEG thumbnail for inline display.
 
-    The response contains an ImageContent block (base64 JPEG thumbnail for
-    inline display) and a TextContent block with JSON metadata including
-    the absolute file path. If thumbnail generation fails, only the
-    TextContent block is returned (the full-res image is always saved).
+    The response includes a thumbnail_base64 field containing a small JPEG
+    preview that can be embedded as a data:image/jpeg;base64,... URI.
 
     Call this after check_job returns status 'completed'. If the job is
     still running, call check_job with wait first to poll for completion.

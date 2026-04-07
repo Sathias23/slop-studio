@@ -486,14 +486,11 @@ async def test_get_image_completed_returns_file_path(templates_dir, output_dir):
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
     result = await slop_studio.comfyui.get_image("abc-123")
-    assert isinstance(result, list)
-    assert len(result) == 2
-    text_block = result[1]
-    meta = json.loads(text_block.text)
-    assert meta["status"] == "success"
-    assert meta["prompt_id"] == "abc-123"
-    assert os.path.isabs(meta["file_path"])
-    assert os.path.exists(meta["file_path"])
+    assert isinstance(result, dict)
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "abc-123"
+    assert os.path.isabs(result["file_path"])
+    assert os.path.exists(result["file_path"])
 
 
 @pytest.mark.anyio
@@ -508,11 +505,9 @@ async def test_get_image_saves_in_date_directory(templates_dir, output_dir):
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
     result = await slop_studio.comfyui.get_image("abc-123")
-    text_block = result[1]
-    meta = json.loads(text_block.text)
     today = date.today().isoformat()
     expected_path = output_dir / today / "ComfyUI_00042_.png"
-    assert meta["file_path"] == str(expected_path)
+    assert result["file_path"] == str(expected_path)
 
 
 @pytest.mark.anyio
@@ -556,9 +551,8 @@ async def test_get_image_sanitizes_filename(templates_dir, output_dir):
     result = await slop_studio.comfyui.get_image("abc-123")
     today = date.today().isoformat()
     expected_path = output_dir / today / "passwd"
-    meta = json.loads(result[1].text)
-    assert meta["file_path"] == str(expected_path)
-    assert os.path.exists(meta["file_path"])
+    assert result["file_path"] == str(expected_path)
+    assert os.path.exists(result["file_path"])
 
 
 @pytest.mark.anyio
@@ -712,10 +706,8 @@ async def test_get_image_passes_subfolder_to_view(templates_dir, output_dir):
 
 @pytest.mark.anyio
 @respx.mock
-async def test_get_image_returns_image_content_and_text_content(templates_dir, output_dir):
-    """Verify result is a list with ImageContent (type='image', mimeType='image/jpeg') and TextContent (type='text')."""
-    from mcp.types import ImageContent, TextContent
-
+async def test_get_image_returns_dict_with_thumbnail(templates_dir, output_dir):
+    """Verify result is a dict with status, file_path, prompt_id, and thumbnail_base64."""
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
@@ -723,26 +715,18 @@ async def test_get_image_returns_image_content_and_text_content(templates_dir, o
         return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
     )
     result = await slop_studio.comfyui.get_image("abc-123")
-    assert isinstance(result, list)
-    assert len(result) == 2
-    assert isinstance(result[0], ImageContent)
-    assert result[0].type == "image"
-    assert result[0].mimeType == "image/jpeg"
-    assert len(result[0].data) > 0  # non-empty base64
-    assert isinstance(result[1], TextContent)
-    assert result[1].type == "text"
-    meta = json.loads(result[1].text)
-    assert meta["status"] == "success"
-    assert "file_path" in meta
-    assert "prompt_id" in meta
+    assert isinstance(result, dict)
+    assert result["status"] == "success"
+    assert "file_path" in result
+    assert "prompt_id" in result
+    assert "thumbnail_base64" in result
+    assert len(result["thumbnail_base64"]) > 0
 
 
 @pytest.mark.anyio
 @respx.mock
-async def test_get_image_thumbnail_failure_falls_back_to_text_only(templates_dir, output_dir, monkeypatch):
-    """When generate_thumbnail raises, result is a single TextContent with file path (image still saved)."""
-    from mcp.types import TextContent
-
+async def test_get_image_thumbnail_failure_omits_thumbnail(templates_dir, output_dir, monkeypatch):
+    """When generate_thumbnail raises, result still has file_path but no thumbnail_base64."""
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
@@ -751,12 +735,10 @@ async def test_get_image_thumbnail_failure_falls_back_to_text_only(templates_dir
     )
     monkeypatch.setattr(slop_studio.comfyui, "generate_thumbnail", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
     result = await slop_studio.comfyui.get_image("abc-123")
-    assert isinstance(result, list)
-    assert len(result) == 1
-    assert isinstance(result[0], TextContent)
-    meta = json.loads(result[0].text)
-    assert meta["status"] == "success"
-    assert os.path.exists(meta["file_path"])
+    assert isinstance(result, dict)
+    assert result["status"] == "success"
+    assert os.path.exists(result["file_path"])
+    assert "thumbnail_base64" not in result
 
 
 @pytest.mark.anyio
@@ -787,10 +769,9 @@ async def test_get_image_saves_full_res_before_thumbnail(templates_dir, output_d
     monkeypatch.setattr(builtins, "open", tracking_open)
     monkeypatch.setattr(slop_studio.comfyui, "generate_thumbnail", tracking_thumbnail)
     result = await slop_studio.comfyui.get_image("abc-123")
-    meta = json.loads(result[0].text)
-    assert os.path.exists(meta["file_path"])
+    assert os.path.exists(result["file_path"])
     today = date.today().isoformat()
-    assert today in meta["file_path"]
+    assert today in result["file_path"]
     # Verify ordering: file written to disk before thumbnail attempted
     assert call_order == ["file_write", "generate_thumbnail"]
 
@@ -930,10 +911,9 @@ async def test_get_image_filename_collision_appends_suffix(templates_dir, output
     (date_dir / "ComfyUI_00042_.png").write_bytes(b"existing")
 
     result = await slop_studio.comfyui.get_image("abc-123")
-    meta = json.loads(result[1].text)
-    assert meta["status"] == "success"
+    assert result["status"] == "success"
     # Should have a suffixed filename
-    assert meta["file_path"].endswith("ComfyUI_00042__001.png")
+    assert result["file_path"].endswith("ComfyUI_00042__001.png")
     # Both files should exist
     assert (date_dir / "ComfyUI_00042_.png").exists()
     assert (date_dir / "ComfyUI_00042__001.png").exists()
