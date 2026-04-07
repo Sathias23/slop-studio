@@ -530,6 +530,44 @@ async def get_image(prompt_id: str) -> dict | list:
 
 @mcp.tool()
 @safe_tool
+async def open_image(file_path: str) -> dict:
+    """Open an image file in the OS default viewer.
+
+    Uses 'open' on macOS, 'xdg-open' on Linux, and 'os.startfile' on Windows.
+    The file_path must be inside the configured output directory.
+    """
+    import os
+    import platform
+    import subprocess
+
+    from slop_studio.config import OUTPUT_DIR
+
+    real_path = os.path.realpath(file_path)
+    real_output = os.path.realpath(OUTPUT_DIR)
+    if not real_path.startswith(real_output + os.sep) and real_path != real_output:
+        return {"status": "error", "error": "File must be inside the output directory"}
+
+    if not os.path.isfile(real_path):
+        return {"status": "error", "error": f"File not found: {file_path}"}
+
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", real_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif system == "Linux":
+            subprocess.Popen(["xdg-open", real_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif system == "Windows":
+            os.startfile(real_path)  # noqa: S606
+        else:
+            return {"status": "error", "error": f"Unsupported platform: {system}"}
+    except OSError as exc:
+        return {"status": "error", "error": f"Failed to open: {exc}"}
+
+    return {"status": "success", "file_path": real_path}
+
+
+@mcp.tool()
+@safe_tool
 async def post_to_bluesky(
     text: str,
     image_path: str | None = None,

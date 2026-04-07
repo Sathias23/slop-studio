@@ -50,6 +50,7 @@
     {"name": "queue_prompt", "description": "Submit an image generation job"},
     {"name": "check_next_job", "description": "Poll jobs for completion"},
     {"name": "get_image", "description": "Retrieve generated image with inline preview"},
+    {"name": "open_image", "description": "Open image in OS default viewer"},
     {"name": "post_to_bluesky", "description": "Post image to Bluesky"},
     {"name": "add_template", "description": "Register a new workflow template"},
     {"name": "update_template", "description": "Update an existing template"},

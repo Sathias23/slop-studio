@@ -813,3 +813,51 @@ async def test_idle_watcher_double_check_after_lock(default_url):
 
     # Shutdown should NOT have been called because activity happened after lock acquisition
     assert not shutdown_called
+
+
+# --- open_image tool tests ---
+
+
+@pytest.mark.anyio
+async def test_open_image_file_not_found(tmp_path):
+    from slop_studio.server import open_image
+    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)):
+        result = await open_image(str(tmp_path / "nonexistent.png"))
+    assert result["status"] == "error"
+    assert "not found" in result["error"].lower()
+
+
+@pytest.mark.anyio
+async def test_open_image_outside_output_dir(tmp_path):
+    from slop_studio.server import open_image
+    img = tmp_path / "evil.png"
+    img.write_bytes(b"fake image")
+    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path / "output")):
+        result = await open_image(str(img))
+    assert result["status"] == "error"
+    assert "output directory" in result["error"].lower()
+
+
+@pytest.mark.anyio
+async def test_open_image_success(tmp_path):
+    from slop_studio.server import open_image
+    img = tmp_path / "test.png"
+    img.write_bytes(b"fake image")
+    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)), \
+         patch("subprocess.Popen") as mock_popen:
+        result = await open_image(str(img))
+    assert result["status"] == "success"
+    assert result["file_path"] == str(img)
+    mock_popen.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_open_image_popen_failure(tmp_path):
+    from slop_studio.server import open_image
+    img = tmp_path / "test.png"
+    img.write_bytes(b"fake image")
+    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)), \
+         patch("subprocess.Popen", side_effect=OSError("no viewer")):
+        result = await open_image(str(img))
+    assert result["status"] == "error"
+    assert "no viewer" in result["error"]
