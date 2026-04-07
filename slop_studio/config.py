@@ -7,10 +7,17 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _is_unresolved_placeholder(value: str) -> bool:
+    """Check if a value is an unresolved ${...} placeholder."""
+    return value.startswith("${") and value.endswith("}")
+
+
 def _env_or_default(key: str, default: str) -> str:
     """Return env var value, falling back to default if unset or empty."""
     value = os.environ.get(key, "")
-    return value if value else default
+    if value and not _is_unresolved_placeholder(value):
+        return value
+    return default
 
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
@@ -40,7 +47,7 @@ _TOML_CONFIG = _load_config_toml()
 def _resolve(env_key: str, toml_key: str, default: str) -> str:
     """Resolve config value: env var → config.toml → default."""
     env_val = os.environ.get(env_key, "")
-    if env_val:
+    if env_val and not _is_unresolved_placeholder(env_val):
         return env_val
     toml_val = _TOML_CONFIG.get(toml_key)
     if toml_val is None or toml_val == "":
