@@ -117,37 +117,41 @@ def init_project(target: Path) -> bool:
     if mcp_json_path.exists():
         print(f"Warning: {mcp_json_path} already exists — skipping", file=sys.stderr)
     else:
-        start_cmd = _detect_comfyui_start_cmd()
+        detected = _detect_comfyui_start_cmd()
+        saved = _read_saved_comfyui_cmd()
+        # Best available default: saved config > auto-detected > placeholder
+        default_cmd = saved or detected or ""
         env = {}
-        if start_cmd:
-            env["COMFYUI_START_CMD"] = start_cmd
-            print(f"  Detected ComfyUI: {start_cmd}")
-        else:
-            # Try saved config, then interactive prompt, then placeholder
-            saved = _read_saved_comfyui_cmd()
-            if sys.stdin.isatty():
+
+        if sys.stdin.isatty():
+            if detected and not saved:
+                print(f"  Detected ComfyUI: {detected}")
+            elif not detected and not saved:
                 print("  ComfyUI not found on PATH or in common locations.")
-                start_cmd = _prompt_comfyui_cmd(saved)
-                if start_cmd:
-                    if start_cmd != saved:
-                        _save_to_config_toml("comfyui_start_cmd", start_cmd)
-                        print(f"  Saved to {_CONFIG_FILE}")
-                    env["COMFYUI_START_CMD"] = start_cmd
-                else:
-                    env["COMFYUI_START_CMD"] = "python3 ~/ComfyUI/main.py"
-                    print(
-                        "  No command provided.\n"
-                        "  Edit .mcp.json to set COMFYUI_START_CMD to your ComfyUI start command."
-                    )
-            elif saved:
-                env["COMFYUI_START_CMD"] = saved
-                print(f"  Using saved ComfyUI command: {saved}")
+            start_cmd = _prompt_comfyui_cmd(default_cmd)
+            if start_cmd:
+                if start_cmd != saved:
+                    _save_to_config_toml("comfyui_start_cmd", start_cmd)
+                    print(f"  Saved to {_CONFIG_FILE}")
+                env["COMFYUI_START_CMD"] = start_cmd
             else:
                 env["COMFYUI_START_CMD"] = "python3 ~/ComfyUI/main.py"
                 print(
-                    "  ComfyUI not found on PATH or in common locations.\n"
+                    "  No command provided.\n"
                     "  Edit .mcp.json to set COMFYUI_START_CMD to your ComfyUI start command."
                 )
+        elif saved:
+            env["COMFYUI_START_CMD"] = saved
+            print(f"  Using saved ComfyUI command: {saved}")
+        elif detected:
+            env["COMFYUI_START_CMD"] = detected
+            print(f"  Detected ComfyUI: {detected}")
+        else:
+            env["COMFYUI_START_CMD"] = "python3 ~/ComfyUI/main.py"
+            print(
+                "  ComfyUI not found on PATH or in common locations.\n"
+                "  Edit .mcp.json to set COMFYUI_START_CMD to your ComfyUI start command."
+            )
 
         mcp_config = {
             "mcpServers": {
