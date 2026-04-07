@@ -574,6 +574,60 @@ async def open_image(file_path: str) -> dict:
 
 @mcp.tool()
 @safe_tool
+async def open_gallery(file_paths: list[str]) -> dict:
+    """Open multiple images in a single HTML gallery page.
+
+    Generates a lightweight HTML file with a dark-themed responsive grid and
+    click-to-lightbox, then opens it in the default browser. Use this instead
+    of calling open_image multiple times when viewing a batch of images.
+
+    Args:
+        file_paths: List of absolute paths to image files. All must be
+                    inside the configured output directory.
+    """
+    import os
+    import platform
+    import subprocess
+
+    from slop_studio.config import OUTPUT_DIR
+    from slop_studio.gallery import generate_gallery
+
+    _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
+
+    real_output = os.path.realpath(OUTPUT_DIR)
+
+    validated_paths = []
+    for file_path in file_paths:
+        real_path = os.path.realpath(file_path)
+        if not real_path.startswith(real_output + os.sep) and real_path != real_output:
+            return {"status": "error", "error": f"File must be inside the output directory: {file_path}"}
+        ext = os.path.splitext(real_path)[1].lower()
+        if ext not in _IMAGE_EXTENSIONS:
+            return {"status": "error", "error": f"Unsupported file type: {ext}"}
+        if not os.path.isfile(real_path):
+            return {"status": "error", "error": f"File not found: {file_path}"}
+        validated_paths.append(real_path)
+
+    gallery_path = generate_gallery(validated_paths, OUTPUT_DIR)
+
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", gallery_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif system == "Linux":
+            subprocess.Popen(["xdg-open", gallery_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif system == "Windows":
+            os.startfile(gallery_path)  # noqa: S606
+        else:
+            return {"status": "error", "error": f"Unsupported platform: {system}"}
+    except OSError as exc:
+        return {"status": "error", "error": f"Failed to open gallery: {exc}"}
+
+    return {"status": "success", "gallery_path": gallery_path, "image_count": len(validated_paths)}
+
+
+@mcp.tool()
+@safe_tool
 async def post_to_bluesky(
     text: str,
     image_path: str | None = None,

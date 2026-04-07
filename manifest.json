@@ -8,7 +8,10 @@
     "name": "Brad Sprigg"
   },
   "license": "MIT",
-  "repository": "https://github.com/sathias/slop-studio",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sathias/slop-studio"
+  },
   "server": {
     "type": "uv",
     "entry_point": "slop_studio/server.py",
@@ -51,6 +54,7 @@
     {"name": "check_next_job", "description": "Poll jobs for completion"},
     {"name": "get_image", "description": "Retrieve generated image with inline preview"},
     {"name": "open_image", "description": "Open image in OS default viewer"},
+    {"name": "open_gallery", "description": "Open multiple images in an HTML gallery page"},
     {"name": "post_to_bluesky", "description": "Post image to Bluesky"},
     {"name": "add_template", "description": "Register a new workflow template"},
     {"name": "update_template", "description": "Update an existing template"},
