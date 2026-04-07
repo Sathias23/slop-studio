@@ -542,10 +542,16 @@ async def open_image(file_path: str) -> dict:
 
     from slop_studio.config import OUTPUT_DIR
 
+    _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
+
     real_path = os.path.realpath(file_path)
     real_output = os.path.realpath(OUTPUT_DIR)
     if not real_path.startswith(real_output + os.sep) and real_path != real_output:
         return {"status": "error", "error": "File must be inside the output directory"}
+
+    ext = os.path.splitext(real_path)[1].lower()
+    if ext not in _IMAGE_EXTENSIONS:
+        return {"status": "error", "error": f"Unsupported file type: {ext}"}
 
     if not os.path.isfile(real_path):
         return {"status": "error", "error": f"File not found: {file_path}"}

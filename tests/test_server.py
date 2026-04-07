@@ -828,6 +828,17 @@ async def test_open_image_file_not_found(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_open_image_bad_extension(tmp_path):
+    from slop_studio.server import open_image
+    bad = tmp_path / "script.sh"
+    bad.write_bytes(b"#!/bin/sh")
+    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)):
+        result = await open_image(str(bad))
+    assert result["status"] == "error"
+    assert "unsupported file type" in result["error"].lower()
+
+
+@pytest.mark.anyio
 async def test_open_image_outside_output_dir(tmp_path):
     from slop_studio.server import open_image
     img = tmp_path / "evil.png"
