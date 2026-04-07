@@ -25,7 +25,7 @@ MAX_POLL_DURATION = 45     # maximum total polling time in seconds (FR16)
 MAX_FAILURE_RETRIES = 3    # retry failed jobs this many times before reporting
 
 
-def generate_thumbnail(image_bytes: bytes, max_size: int = 512, quality: int = 80) -> str:
+def generate_thumbnail(image_bytes: bytes, max_size: int = 256, quality: int = 50) -> str:
     """Generate a base64-encoded JPEG thumbnail from raw image bytes.
 
     Resizes to fit within max_size x max_size pixels (preserving aspect ratio,
@@ -33,8 +33,8 @@ def generate_thumbnail(image_bytes: bytes, max_size: int = 512, quality: int = 8
 
     Args:
         image_bytes: Raw image data (any PIL-supported format).
-        max_size: Maximum dimension in pixels (default 512).
-        quality: JPEG compression quality 1-95 (default 80).
+        max_size: Maximum dimension in pixels (default 256).
+        quality: JPEG compression quality 1-95 (default 50).
 
     Returns:
         Base64-encoded JPEG string (no data URI prefix).

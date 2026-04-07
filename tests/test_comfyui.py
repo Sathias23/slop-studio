@@ -1156,7 +1156,7 @@ def _make_test_image(width: int, height: int, mode: str = "RGB") -> bytes:
 
 
 def test_generate_thumbnail_large_rgb():
-    """2048x2048 RGB PNG -> base64 JPEG fitting within 512x512."""
+    """2048x2048 RGB PNG -> base64 JPEG fitting within 256x256."""
     from PIL import Image as PILImage
     image_bytes = _make_test_image(2048, 2048)
     result = slop_studio.comfyui.generate_thumbnail(image_bytes)
@@ -1165,30 +1165,30 @@ def test_generate_thumbnail_large_rgb():
     decoded = base64.b64decode(result)
     img = PILImage.open(io.BytesIO(decoded))
     assert img.format == "JPEG"
-    assert img.size[0] <= 512
-    assert img.size[1] <= 512
+    assert img.size[0] <= 256
+    assert img.size[1] <= 256
 
 
 def test_generate_thumbnail_landscape_aspect_ratio():
-    """2048x1024 landscape -> preserves aspect ratio (512x256)."""
+    """2048x1024 landscape -> preserves aspect ratio (256x128)."""
     from PIL import Image as PILImage
     image_bytes = _make_test_image(2048, 1024)
     result = slop_studio.comfyui.generate_thumbnail(image_bytes)
 
     decoded = base64.b64decode(result)
     img = PILImage.open(io.BytesIO(decoded))
-    assert img.size == (512, 256)
+    assert img.size == (256, 128)
 
 
 def test_generate_thumbnail_portrait_aspect_ratio():
-    """1024x2048 portrait -> preserves aspect ratio (256x512)."""
+    """1024x2048 portrait -> preserves aspect ratio (128x256)."""
     from PIL import Image as PILImage
     image_bytes = _make_test_image(1024, 2048)
     result = slop_studio.comfyui.generate_thumbnail(image_bytes)
 
     decoded = base64.b64decode(result)
     img = PILImage.open(io.BytesIO(decoded))
-    assert img.size == (256, 512)
+    assert img.size == (128, 256)
 
 
 def test_generate_thumbnail_rgba_converts_to_rgb():
