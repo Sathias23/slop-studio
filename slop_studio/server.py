@@ -520,20 +520,21 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
 
 @mcp.tool()
 @safe_tool
-async def get_image(prompt_id: str) -> dict | list:
+async def get_image(prompt_id: str, include_base64: bool = False) -> dict | list:
     """Retrieve the output image from a completed generation job.
 
     Downloads the image from ComfyUI, saves it to the output directory
     organized by date ({output_dir}/{YYYY-MM-DD}/{filename}), and returns
-    the absolute file path plus a base64 JPEG thumbnail for inline display.
+    the absolute file path.
 
-    The response includes a thumbnail_base64 field containing a small JPEG
-    preview that can be embedded as a data:image/jpeg;base64,... URI.
+    Set include_base64 to true to also receive a thumbnail_base64 field
+    containing a small JPEG preview for inline display (useful for clients
+    like Claude Desktop that can render embedded images).
 
     Call this after check_job returns status 'completed'. If the job is
     still running, call check_job with wait first to poll for completion.
     """
-    return await comfyui.get_image(prompt_id)
+    return await comfyui.get_image(prompt_id, include_base64=include_base64)
 
 
 @mcp.tool()

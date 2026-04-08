@@ -440,7 +440,7 @@ def _build_batch_result(completed: list[dict], failed: list[dict], remaining: li
     }
 
 
-async def get_image(prompt_id: str) -> dict | list:
+async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | list:
     """Retrieve completed image, save to output directory, return absolute path."""
     # 1. Check job status
     try:
@@ -533,9 +533,10 @@ async def get_image(prompt_id: str) -> dict | list:
     }
 
     # Generate thumbnail for inline display via data URI
-    try:
-        result["thumbnail_base64"] = generate_thumbnail(image_bytes)
-    except Exception:
-        logger.warning("Thumbnail generation failed for %s", abs_path, exc_info=True)
+    if include_base64:
+        try:
+            result["thumbnail_base64"] = generate_thumbnail(image_bytes)
+        except Exception:
+            logger.warning("Thumbnail generation failed for %s", abs_path, exc_info=True)
 
     return result

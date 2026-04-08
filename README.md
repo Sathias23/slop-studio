@@ -227,6 +227,8 @@ slop-studio can open generated images directly from the conversation.
 
 The gallery is written to the output directory as a temporary HTML file. Image paths are validated against an allowlist of extensions (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.tiff`) and must reside inside the configured output directory.
 
+![Gallery View](docs/gallery.png)
+
 ## Key Files
 
 If you're reviewing the code before installing — here are the important files:
