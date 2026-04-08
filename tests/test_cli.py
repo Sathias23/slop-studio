@@ -189,7 +189,8 @@ class TestDesktopConfig:
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         with patch("sys.stdin") as mock_stdin, \
-             patch("slop_studio.init._load_config_toml", return_value={}):
+             patch("slop_studio.init._load_config_toml", return_value={}), \
+             patch("slop_studio.init._COMFYUI_SEARCH_PATHS", []):
             mock_stdin.isatty.return_value = False
             result = _resolve_comfyui_cmd()
         assert "/path/to/" in result
