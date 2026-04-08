@@ -84,7 +84,6 @@ class TestManifest:
             "queue_prompt",
             "check_next_job",
             "get_image",
-            "open_image",
             "open_gallery",
             "post_to_bluesky",
             "add_template",

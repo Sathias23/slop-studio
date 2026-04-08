@@ -401,7 +401,7 @@ async def test_mcp_tools_registered():
     assert "add_template" in tool_names
     assert "update_template" in tool_names
     assert "delete_template" in tool_names
-    assert "open_image" in tool_names
+    assert "open_gallery" in tool_names
 
 
 # ── delete_template tests ──

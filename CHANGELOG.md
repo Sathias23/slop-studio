@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+
+- `open_image` tool — replaced by `open_gallery` which now handles single images directly
+
+### Changed
+
+- `open_gallery` now accepts a single path or a list; single images open in the OS default viewer instead of generating an HTML gallery
+
 ### Added
 
-- `open_image` tool to launch images in the OS default viewer
-- `open_gallery` tool for batch image viewing via an HTML gallery with lightbox
+- `open_gallery` tool for image viewing via OS viewer (single) or HTML gallery with lightbox (multiple)
 - Claude Desktop integration: `desktop-config` CLI subcommand and setup docs
 - MCPB Desktop Extension packaging
 - Cross-platform process management abstraction
@@ -25,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Ignore unresolved `${...}` placeholder env vars in config
 - Add missing `resolution_steps` to `flux2_klein_edit` template
-- Image extension allowlist for `open_image` tool
+- Image extension allowlist for `open_gallery` tool
 - Thumbnail size reduced to fit Claude Desktop tool result limit
 - Auto-detect ComfyUI and populate `COMFYUI_START_CMD` in init
 
