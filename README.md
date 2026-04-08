@@ -24,7 +24,7 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 ## Install
 
 ```bash
-uv tool install git+https://github.com/Sathias23/slop-studio.git
+uv tool install slop-studio
 ```
 
 This puts the `slop-studio` command on your PATH.
