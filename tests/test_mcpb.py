@@ -79,9 +79,17 @@ class TestManifest:
     def test_tools_declared(self, manifest):
         tool_names = {t["name"] for t in manifest["tools"]}
         expected = {
-            "list_templates", "get_template", "queue_prompt",
-            "check_next_job", "get_image", "open_image", "open_gallery",
-            "post_to_bluesky", "add_template", "update_template", "delete_template",
+            "list_templates",
+            "get_template",
+            "queue_prompt",
+            "check_next_job",
+            "get_image",
+            "open_image",
+            "open_gallery",
+            "post_to_bluesky",
+            "add_template",
+            "update_template",
+            "delete_template",
         }
         assert tool_names == expected
 
@@ -124,8 +132,7 @@ class TestBuildScript:
         with zipfile.ZipFile(output) as zf:
             names = zf.namelist()
             json_templates = {
-                n for n in names
-                if n.startswith("templates/") and n.endswith(".json") and not n.endswith(".meta.json")
+                n for n in names if n.startswith("templates/") and n.endswith(".json") and not n.endswith(".meta.json")
             }
             for t in json_templates:
                 meta = t.replace(".json", ".meta.json")

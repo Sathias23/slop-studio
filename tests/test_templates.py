@@ -35,9 +35,7 @@ def _write_meta(directory, name, **overrides):
             "1:1": {"width": 1024, "height": 1024},
             "16:9": {"width": 1344, "height": 768},
         },
-        "resolution_nodes": [
-            {"node_id": "5", "width_field": "width", "height_field": "height"}
-        ],
+        "resolution_nodes": [{"node_id": "5", "width_field": "width", "height_field": "height"}],
         **overrides,
     }
     (directory / f"{name}.meta.json").write_text(json.dumps(meta))
@@ -129,14 +127,17 @@ async def test_get_template_not_found(templates_dir):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("bad_name", [
-    "../evil",
-    "foo/bar",
-    ".hidden",
-    "a..b",
-    "",
-    "   ",
-])
+@pytest.mark.parametrize(
+    "bad_name",
+    [
+        "../evil",
+        "foo/bar",
+        ".hidden",
+        "a..b",
+        "",
+        "   ",
+    ],
+)
 async def test_get_template_rejects_path_traversal(templates_dir, bad_name):
     result = await slop_studio.templates.get_template(bad_name)
 
@@ -154,9 +155,7 @@ SAMPLE_METADATA = {
     "name": "test_template",
     "model": "test-model",
     "description": "A test template",
-    "inputs": {
-        "prompt": {"node_id": "6", "field": "text", "type": "required", "description": "Text prompt"}
-    },
+    "inputs": {"prompt": {"node_id": "6", "field": "text", "type": "required", "description": "Text prompt"}},
     "aspect_ratios": {"1:1": {"width": 1024, "height": 1024}},
     "resolution_nodes": [{"node_id": "47", "width_field": "width", "height_field": "height"}],
     "expected_duration": "10 seconds",
@@ -227,9 +226,7 @@ async def test_add_template_rejects_existing(templates_dir):
 
 @pytest.mark.anyio
 async def test_add_template_rejects_missing_meta_fields(templates_dir):
-    result = await slop_studio.templates.add_template(
-        "bad_meta", SAMPLE_WORKFLOW, {"description": "no model"}
-    )
+    result = await slop_studio.templates.add_template("bad_meta", SAMPLE_WORKFLOW, {"description": "no model"})
 
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_inputs"

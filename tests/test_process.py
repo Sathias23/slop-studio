@@ -6,7 +6,7 @@ by patching IS_WINDOWS.
 
 import asyncio
 import signal
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -18,7 +18,6 @@ from slop_studio.process import (
     spawn_subprocess,
 )
 
-
 # --- spawn_subprocess tests ---
 
 
@@ -26,15 +25,18 @@ from slop_studio.process import (
 async def test_spawn_subprocess_unix_uses_start_new_session():
     """On Unix, spawn_subprocess passes start_new_session=True."""
     mock_proc = MagicMock()
-    with patch("slop_studio.process.IS_WINDOWS", False):
-        with patch("slop_studio.process.asyncio.create_subprocess_exec",
-                    new_callable=AsyncMock, return_value=mock_proc) as mock_exec:
-            result = await spawn_subprocess("echo", "hello",
-                                            stdout=asyncio.subprocess.DEVNULL)
+    with (
+        patch("slop_studio.process.IS_WINDOWS", False),
+        patch(
+            "slop_studio.process.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc
+        ) as mock_exec,
+    ):
+        result = await spawn_subprocess("echo", "hello", stdout=asyncio.subprocess.DEVNULL)
 
     assert result is mock_proc
     mock_exec.assert_awaited_once_with(
-        "echo", "hello",
+        "echo",
+        "hello",
         stdout=asyncio.subprocess.DEVNULL,
         start_new_session=True,
     )
@@ -44,16 +46,20 @@ async def test_spawn_subprocess_unix_uses_start_new_session():
 async def test_spawn_subprocess_windows_uses_create_new_process_group():
     """On Windows, spawn_subprocess passes CREATE_NEW_PROCESS_GROUP creationflags."""
     from slop_studio.process import CREATE_NEW_PROCESS_GROUP
+
     mock_proc = MagicMock()
-    with patch("slop_studio.process.IS_WINDOWS", True):
-        with patch("slop_studio.process.asyncio.create_subprocess_exec",
-                    new_callable=AsyncMock, return_value=mock_proc) as mock_exec:
-            result = await spawn_subprocess("echo", "hello",
-                                            stdout=asyncio.subprocess.DEVNULL)
+    with (
+        patch("slop_studio.process.IS_WINDOWS", True),
+        patch(
+            "slop_studio.process.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc
+        ) as mock_exec,
+    ):
+        result = await spawn_subprocess("echo", "hello", stdout=asyncio.subprocess.DEVNULL)
 
     assert result is mock_proc
     mock_exec.assert_awaited_once_with(
-        "echo", "hello",
+        "echo",
+        "hello",
         stdout=asyncio.subprocess.DEVNULL,
         creationflags=CREATE_NEW_PROCESS_GROUP,
     )
@@ -82,9 +88,8 @@ def test_kill_process_tree_unix_handles_process_lookup_error():
 
 def test_kill_process_tree_windows_calls_taskkill():
     """On Windows, kill_process_tree uses taskkill /T /F /PID."""
-    with patch("slop_studio.process.IS_WINDOWS", True):
-        with patch("slop_studio.process.subprocess.run") as mock_run:
-            kill_process_tree(5678)
+    with patch("slop_studio.process.IS_WINDOWS", True), patch("slop_studio.process.subprocess.run") as mock_run:
+        kill_process_tree(5678)
 
     mock_run.assert_called_once_with(
         ["taskkill", "/T", "/F", "/PID", "5678"],
@@ -128,13 +133,12 @@ def test_graceful_kill_unix_sigterm_then_process_dies():
 
 def test_graceful_kill_unix_sigterm_then_sigkill():
     """On Unix, if process doesn't die after SIGTERM, SIGKILL is sent."""
-    with patch("slop_studio.process.IS_WINDOWS", False):
-        with patch("slop_studio.process.os.getpgid", return_value=5000):
-            with patch("slop_studio.process.os.killpg") as mock_killpg:
-                with patch("slop_studio.process.is_process_alive", return_value=True):
-                    with patch("slop_studio.process.time.sleep"):
-                        with patch("slop_studio.process.time.monotonic", side_effect=[0, 0, 100]):
-                            graceful_kill(5000, timeout=0.01)
+    with patch("slop_studio.process.IS_WINDOWS", False), patch("slop_studio.process.os.getpgid", return_value=5000):
+        with patch("slop_studio.process.os.killpg") as mock_killpg:
+            with patch("slop_studio.process.is_process_alive", return_value=True):
+                with patch("slop_studio.process.time.sleep"):
+                    with patch("slop_studio.process.time.monotonic", side_effect=[0, 0, 100]):
+                        graceful_kill(5000, timeout=0.01)
 
     # Both SIGTERM and SIGKILL should have been called
     calls = mock_killpg.call_args_list
@@ -152,12 +156,11 @@ def test_graceful_kill_unix_process_already_dead():
 
 def test_graceful_kill_windows_graceful_then_force():
     """On Windows, graceful_kill uses taskkill /T, then taskkill /T /F if needed."""
-    with patch("slop_studio.process.IS_WINDOWS", True):
-        with patch("slop_studio.process.subprocess.run") as mock_run:
-            with patch("slop_studio.process.is_process_alive", return_value=True):
-                with patch("slop_studio.process.time.sleep"):
-                    with patch("slop_studio.process.time.monotonic", side_effect=[0, 0, 100]):
-                        graceful_kill(7000, timeout=0.01)
+    with patch("slop_studio.process.IS_WINDOWS", True), patch("slop_studio.process.subprocess.run") as mock_run:
+        with patch("slop_studio.process.is_process_alive", return_value=True):
+            with patch("slop_studio.process.time.sleep"):
+                with patch("slop_studio.process.time.monotonic", side_effect=[0, 0, 100]):
+                    graceful_kill(7000, timeout=0.01)
 
     calls = mock_run.call_args_list
     # First call: graceful
@@ -168,10 +171,9 @@ def test_graceful_kill_windows_graceful_then_force():
 
 def test_graceful_kill_windows_process_dies_gracefully():
     """On Windows, if process dies after graceful taskkill, no force kill needed."""
-    with patch("slop_studio.process.IS_WINDOWS", True):
-        with patch("slop_studio.process.subprocess.run") as mock_run:
-            with patch("slop_studio.process.is_process_alive", return_value=False):
-                graceful_kill(7000, timeout=5.0)
+    with patch("slop_studio.process.IS_WINDOWS", True), patch("slop_studio.process.subprocess.run") as mock_run:
+        with patch("slop_studio.process.is_process_alive", return_value=False):
+            graceful_kill(7000, timeout=5.0)
 
     # Only the graceful taskkill should have been called
     assert mock_run.call_count == 1
@@ -186,9 +188,8 @@ def test_graceful_kill_windows_process_dies_gracefully():
 
 def test_is_process_alive_unix_alive():
     """On Unix, os.kill(pid, 0) succeeds → process is alive."""
-    with patch("slop_studio.process.IS_WINDOWS", False):
-        with patch("slop_studio.process.os.kill"):
-            assert is_process_alive(1234) is True
+    with patch("slop_studio.process.IS_WINDOWS", False), patch("slop_studio.process.os.kill"):
+        assert is_process_alive(1234) is True
 
 
 def test_is_process_alive_unix_dead():
@@ -230,11 +231,10 @@ def test_is_process_alive_windows_dead():
 
 def test_get_process_cmdline_linux():
     """On Linux, reads /proc/{pid}/cmdline."""
-    with patch("slop_studio.process.IS_WINDOWS", False):
-        with patch("slop_studio.process.sys.platform", "linux"):
-            with patch("slop_studio.process.Path") as mock_path:
-                mock_path.return_value.read_bytes.return_value = b"python\x00main.py\x00--comfyui"
-                result = get_process_cmdline(1234)
+    with patch("slop_studio.process.IS_WINDOWS", False), patch("slop_studio.process.sys.platform", "linux"):
+        with patch("slop_studio.process.Path") as mock_path:
+            mock_path.return_value.read_bytes.return_value = b"python\x00main.py\x00--comfyui"
+            result = get_process_cmdline(1234)
 
     assert result is not None
     assert "python" in result
@@ -246,10 +246,9 @@ def test_get_process_cmdline_macos():
     mock_result.returncode = 0
     mock_result.stdout = "python main.py --comfyui\n"
 
-    with patch("slop_studio.process.IS_WINDOWS", False):
-        with patch("slop_studio.process.sys.platform", "darwin"):
-            with patch("slop_studio.process.subprocess.run", return_value=mock_result):
-                result = get_process_cmdline(1234)
+    with patch("slop_studio.process.IS_WINDOWS", False), patch("slop_studio.process.sys.platform", "darwin"):
+        with patch("slop_studio.process.subprocess.run", return_value=mock_result):
+            result = get_process_cmdline(1234)
 
     assert result == "python main.py --comfyui\n"
 
@@ -282,10 +281,9 @@ def test_get_process_cmdline_windows_failure():
 
 def test_get_process_cmdline_exception_returns_none():
     """Any exception during cmdline read returns None."""
-    with patch("slop_studio.process.IS_WINDOWS", False):
-        with patch("slop_studio.process.sys.platform", "linux"):
-            with patch("slop_studio.process.Path", side_effect=OSError("file not found")):
-                result = get_process_cmdline(1234)
+    with patch("slop_studio.process.IS_WINDOWS", False), patch("slop_studio.process.sys.platform", "linux"):
+        with patch("slop_studio.process.Path", side_effect=OSError("file not found")):
+            result = get_process_cmdline(1234)
 
     assert result is None
 
@@ -296,6 +294,8 @@ def test_get_process_cmdline_exception_returns_none():
 def test_platform_detection_dispatches_correctly():
     """IS_WINDOWS flag correctly dispatches platform-specific code."""
     import sys
+
     # Verify the constant matches the current platform
     from slop_studio.process import IS_WINDOWS
-    assert IS_WINDOWS == (sys.platform == "win32")
+
+    assert (sys.platform == "win32") == IS_WINDOWS

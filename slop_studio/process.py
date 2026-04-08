@@ -6,6 +6,7 @@ os.getpgid directly — use these functions instead.
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -100,10 +101,8 @@ def graceful_kill(pid: int, timeout: float = 5.0) -> None:
             time.sleep(0.1)
 
         # Force kill — reuse pgid captured at start to avoid PID reuse hazard
-        try:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(pgid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
 
 
 def is_process_alive(pid: int) -> bool:

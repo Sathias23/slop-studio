@@ -1,16 +1,22 @@
 import asyncio
 import atexit
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 import functools
 import logging
 import shlex
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 
 import httpx
 from fastmcp import FastMCP
 from fastmcp.server.context import Context
 
-from slop_studio.config import COMFYUI_IDLE_TIMEOUT, COMFYUI_START_CMD, COMFYUI_START_TIMEOUT, COMFYUI_URL, PID_FILE
+from slop_studio.config import (
+    COMFYUI_IDLE_TIMEOUT,
+    COMFYUI_START_CMD,
+    COMFYUI_START_TIMEOUT,
+    COMFYUI_URL,
+    PID_FILE,
+)
 from slop_studio.errors import transient_error
 from slop_studio.process import (
     get_process_cmdline,
@@ -29,6 +35,7 @@ def safe_tool(func):
     Catches all exceptions except BaseException subclasses (KeyboardInterrupt,
     SystemExit). Logs full traceback to stderr, returns human-readable error.
     """
+
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         try:
@@ -37,9 +44,9 @@ def safe_tool(func):
             logger.exception("Unhandled error in tool '%s'", func.__name__)
             return transient_error(
                 "internal_error",
-                f"An internal error occurred in {func.__name__}: "
-                f"{type(exc).__name__}: {exc}",
+                f"An internal error occurred in {func.__name__}: {type(exc).__name__}: {exc}",
             )
+
     return wrapper
 
 
@@ -84,10 +91,8 @@ class ComfyUIManager:
         """Cancel the idle watcher task if running."""
         if self._idle_task is not None and not self._idle_task.done():
             self._idle_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._idle_task
-            except asyncio.CancelledError:
-                pass
         self._idle_task = None
 
     async def _idle_watcher(self) -> None:
@@ -160,7 +165,7 @@ class ComfyUIManager:
         kill_process_tree(self._process.pid)
         try:
             await asyncio.wait_for(self._process.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Process (pid=%d) did not exit within 5s after SIGKILL", self._process.pid)
             await self._process.wait()
         self._process = None
@@ -309,10 +314,8 @@ async def cleanup_orphan(pid_file) -> None:
         content = pid_file.read_text().strip()
     except OSError as exc:
         logger.warning("Cannot read PID file %s: %s — removing", pid_file, exc)
-        try:
+        with suppress(OSError):
             pid_file.unlink(missing_ok=True)
-        except OSError:
-            pass
         return
 
     try:
@@ -333,7 +336,8 @@ async def cleanup_orphan(pid_file) -> None:
     if cmdline is None or "comfyui" not in cmdline.lower():
         logger.warning(
             "PID %d is alive but not ComfyUI (cmdline: %r) — removing stale PID file",
-            pid, cmdline,
+            pid,
+            cmdline,
         )
         pid_file.unlink(missing_ok=True)
         return
@@ -424,9 +428,7 @@ async def add_template(name: str, workflow_json: dict, metadata: dict) -> dict:
 
 @mcp.tool()
 @safe_tool
-async def update_template(
-    name: str, workflow_json: dict | None = None, metadata: dict | None = None
-) -> dict:
+async def update_template(name: str, workflow_json: dict | None = None, metadata: dict | None = None) -> dict:
     """Update an existing workflow template's workflow JSON and/or metadata.
 
     Overwrites the specified files for an existing template. Provide
@@ -463,7 +465,9 @@ async def delete_template(name: str) -> dict:
 @mcp.tool()
 @safe_tool
 async def queue_prompt(
-    template_name: str, inputs: dict, aspect_ratio: str | None = None,
+    template_name: str,
+    inputs: dict,
+    aspect_ratio: str | None = None,
     ctx: Context = None,
 ) -> dict:
     """Submit an image generation job using a workflow template.
@@ -559,16 +563,20 @@ async def open_image(file_path: str) -> dict:
     try:
         if system == "Darwin":
             await asyncio.create_subprocess_exec(
-                "open", real_path,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                "open",
+                real_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
         elif system == "Linux":
             await asyncio.create_subprocess_exec(
-                "xdg-open", real_path,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                "xdg-open",
+                real_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
         elif system == "Windows":
-            os.startfile(real_path)  # noqa: S606
+            os.startfile(real_path)
         else:
             return {"status": "error", "error": f"Unsupported platform: {system}"}
     except OSError as exc:
@@ -618,16 +626,20 @@ async def open_gallery(file_paths: list[str]) -> dict:
     try:
         if system == "Darwin":
             await asyncio.create_subprocess_exec(
-                "open", gallery_path,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                "open",
+                gallery_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
         elif system == "Linux":
             await asyncio.create_subprocess_exec(
-                "xdg-open", gallery_path,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                "xdg-open",
+                gallery_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
         elif system == "Windows":
-            os.startfile(gallery_path)  # noqa: S606
+            os.startfile(gallery_path)
         else:
             return {"status": "error", "error": f"Unsupported platform: {system}"}
     except OSError as exc:

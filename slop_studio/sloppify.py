@@ -20,11 +20,11 @@ def _ensure_clip():
     try:
         import clip
         import torch
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
             "The sloppify feature requires 'torch' and 'clip'. "
             "Install them with: pip install torch git+https://github.com/openai/CLIP.git"
-        )
+        ) from exc
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model, _ = clip.load("ViT-B/32", device=device)
@@ -47,9 +47,7 @@ def _synonymise_word(word: str, top_k: int) -> str:
     parts = []
     for token in tokens:
         target_emb = _clip_model.token_embedding.weight[token, None].detach()
-        similarity = torch.cosine_similarity(
-            target_emb, _clip_model.token_embedding.weight.detach(), -1
-        )
+        similarity = torch.cosine_similarity(target_emb, _clip_model.token_embedding.weight.detach(), -1)
         top = torch.topk(similarity, top_k + 1, -1, True, True)
         # Skip index 0 (the token itself)
         candidates = top.indices[1:]
@@ -62,9 +60,7 @@ def _synonymise_word(word: str, top_k: int) -> str:
     return result.encode("ascii", "ignore").decode("ascii")
 
 
-async def sloppify_prompt(
-    prompt: str, top_k: int = 8, synonym_ratio: int = 100
-) -> dict:
+async def sloppify_prompt(prompt: str, top_k: int = 8, synonym_ratio: int = 100) -> dict:
     """Sloppify a prompt by replacing words with CLIP-similar tokens.
 
     Args:
@@ -79,9 +75,7 @@ async def sloppify_prompt(
         return terminal_error("invalid_inputs", "Prompt is empty")
 
     if not 1 <= top_k <= 32:
-        return terminal_error(
-            "invalid_inputs", f"top_k must be between 1 and 32, got {top_k}"
-        )
+        return terminal_error("invalid_inputs", f"top_k must be between 1 and 32, got {top_k}")
 
     if not 0 <= synonym_ratio <= 100:
         return terminal_error(

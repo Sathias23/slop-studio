@@ -58,11 +58,7 @@ def _save_to_config_toml(key: str, value: str) -> None:
     config = _load_config_toml()
     config[key] = value
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    lines = [
-        f'{k} = {json.dumps(v)}'
-        for k, v in sorted(config.items())
-        if isinstance(v, str)
-    ]
+    lines = [f"{k} = {json.dumps(v)}" for k, v in sorted(config.items()) if isinstance(v, str)]
     _CONFIG_FILE.write_text("\n".join(lines) + "\n")
 
 
@@ -97,10 +93,7 @@ def _build_start_cmd(comfyui_dir: Path, venv_dir: Path | None = None) -> str:
 
 def _prompt_path(label: str, default: str) -> str:
     """Prompt for a filesystem path, showing default in brackets."""
-    if default:
-        answer = input(f"  {label} [{default}]: ").strip()
-    else:
-        answer = input(f"  {label}: ").strip()
+    answer = input(f"  {label} [{default}]: ").strip() if default else input(f"  {label}: ").strip()
     return answer if answer else default
 
 
@@ -122,10 +115,7 @@ def _prompt_comfyui_setup(saved_config: dict, detected_dir: Path | None) -> str 
 
     # Check for venv inside ComfyUI dir first
     builtin_venv = comfyui_dir / "venv"
-    if _python_from_venv(builtin_venv):
-        default_venv = str(builtin_venv)
-    else:
-        default_venv = saved_venv
+    default_venv = str(builtin_venv) if _python_from_venv(builtin_venv) else saved_venv
 
     venv_str = _prompt_path("Python venv directory", default_venv)
     venv_dir = Path(venv_str).expanduser().resolve() if venv_str else None
@@ -187,8 +177,7 @@ def init_project(target: Path) -> bool:
             else:
                 env["COMFYUI_START_CMD"] = "python3 ~/ComfyUI/main.py"
                 print(
-                    "  No directory provided.\n"
-                    "  Edit .mcp.json to set COMFYUI_START_CMD to your ComfyUI start command."
+                    "  No directory provided.\n  Edit .mcp.json to set COMFYUI_START_CMD to your ComfyUI start command."
                 )
         else:
             # Non-interactive: use saved command, or auto-detect, or placeholder
@@ -209,11 +198,7 @@ def init_project(target: Path) -> bool:
 
         mcp_config = {
             "mcpServers": {
-                "slop-studio": {
-                    "command": "slop-studio",
-                    "args": ["serve", "--project-dir", str(target)],
-                    "env": env
-                }
+                "slop-studio": {"command": "slop-studio", "args": ["serve", "--project-dir", str(target)], "env": env}
             }
         }
         mcp_json_path.write_text(json.dumps(mcp_config, indent=2))
@@ -234,8 +219,8 @@ def init_project(target: Path) -> bool:
     logger.info("Art project scaffolded at %s", target)
     print(f"✓ Art project initialized at {target}")
     print(f"  templates/       — {len(list(templates_dir.iterdir()))} starter templates")
-    print(f"  .mcp.json        — MCP server config for Claude Code")
-    print(f"  .claude/commands — /generate slash command")
-    print(f"  CLAUDE.md        — project instructions for Claude Code")
-    print(f"\nOpen Claude Code in this directory to start generating images.")
+    print("  .mcp.json        — MCP server config for Claude Code")
+    print("  .claude/commands — /generate slash command")
+    print("  CLAUDE.md        — project instructions for Claude Code")
+    print("\nOpen Claude Code in this directory to start generating images.")
     return True

@@ -70,8 +70,10 @@ def _resolve_comfyui_cmd() -> str:
     Non-interactive: uses saved config, auto-detection, or placeholder.
     """
     from slop_studio.init import (
-        _detect_comfyui_dir, _build_start_cmd, _load_config_toml,
-        _prompt_comfyui_setup, _detect_comfyui_start_cmd,
+        _detect_comfyui_dir,
+        _detect_comfyui_start_cmd,
+        _load_config_toml,
+        _prompt_comfyui_setup,
     )
 
     saved_config = _load_config_toml()
@@ -125,7 +127,7 @@ def _desktop_config(args: argparse.Namespace) -> None:
         "mcpServers": {
             "slop-studio": {
                 "command": command,
-                "args": extra_args + ["serve"],
+                "args": [*extra_args, "serve"],
                 "env": {
                     "COMFYUI_URL": "http://localhost:8188",
                     "COMFYUI_START_CMD": comfyui_cmd,
@@ -171,9 +173,11 @@ def _serve(args: argparse.Namespace) -> None:
         os.environ.setdefault("SLOP_STUDIO_OUTPUT_DIR", os.path.join(project_dir, "output"))
         os.environ.setdefault("SLOP_STUDIO_TEMPLATES_DIR", os.path.join(project_dir, "templates"))
         from dotenv import load_dotenv
+
         load_dotenv(os.path.join(project_dir, ".env"))
 
     from slop_studio.server import mcp
+
     mcp.run(transport="stdio")
 
 

@@ -9,8 +9,8 @@ import httpx
 import pytest
 import respx
 
-import slop_studio.config
 import slop_studio.comfyui
+import slop_studio.config
 
 SAMPLE_WORKFLOW = {
     "3": {
@@ -55,20 +55,14 @@ SAMPLE_META = {
         "1:1": {"width": 1024, "height": 1024},
         "16:9": {"width": 1344, "height": 768},
     },
-    "resolution_nodes": [
-        {"node_id": "5", "width_field": "width", "height_field": "height"}
-    ],
+    "resolution_nodes": [{"node_id": "5", "width_field": "width", "height_field": "height"}],
 }
 
 
 def write_template(templates_dir, name, workflow, meta):
     """Helper to write template files to the test directory."""
-    (templates_dir / f"{name}.json").write_text(
-        json.dumps(workflow), encoding="utf-8"
-    )
-    (templates_dir / f"{name}.meta.json").write_text(
-        json.dumps(meta), encoding="utf-8"
-    )
+    (templates_dir / f"{name}.json").write_text(json.dumps(workflow), encoding="utf-8")
+    (templates_dir / f"{name}.meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
 @pytest.fixture
@@ -133,9 +127,7 @@ async def test_aspect_ratio_injection(sample_templates):
     respx.post(f"{COMFYUI_URL}/prompt").mock(
         return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
     )
-    await slop_studio.comfyui.queue_prompt(
-        "test_template", {"prompt": "hello"}, aspect_ratio="16:9"
-    )
+    await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"}, aspect_ratio="16:9")
 
     request_body = json.loads(respx.calls.last.request.content)
     assert request_body["prompt"]["5"]["inputs"]["width"] == 1344
@@ -158,9 +150,7 @@ async def test_default_resolution_when_no_aspect_ratio(sample_templates):
 @pytest.mark.anyio
 @respx.mock
 async def test_unreachable_comfyui_returns_transient_error(sample_templates):
-    respx.post(f"{COMFYUI_URL}/prompt").mock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    respx.post(f"{COMFYUI_URL}/prompt").mock(side_effect=httpx.ConnectError("Connection refused"))
     result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
@@ -178,9 +168,7 @@ async def test_missing_template_returns_terminal_error(templates_dir):
 
 @pytest.mark.anyio
 async def test_invalid_aspect_ratio_returns_terminal_error(sample_templates):
-    result = await slop_studio.comfyui.queue_prompt(
-        "test_template", {"prompt": "hello"}, aspect_ratio="21:9"
-    )
+    result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"}, aspect_ratio="21:9")
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_inputs"
     assert result["retry_suggested"] is False
@@ -199,9 +187,7 @@ async def test_missing_required_input_returns_terminal_error(sample_templates):
 @pytest.mark.anyio
 @respx.mock
 async def test_comfyui_400_returns_terminal_error(sample_templates):
-    respx.post(f"{COMFYUI_URL}/prompt").mock(
-        return_value=httpx.Response(400, text="Invalid workflow")
-    )
+    respx.post(f"{COMFYUI_URL}/prompt").mock(return_value=httpx.Response(400, text="Invalid workflow"))
     result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_workflow"
@@ -211,9 +197,7 @@ async def test_comfyui_400_returns_terminal_error(sample_templates):
 @pytest.mark.anyio
 @respx.mock
 async def test_comfyui_503_returns_transient_error(sample_templates):
-    respx.post(f"{COMFYUI_URL}/prompt").mock(
-        return_value=httpx.Response(503, text="Service Unavailable")
-    )
+    respx.post(f"{COMFYUI_URL}/prompt").mock(return_value=httpx.Response(503, text="Service Unavailable"))
     result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
@@ -224,9 +208,7 @@ async def test_comfyui_503_returns_transient_error(sample_templates):
 
 HISTORY_COMPLETED = {
     "abc-123": {
-        "outputs": {
-            "9": {"images": [{"filename": "ComfyUI_00042_.png", "subfolder": "", "type": "output"}]}
-        },
+        "outputs": {"9": {"images": [{"filename": "ComfyUI_00042_.png", "subfolder": "", "type": "output"}]}},
         "status": {"status_str": "success", "completed": True, "messages": []},
     }
 }
@@ -237,9 +219,7 @@ HISTORY_FAILED = {
         "status": {
             "status_str": "error",
             "completed": True,
-            "messages": [
-                ["execution_error", {"message": "Node type 'KSamplerAdvanced_v2' not found", "node_id": "3"}]
-            ],
+            "messages": [["execution_error", {"message": "Node type 'KSamplerAdvanced_v2' not found", "node_id": "3"}]],
         },
     }
 }
@@ -257,9 +237,7 @@ HISTORY_PENDING = {}
 @pytest.mark.anyio
 @respx.mock
 async def test_check_job_single_check_completed(templates_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_COMPLETED)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_COMPLETED))
     result = await slop_studio.comfyui.check_job("abc-123")
     assert result["status"] == "completed"
     assert result["prompt_id"] == "abc-123"
@@ -269,9 +247,7 @@ async def test_check_job_single_check_completed(templates_dir):
 @pytest.mark.anyio
 @respx.mock
 async def test_check_job_single_check_pending(templates_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_PENDING)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_PENDING))
     result = await slop_studio.comfyui.check_job("abc-123")
     assert result == {"status": "pending", "prompt_id": "abc-123"}
 
@@ -279,9 +255,7 @@ async def test_check_job_single_check_pending(templates_dir):
 @pytest.mark.anyio
 @respx.mock
 async def test_check_job_single_check_running(templates_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_RUNNING)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_RUNNING))
     result = await slop_studio.comfyui.check_job("abc-123")
     assert result == {"status": "running", "prompt_id": "abc-123"}
 
@@ -337,9 +311,7 @@ async def test_check_job_poll_timeout_returns_running(templates_dir, monkeypatch
 
     monkeypatch.setattr(slop_studio.comfyui.asyncio, "sleep", mock_sleep)
 
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_RUNNING)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_RUNNING))
     result = await slop_studio.comfyui.check_job("abc-123", wait=10)
     assert result == {"status": "running", "prompt_id": "abc-123"}
 
@@ -347,9 +319,7 @@ async def test_check_job_poll_timeout_returns_running(templates_dir, monkeypatch
 @pytest.mark.anyio
 @respx.mock
 async def test_check_job_failed_returns_error(templates_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_FAILED)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_FAILED))
     result = await slop_studio.comfyui.check_job("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "generation_failed"
@@ -359,9 +329,7 @@ async def test_check_job_failed_returns_error(templates_dir):
 @pytest.mark.anyio
 @respx.mock
 async def test_check_job_unreachable_returns_transient_error(templates_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(side_effect=httpx.ConnectError("Connection refused"))
     result = await slop_studio.comfyui.check_job("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
@@ -378,9 +346,7 @@ async def test_check_job_poll_interval_is_3_seconds(templates_dir, monkeypatch):
 
     monkeypatch.setattr(slop_studio.comfyui.asyncio, "sleep", mock_sleep)
 
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_RUNNING)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_RUNNING))
     await slop_studio.comfyui.check_job("abc-123", wait=10)
     assert all(s == 3 for s in sleep_calls)
     assert len(sleep_calls) > 0
@@ -396,9 +362,7 @@ async def test_check_job_wait_capped_at_45(templates_dir, monkeypatch):
 
     monkeypatch.setattr(slop_studio.comfyui.asyncio, "sleep", mock_sleep)
 
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_RUNNING)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_RUNNING))
     await slop_studio.comfyui.check_job("abc-123", wait=120)
     total_elapsed = sum(sleep_calls)
     assert total_elapsed <= 45
@@ -409,8 +373,8 @@ async def test_check_job_wait_capped_at_45(templates_dir, monkeypatch):
 @pytest.mark.anyio
 async def test_mcp_check_job_not_registered():
     """check_job is deprecated — verify it is no longer exposed as a tool."""
-    import slop_studio.config as _config
     import slop_studio.comfyui as _comfyui
+    import slop_studio.config as _config
     import slop_studio.server as _server
 
     importlib.reload(_config)
@@ -424,8 +388,8 @@ async def test_mcp_check_job_not_registered():
 
 @pytest.mark.anyio
 async def test_mcp_queue_prompt_registered():
-    import slop_studio.config as _config
     import slop_studio.comfyui as _comfyui
+    import slop_studio.config as _config
     import slop_studio.server as _server
 
     importlib.reload(_config)
@@ -441,9 +405,7 @@ async def test_mcp_queue_prompt_registered():
 
 HISTORY_COMPLETED_WITH_IMAGE = {
     "abc-123": {
-        "outputs": {
-            "9": {"images": [{"filename": "ComfyUI_00042_.png", "subfolder": "", "type": "output"}]}
-        },
+        "outputs": {"9": {"images": [{"filename": "ComfyUI_00042_.png", "subfolder": "", "type": "output"}]}},
         "status": {"status_str": "success", "completed": True, "messages": []},
     }
 }
@@ -455,14 +417,18 @@ HISTORY_COMPLETED_NO_OUTPUT = {
     }
 }
 
+
 def _make_fake_image_bytes(width=64, height=64, mode="RGB") -> bytes:
     """Create a minimal valid PNG image for testing."""
-    from PIL import Image as PILImage
     import io as _io
+
+    from PIL import Image as PILImage
+
     img = PILImage.new(mode, (width, height), color=(255, 0, 0))
     buf = _io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
 
 FAKE_IMAGE_BYTES = _make_fake_image_bytes()
 
@@ -482,9 +448,7 @@ async def test_get_image_completed_returns_file_path(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
-    )
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert isinstance(result, dict)
     assert result["status"] == "success"
@@ -501,9 +465,7 @@ async def test_get_image_saves_in_date_directory(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
-    )
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
     result = await slop_studio.comfyui.get_image("abc-123")
     today = date.today().isoformat()
     expected_path = output_dir / today / "ComfyUI_00042_.png"
@@ -522,9 +484,7 @@ async def test_get_image_creates_date_directory(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
-    )
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
     await slop_studio.comfyui.get_image("abc-123")
     assert date_dir.exists()
 
@@ -536,18 +496,12 @@ async def test_get_image_sanitizes_filename(templates_dir, output_dir):
 
     history_with_traversal = {
         "abc-123": {
-            "outputs": {
-                "9": {"images": [{"filename": "../../etc/passwd", "subfolder": "", "type": "output"}]}
-            },
+            "outputs": {"9": {"images": [{"filename": "../../etc/passwd", "subfolder": "", "type": "output"}]}},
             "status": {"status_str": "success", "completed": True, "messages": []},
         }
     }
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=history_with_traversal)
-    )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=history_with_traversal))
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
     result = await slop_studio.comfyui.get_image("abc-123")
     today = date.today().isoformat()
     expected_path = output_dir / today / "passwd"
@@ -558,9 +512,7 @@ async def test_get_image_sanitizes_filename(templates_dir, output_dir):
 @pytest.mark.anyio
 @respx.mock
 async def test_get_image_pending_returns_error(templates_dir, output_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_PENDING)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_PENDING))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_inputs"
@@ -570,9 +522,7 @@ async def test_get_image_pending_returns_error(templates_dir, output_dir):
 @pytest.mark.anyio
 @respx.mock
 async def test_get_image_running_returns_error(templates_dir, output_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_RUNNING)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_RUNNING))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_inputs"
@@ -582,9 +532,7 @@ async def test_get_image_running_returns_error(templates_dir, output_dir):
 @pytest.mark.anyio
 @respx.mock
 async def test_get_image_completed_no_output_returns_error(templates_dir, output_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_COMPLETED_NO_OUTPUT)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_COMPLETED_NO_OUTPUT))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "completed_no_output"
@@ -597,9 +545,7 @@ async def test_get_image_storage_error(templates_dir, output_dir, monkeypatch):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
-    )
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
     monkeypatch.setattr(os, "makedirs", lambda *a, **kw: (_ for _ in ()).throw(OSError("Permission denied")))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
@@ -610,9 +556,7 @@ async def test_get_image_storage_error(templates_dir, output_dir, monkeypatch):
 @pytest.mark.anyio
 @respx.mock
 async def test_get_image_unreachable_returns_transient_error(templates_dir, output_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(side_effect=httpx.ConnectError("Connection refused"))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
@@ -621,8 +565,8 @@ async def test_get_image_unreachable_returns_transient_error(templates_dir, outp
 
 @pytest.mark.anyio
 async def test_mcp_get_image_registered():
-    import slop_studio.config as _config
     import slop_studio.comfyui as _comfyui
+    import slop_studio.config as _config
     import slop_studio.server as _server
 
     importlib.reload(_config)
@@ -640,9 +584,7 @@ async def test_get_image_view_http_error_returns_transient_error(templates_dir, 
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(404, text="Not Found")
-    )
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(404, text="Not Found"))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
@@ -652,9 +594,7 @@ async def test_get_image_view_http_error_returns_transient_error(templates_dir, 
 @pytest.mark.anyio
 @respx.mock
 async def test_fetch_job_status_non_json_returns_failed(templates_dir):
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, text="not json")
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, text="not json"))
     result = await slop_studio.comfyui.check_job("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "generation_failed"
@@ -665,15 +605,11 @@ async def test_fetch_job_status_non_json_returns_failed(templates_dir):
 async def test_get_image_dot_filename_returns_error(templates_dir, output_dir):
     history_dot = {
         "abc-123": {
-            "outputs": {
-                "9": {"images": [{"filename": ".", "subfolder": "", "type": "output"}]}
-            },
+            "outputs": {"9": {"images": [{"filename": ".", "subfolder": "", "type": "output"}]}},
             "status": {"status_str": "success", "completed": True, "messages": []},
         }
     }
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=history_dot)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=history_dot))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert result["status"] == "error"
     assert result["error_type"] == "completed_no_output"
@@ -690,12 +626,8 @@ async def test_get_image_passes_subfolder_to_view(templates_dir, output_dir):
             "status": {"status_str": "success", "completed": True, "messages": []},
         }
     }
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=history_with_subfolder)
-    )
-    view_route = respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=history_with_subfolder))
+    view_route = respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
     await slop_studio.comfyui.get_image("abc-123")
     request = view_route.calls.last.request
     assert "subfolder=subfolder_name" in str(request.url)
@@ -711,9 +643,7 @@ async def test_get_image_returns_dict_with_thumbnail(templates_dir, output_dir):
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
-    )
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert isinstance(result, dict)
     assert result["status"] == "success"
@@ -730,10 +660,10 @@ async def test_get_image_thumbnail_failure_omits_thumbnail(templates_dir, output
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
+    monkeypatch.setattr(
+        slop_studio.comfyui, "generate_thumbnail", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
     )
-    monkeypatch.setattr(slop_studio.comfyui, "generate_thumbnail", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert isinstance(result, dict)
     assert result["status"] == "success"
@@ -763,9 +693,7 @@ async def test_get_image_saves_full_res_before_thumbnail(templates_dir, output_d
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
-    )
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
     monkeypatch.setattr(builtins, "open", tracking_open)
     monkeypatch.setattr(slop_studio.comfyui, "generate_thumbnail", tracking_thumbnail)
     result = await slop_studio.comfyui.get_image("abc-123")
@@ -781,33 +709,25 @@ async def test_get_image_saves_full_res_before_thumbnail(templates_dir, output_d
 async def test_get_image_error_paths_still_return_dicts(templates_dir, output_dir):
     """Verify all error paths (pending, running, failed, unreachable) still return error dicts."""
     # Pending
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_PENDING)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_PENDING))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert isinstance(result, dict)
     assert result["status"] == "error"
 
     # Running
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_RUNNING)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_RUNNING))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert isinstance(result, dict)
     assert result["status"] == "error"
 
     # Failed
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        return_value=httpx.Response(200, json=HISTORY_FAILED)
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_FAILED))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert isinstance(result, dict)
     assert result["status"] == "error"
 
     # Unreachable
-    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(side_effect=httpx.ConnectError("Connection refused"))
     result = await slop_studio.comfyui.get_image("abc-123")
     assert isinstance(result, dict)
     assert result["status"] == "error"
@@ -900,9 +820,7 @@ async def test_get_image_filename_collision_appends_suffix(templates_dir, output
     respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
-    respx.get(f"{COMFYUI_URL}/view").mock(
-        return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES)
-    )
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
 
     # Pre-create a file that will collide
     today = date.today().isoformat()
@@ -960,6 +878,7 @@ EDIT_META = {
 def _create_test_image(path):
     """Create a minimal valid PNG file for testing."""
     from PIL import Image
+
     Image.new("RGB", (10, 10), "red").save(path)
 
 
@@ -972,14 +891,10 @@ async def test_queue_prompt_with_image_input(templates_dir, tmp_path):
     _create_test_image(img_path)
 
     respx.post(f"{COMFYUI_URL}/upload/image").mock(
-        return_value=httpx.Response(
-            200, json={"name": "abc123.png", "subfolder": "", "type": "input"}
-        )
+        return_value=httpx.Response(200, json={"name": "abc123.png", "subfolder": "", "type": "input"})
     )
     respx.post(f"{COMFYUI_URL}/prompt").mock(
-        return_value=httpx.Response(
-            200, json={"prompt_id": "edit-001", "number": 1, "node_errors": {}}
-        )
+        return_value=httpx.Response(200, json={"prompt_id": "edit-001", "number": 1, "node_errors": {}})
     )
 
     result = await slop_studio.comfyui.queue_prompt(
@@ -1041,9 +956,7 @@ async def test_upload_failure_returns_transient_error(templates_dir, tmp_path):
     img_path = tmp_path / "photo.png"
     _create_test_image(img_path)
 
-    respx.post(f"{COMFYUI_URL}/upload/image").mock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    respx.post(f"{COMFYUI_URL}/upload/image").mock(side_effect=httpx.ConnectError("Connection refused"))
 
     result = await slop_studio.comfyui.queue_prompt(
         "test_edit_template",
@@ -1060,14 +973,10 @@ async def test_upload_failure_returns_transient_error(templates_dir, tmp_path):
 async def test_text_only_template_unaffected(sample_templates):
     """Existing text-only templates work unchanged (backwards compat)."""
     respx.post(f"{COMFYUI_URL}/prompt").mock(
-        return_value=httpx.Response(
-            200, json={"prompt_id": "text-001", "number": 1, "node_errors": {}}
-        )
+        return_value=httpx.Response(200, json={"prompt_id": "text-001", "number": 1, "node_errors": {}})
     )
 
-    result = await slop_studio.comfyui.queue_prompt(
-        "test_template", {"prompt": "a cat"}
-    )
+    result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "a cat"})
 
     assert result["status"] == "success"
     assert result["prompt_id"] == "text-001"
@@ -1093,15 +1002,11 @@ async def test_optional_image_not_provided(templates_dir):
     write_template(templates_dir, "test_edit_template", EDIT_WORKFLOW, meta_with_optional)
 
     respx.post(f"{COMFYUI_URL}/prompt").mock(
-        return_value=httpx.Response(
-            200, json={"prompt_id": "opt-001", "number": 1, "node_errors": {}}
-        )
+        return_value=httpx.Response(200, json={"prompt_id": "opt-001", "number": 1, "node_errors": {}})
     )
 
     # Only provide prompt, omit image
-    result = await slop_studio.comfyui.queue_prompt(
-        "test_edit_template", {"prompt": "generate something"}
-    )
+    result = await slop_studio.comfyui.queue_prompt("test_edit_template", {"prompt": "generate something"})
 
     assert result["status"] == "success"
     # Only the /prompt call, no /upload/image
@@ -1116,6 +1021,7 @@ async def test_optional_image_not_provided(templates_dir):
 def _make_test_image(width: int, height: int, mode: str = "RGB") -> bytes:
     """Create a test image and return as PNG bytes."""
     from PIL import Image as PILImage
+
     if mode == "RGBA":
         color = (255, 0, 0, 128)
     elif mode == "P":
@@ -1138,6 +1044,7 @@ def _make_test_image(width: int, height: int, mode: str = "RGB") -> bytes:
 def test_generate_thumbnail_large_rgb():
     """2048x2048 RGB PNG -> base64 JPEG fitting within 256x256."""
     from PIL import Image as PILImage
+
     image_bytes = _make_test_image(2048, 2048)
     result = slop_studio.comfyui.generate_thumbnail(image_bytes)
 
@@ -1152,6 +1059,7 @@ def test_generate_thumbnail_large_rgb():
 def test_generate_thumbnail_landscape_aspect_ratio():
     """2048x1024 landscape -> preserves aspect ratio (256x128)."""
     from PIL import Image as PILImage
+
     image_bytes = _make_test_image(2048, 1024)
     result = slop_studio.comfyui.generate_thumbnail(image_bytes)
 
@@ -1163,6 +1071,7 @@ def test_generate_thumbnail_landscape_aspect_ratio():
 def test_generate_thumbnail_portrait_aspect_ratio():
     """1024x2048 portrait -> preserves aspect ratio (128x256)."""
     from PIL import Image as PILImage
+
     image_bytes = _make_test_image(1024, 2048)
     result = slop_studio.comfyui.generate_thumbnail(image_bytes)
 
@@ -1174,6 +1083,7 @@ def test_generate_thumbnail_portrait_aspect_ratio():
 def test_generate_thumbnail_rgba_converts_to_rgb():
     """RGBA image -> converts to RGB, valid JPEG output."""
     from PIL import Image as PILImage
+
     image_bytes = _make_test_image(800, 600, mode="RGBA")
     result = slop_studio.comfyui.generate_thumbnail(image_bytes)
 
@@ -1186,6 +1096,7 @@ def test_generate_thumbnail_rgba_converts_to_rgb():
 def test_generate_thumbnail_palette_mode_converts_to_rgb():
     """Palette-mode (P) image -> converts to RGB, valid output."""
     from PIL import Image as PILImage
+
     image_bytes = _make_test_image(800, 600, mode="P")
     result = slop_studio.comfyui.generate_thumbnail(image_bytes)
 
@@ -1198,6 +1109,7 @@ def test_generate_thumbnail_palette_mode_converts_to_rgb():
 def test_generate_thumbnail_small_image_no_upscale():
     """256x256 small image -> NOT upscaled, dimensions remain 256x256."""
     from PIL import Image as PILImage
+
     image_bytes = _make_test_image(256, 256)
     result = slop_studio.comfyui.generate_thumbnail(image_bytes)
 
@@ -1218,6 +1130,7 @@ def test_generate_thumbnail_output_under_100kb():
 def test_generate_thumbnail_corrupt_input_raises():
     """Corrupt/invalid image bytes -> raises PIL.UnidentifiedImageError."""
     from PIL import UnidentifiedImageError
+
     with pytest.raises(UnidentifiedImageError):
         slop_studio.comfyui.generate_thumbnail(b"not an image at all")
 

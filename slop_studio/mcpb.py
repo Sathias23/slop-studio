@@ -6,9 +6,19 @@ import zipfile
 from pathlib import Path
 
 EXCLUDE_DIRS = {
-    "tests", "output", ".git", "__pycache__", ".venv",
-    "_bmad-output", ".claude", ".devcontainer", "scripts",
-    ".venv-test", "research", ".github", "docs",
+    "tests",
+    "output",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "_bmad-output",
+    ".claude",
+    ".devcontainer",
+    "scripts",
+    ".venv-test",
+    "research",
+    ".github",
+    "docs",
 }
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 
@@ -37,8 +47,7 @@ def build_mcpb(project_root: Path, output_dir: Path) -> Path:
 
     if manifest.get("version") != version:
         raise ValueError(
-            f"manifest.json version ({manifest.get('version')}) "
-            f"does not match pyproject.toml version ({version})"
+            f"manifest.json version ({manifest.get('version')}) does not match pyproject.toml version ({version})"
         )
 
     output_path = output_dir / f"slop-studio-{version}.mcpb"

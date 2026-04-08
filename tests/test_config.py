@@ -123,7 +123,7 @@ def test_config_toml_missing_falls_through(monkeypatch, tmp_path):
     monkeypatch.delenv("SLOP_STUDIO_OUTPUT_DIR", raising=False)
     monkeypatch.delenv("SLOP_STUDIO_TEMPLATES_DIR", raising=False)
     importlib.reload(config_module)
-    assert config_module.OUTPUT_DIR == str(tmp_path / "slop-studio" / "output")
+    assert str(tmp_path / "slop-studio" / "output") == config_module.OUTPUT_DIR
 
 
 def test_config_toml_invalid_warns_and_falls_through(monkeypatch, tmp_path, caplog):
@@ -132,9 +132,10 @@ def test_config_toml_invalid_warns_and_falls_through(monkeypatch, tmp_path, capl
     monkeypatch.delenv("SLOP_STUDIO_OUTPUT_DIR", raising=False)
     monkeypatch.delenv("SLOP_STUDIO_TEMPLATES_DIR", raising=False)
     import logging
+
     with caplog.at_level(logging.WARNING, logger="slop_studio.config"):
         importlib.reload(config_module)
-    assert config_module.OUTPUT_DIR == str(tmp_path / "slop-studio" / "output")
+    assert str(tmp_path / "slop-studio" / "output") == config_module.OUTPUT_DIR
     assert any("Invalid TOML" in msg for msg in caplog.messages)
 
 
@@ -177,7 +178,7 @@ def test_no_env_no_toml_uses_absolute_default(monkeypatch, tmp_path):
     monkeypatch.delenv("SLOP_STUDIO_OUTPUT_DIR", raising=False)
     monkeypatch.delenv("SLOP_STUDIO_TEMPLATES_DIR", raising=False)
     importlib.reload(config_module)
-    assert config_module.OUTPUT_DIR == str(tmp_path / "slop-studio" / "output")
+    assert str(tmp_path / "slop-studio" / "output") == config_module.OUTPUT_DIR
 
 
 def test_config_toml_permission_error_warns_and_falls_through(monkeypatch, tmp_path, caplog):
@@ -187,9 +188,10 @@ def test_config_toml_permission_error_warns_and_falls_through(monkeypatch, tmp_p
     config_file.chmod(0o000)
     monkeypatch.delenv("SLOP_STUDIO_OUTPUT_DIR", raising=False)
     import logging
+
     with caplog.at_level(logging.WARNING, logger="slop_studio.config"):
         importlib.reload(config_module)
-    assert config_module.OUTPUT_DIR == str(tmp_path / "slop-studio" / "output")
+    assert str(tmp_path / "slop-studio" / "output") == config_module.OUTPUT_DIR
     assert any("Cannot read" in msg for msg in caplog.messages)
     config_file.chmod(0o644)  # restore for cleanup
 
@@ -199,9 +201,10 @@ def test_config_toml_non_string_value_warns(monkeypatch, tmp_path, caplog):
     _setup_config_toml(monkeypatch, tmp_path, "output_dir = 42\n")
     monkeypatch.delenv("SLOP_STUDIO_OUTPUT_DIR", raising=False)
     import logging
+
     with caplog.at_level(logging.WARNING, logger="slop_studio.config"):
         importlib.reload(config_module)
-    assert config_module.OUTPUT_DIR == str(tmp_path / "slop-studio" / "output")
+    assert str(tmp_path / "slop-studio" / "output") == config_module.OUTPUT_DIR
     assert any("must be a string" in msg for msg in caplog.messages)
 
 
@@ -210,9 +213,10 @@ def test_config_toml_whitespace_only_value_warns(monkeypatch, tmp_path, caplog):
     _setup_config_toml(monkeypatch, tmp_path, 'output_dir = "   "\n')
     monkeypatch.delenv("SLOP_STUDIO_OUTPUT_DIR", raising=False)
     import logging
+
     with caplog.at_level(logging.WARNING, logger="slop_studio.config"):
         importlib.reload(config_module)
-    assert config_module.OUTPUT_DIR == str(tmp_path / "slop-studio" / "output")
+    assert str(tmp_path / "slop-studio" / "output") == config_module.OUTPUT_DIR
     assert any("is blank" in msg for msg in caplog.messages)
 
 
@@ -222,7 +226,8 @@ def test_config_toml_whitespace_only_value_warns(monkeypatch, tmp_path, caplog):
 def test_comfyui_start_cmd_from_config_toml(monkeypatch, tmp_path):
     """comfyui_start_cmd in config.toml is used when env var is unset."""
     _setup_config_toml(
-        monkeypatch, tmp_path,
+        monkeypatch,
+        tmp_path,
         'comfyui_start_cmd = "python3 /home/user/ComfyUI/main.py"\n',
     )
     monkeypatch.delenv("COMFYUI_START_CMD", raising=False)
@@ -233,7 +238,8 @@ def test_comfyui_start_cmd_from_config_toml(monkeypatch, tmp_path):
 def test_comfyui_start_cmd_env_wins_over_toml(monkeypatch, tmp_path):
     """Env var COMFYUI_START_CMD takes priority over config.toml."""
     _setup_config_toml(
-        monkeypatch, tmp_path,
+        monkeypatch,
+        tmp_path,
         'comfyui_start_cmd = "from-toml"\n',
     )
     monkeypatch.setenv("COMFYUI_START_CMD", "from-env")

@@ -2,7 +2,6 @@
 
 import io
 import os
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -101,9 +100,7 @@ async def test_text_plus_tags_too_long(tmp_image):
     with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
         # 290 chars of text + tags should exceed 300
         text = "x" * 290
-        result = await bluesky.post_image(
-            image_path=tmp_image, text=text, alt_text="alt", tags=["aiart", "comfyui"]
-        )
+        result = await bluesky.post_image(image_path=tmp_image, text=text, alt_text="alt", tags=["aiart", "comfyui"])
     assert result["error_type"] == "validation_failed"
 
 
@@ -117,7 +114,10 @@ async def test_auth_failure(tmp_image):
     mock_client = AsyncMock()
     mock_client.login = AsyncMock(side_effect=UnauthorizedError())
 
-    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "bad-password")), patch("slop_studio.bluesky.AsyncClient", return_value=mock_client):
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "bad-password")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=mock_client),
+    ):
         result = await bluesky.post_image(image_path=tmp_image, text="hello", alt_text="alt")
     assert result["status"] == "error"
     assert result["error_type"] == "auth_failed"
@@ -134,7 +134,10 @@ async def test_blob_upload_network_error(tmp_image):
     mock_client.login = AsyncMock()
     mock_client.upload_blob = AsyncMock(side_effect=NetworkError())
 
-    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")), patch("slop_studio.bluesky.AsyncClient", return_value=mock_client):
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=mock_client),
+    ):
         result = await bluesky.post_image(image_path=tmp_image, text="hello", alt_text="alt")
     assert result["status"] == "error"
     assert result["error_type"] == "network_error"
@@ -147,11 +150,12 @@ async def test_blob_upload_bad_request(tmp_image):
 
     mock_client = AsyncMock()
     mock_client.login = AsyncMock()
-    mock_client.upload_blob = AsyncMock(
-        side_effect=BadRequestError(MagicMock(content=b"bad"))
-    )
+    mock_client.upload_blob = AsyncMock(side_effect=BadRequestError(MagicMock(content=b"bad")))
 
-    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")), patch("slop_studio.bluesky.AsyncClient", return_value=mock_client):
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=mock_client),
+    ):
         result = await bluesky.post_image(image_path=tmp_image, text="hello", alt_text="alt")
     assert result["status"] == "error"
     assert result["error_type"] == "blob_upload_failed"
@@ -169,8 +173,10 @@ async def test_post_network_error(tmp_image):
     mock_client.upload_blob = AsyncMock(return_value=mock_blob)
     mock_client.send_post = AsyncMock(side_effect=NetworkError())
 
-    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")), patch("slop_studio.bluesky.AsyncClient", return_value=mock_client), patch(
-        "slop_studio.bluesky.models", _mock_embed_models()
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=mock_client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
     ):
         result = await bluesky.post_image(image_path=tmp_image, text="hello", alt_text="alt")
     assert result["status"] == "error"
@@ -194,8 +200,10 @@ async def test_happy_path(tmp_image):
     mock_client.upload_blob = AsyncMock(return_value=mock_blob)
     mock_client.send_post = AsyncMock(return_value=mock_post)
 
-    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")), patch("slop_studio.bluesky.AsyncClient", return_value=mock_client), patch(
-        "slop_studio.bluesky.models", _mock_embed_models()
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=mock_client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
     ):
         result = await bluesky.post_image(image_path=tmp_image, text="hello world", alt_text="alt text")
 
@@ -221,12 +229,12 @@ async def test_happy_path_with_tags(tmp_image):
     mock_client.upload_blob = AsyncMock(return_value=mock_blob)
     mock_client.send_post = AsyncMock(return_value=mock_post)
 
-    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")), patch("slop_studio.bluesky.AsyncClient", return_value=mock_client), patch(
-        "slop_studio.bluesky.models", _mock_embed_models()
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=mock_client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
     ):
-        result = await bluesky.post_image(
-            image_path=tmp_image, text="hello", alt_text="alt", tags=["aiart", "comfyui"]
-        )
+        result = await bluesky.post_image(image_path=tmp_image, text="hello", alt_text="alt", tags=["aiart", "comfyui"])
 
     assert result["status"] == "success"
 
@@ -247,8 +255,10 @@ async def test_large_image_compressed(large_image):
     mock_client.upload_blob = AsyncMock(return_value=mock_blob)
     mock_client.send_post = AsyncMock(return_value=mock_post)
 
-    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")), patch("slop_studio.bluesky.AsyncClient", return_value=mock_client), patch(
-        "slop_studio.bluesky.models", _mock_embed_models()
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=mock_client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
     ):
         result = await bluesky.post_image(image_path=large_image, text="large image", alt_text="alt")
 
@@ -319,7 +329,10 @@ async def test_login_network_error(tmp_image):
     mock_client = AsyncMock()
     mock_client.login = AsyncMock(side_effect=NetworkError())
 
-    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")), patch("slop_studio.bluesky.AsyncClient", return_value=mock_client):
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=mock_client),
+    ):
         result = await bluesky.post_image(image_path=tmp_image, text="hello", alt_text="alt")
     assert result["status"] == "error"
     assert result["error_type"] == "network_error"
@@ -390,8 +403,10 @@ async def test_multi_image_happy_path(tmp_images):
 
     images = [{"path": p, "alt_text": f"image {i}"} for i, p in enumerate(tmp_images[:3])]
 
-    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")), patch("slop_studio.bluesky.AsyncClient", return_value=mock_client), patch(
-        "slop_studio.bluesky.models", _mock_embed_models()
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=mock_client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
     ):
         result = await bluesky.post_image(text="grid post", images=images)
 
@@ -425,9 +440,7 @@ async def test_multi_image_both_params_error(tmp_images):
     images = [{"path": tmp_images[0], "alt_text": "alt"}]
 
     with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
-        result = await bluesky.post_image(
-            image_path=tmp_images[0], text="conflict", alt_text="alt", images=images
-        )
+        result = await bluesky.post_image(image_path=tmp_images[0], text="conflict", alt_text="alt", images=images)
     assert result["status"] == "error"
     assert result["error_type"] == "validation_failed"
     assert "both" in result["error"].lower()

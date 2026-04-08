@@ -4,7 +4,6 @@ import re
 import tomllib
 from pathlib import Path
 
-
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_RE = re.compile(r"\$\{[^}]+\}")
@@ -16,9 +15,11 @@ def _expand_env_placeholders(value: str) -> str:
     Unresolvable placeholders (e.g. ${user_config.FOO}) are left as-is so
     _has_unresolved_placeholder can catch them.
     """
+
     def _replace(m: re.Match) -> str:
         name = m.group(0)[2:-1]  # strip ${ and }
         return os.environ.get(name, m.group(0))
+
     return _PLACEHOLDER_RE.sub(_replace, value)
 
 
@@ -75,48 +76,45 @@ def _resolve(env_key: str, toml_key: str, default: str) -> str:
     if not isinstance(toml_val, str):
         logger.warning(
             "%s in %s must be a string, got %s — using default",
-            toml_key, CONFIG_FILE, type(toml_val).__name__,
+            toml_key,
+            CONFIG_FILE,
+            type(toml_val).__name__,
         )
         return default
     if not toml_val.strip():
         logger.warning(
-            "%s in %s is blank — using default", toml_key, CONFIG_FILE,
+            "%s in %s is blank — using default",
+            toml_key,
+            CONFIG_FILE,
         )
         return default
     return toml_val
 
+
 COMFYUI_URL = _env_or_default("COMFYUI_URL", "http://localhost:8188").rstrip("/")
 
 if not COMFYUI_URL.startswith(("http://", "https://")):
-    raise ValueError(
-        f"COMFYUI_URL must start with http:// or https://, got: {COMFYUI_URL!r}"
-    )
+    raise ValueError(f"COMFYUI_URL must start with http:// or https://, got: {COMFYUI_URL!r}")
 
 COMFYUI_START_CMD = _resolve("COMFYUI_START_CMD", "comfyui_start_cmd", "")
 try:
     COMFYUI_START_TIMEOUT = int(_env_or_default("COMFYUI_START_TIMEOUT", "120"))
-except ValueError:
+except ValueError as exc:
     raise ValueError(
-        "COMFYUI_START_TIMEOUT must be a whole number of seconds, "
-        f"got: {os.environ.get('COMFYUI_START_TIMEOUT')!r}"
-    )
+        f"COMFYUI_START_TIMEOUT must be a whole number of seconds, got: {os.environ.get('COMFYUI_START_TIMEOUT')!r}"
+    ) from exc
 try:
     COMFYUI_IDLE_TIMEOUT = int(_env_or_default("COMFYUI_IDLE_TIMEOUT", "900"))
-except ValueError:
+except ValueError as exc:
     raise ValueError(
-        "COMFYUI_IDLE_TIMEOUT must be a whole number of seconds, "
-        f"got: {os.environ.get('COMFYUI_IDLE_TIMEOUT')!r}"
-    )
+        f"COMFYUI_IDLE_TIMEOUT must be a whole number of seconds, got: {os.environ.get('COMFYUI_IDLE_TIMEOUT')!r}"
+    ) from exc
 if COMFYUI_IDLE_TIMEOUT < 0:
-    raise ValueError(
-        "COMFYUI_IDLE_TIMEOUT must be >= 0 (0 disables idle shutdown), "
-        f"got: {COMFYUI_IDLE_TIMEOUT}"
-    )
+    raise ValueError(f"COMFYUI_IDLE_TIMEOUT must be >= 0 (0 disables idle shutdown), got: {COMFYUI_IDLE_TIMEOUT}")
 
-TEMPLATES_DIR = _resolve(
-    "SLOP_STUDIO_TEMPLATES_DIR", "templates_dir", str(_PACKAGE_DIR.parent / "templates")
-)
+TEMPLATES_DIR = _resolve("SLOP_STUDIO_TEMPLATES_DIR", "templates_dir", str(_PACKAGE_DIR.parent / "templates"))
 OUTPUT_DIR = _resolve("SLOP_STUDIO_OUTPUT_DIR", "output_dir", str(Path.home() / "slop-studio" / "output"))
+
 
 def get_bsky_credentials() -> tuple[str, str]:
     """Return (handle, app_password) using 3-tier fallback.
@@ -130,6 +128,7 @@ def get_bsky_credentials() -> tuple[str, str]:
 
     # Fall back to central credentials file
     import json
+
     creds_file = Path.home() / ".config" / "slop-studio" / "credentials.json"
     if creds_file.is_file():
         try:

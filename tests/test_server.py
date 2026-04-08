@@ -35,6 +35,7 @@ async def test_lifespan_yields_comfyui_manager():
     async with lifespan(None) as context:
         assert "comfyui_manager" in context
         from slop_studio.server import ComfyUIManager
+
         assert isinstance(context["comfyui_manager"], ComfyUIManager)
 
 
@@ -92,9 +93,7 @@ async def test_lifespan_calls_shutdown_on_exit():
 @respx.mock
 async def test_ensure_ready_healthy_comfyui_skips_spawn(default_url):
     """When ComfyUI is healthy, ensure_ready returns None and no subprocess is created."""
-    respx.get(f"{default_url}/system_stats").mock(
-        return_value=httpx.Response(200, json={"system": {}})
-    )
+    respx.get(f"{default_url}/system_stats").mock(return_value=httpx.Response(200, json={"system": {}}))
     manager = ComfyUIManager(default_url, start_cmd="echo hello", start_timeout=10)
 
     result = await manager.ensure_ready()
@@ -173,9 +172,7 @@ async def test_ensure_ready_respawns_after_crash(default_url):
 @respx.mock
 async def test_ensure_ready_external_comfyui_no_start_cmd(default_url):
     """AC5: External ComfyUI running, no start_cmd — health check passes, no spawn."""
-    respx.get(f"{default_url}/system_stats").mock(
-        return_value=httpx.Response(200, json={"system": {}})
-    )
+    respx.get(f"{default_url}/system_stats").mock(return_value=httpx.Response(200, json={"system": {}}))
     manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
 
     result = await manager.ensure_ready()
@@ -188,9 +185,7 @@ async def test_ensure_ready_external_comfyui_no_start_cmd(default_url):
 @respx.mock
 async def test_ensure_ready_no_start_cmd_returns_error(default_url):
     """When ComfyUI is unreachable and no start_cmd, ensure_ready returns transient error."""
-    respx.get(f"{default_url}/system_stats").mock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    respx.get(f"{default_url}/system_stats").mock(side_effect=httpx.ConnectError("Connection refused"))
     manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
 
     result = await manager.ensure_ready()
@@ -206,9 +201,7 @@ async def test_ensure_ready_no_start_cmd_returns_error(default_url):
 @respx.mock
 async def test_ensure_ready_spawn_timeout_returns_error(default_url):
     """When spawn succeeds but health check times out, returns error and kills process."""
-    respx.get(f"{default_url}/system_stats").mock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    respx.get(f"{default_url}/system_stats").mock(side_effect=httpx.ConnectError("Connection refused"))
 
     mock_process = MagicMock()
     mock_process.returncode = None
@@ -248,6 +241,7 @@ async def test_queue_prompt_calls_ensure_ready(default_url):
     with mock_patch("slop_studio.comfyui.queue_prompt", new_callable=AsyncMock, return_value={"prompt_id": "abc123"}):
         # Import and call the tool function directly (unwrapped)
         import slop_studio.server
+
         importlib.reload(slop_studio.server)
 
         # Call the inner function (safe_tool wraps it, but we want to test ensure_ready integration)
@@ -273,6 +267,7 @@ async def test_queue_prompt_short_circuits_on_ensure_ready_error(default_url):
 
     with patch("slop_studio.comfyui.queue_prompt", new_callable=AsyncMock) as mock_qp:
         import slop_studio.server
+
         importlib.reload(slop_studio.server)
 
         result = await slop_studio.server.queue_prompt.__wrapped__(
@@ -289,6 +284,7 @@ async def test_queue_prompt_short_circuits_on_ensure_ready_error(default_url):
 @pytest.mark.anyio
 async def test_safe_tool_catches_runtime_error():
     """Tool raises unexpected RuntimeError → returns error dict, server doesn't crash."""
+
     @safe_tool
     async def bad_tool():
         raise RuntimeError("something broke")
@@ -304,6 +300,7 @@ async def test_safe_tool_catches_runtime_error():
 @pytest.mark.anyio
 async def test_safe_tool_logs_traceback_to_stderr(caplog):
     """Tool raises TypeError → full traceback logged via logger.exception()."""
+
     @safe_tool
     async def bad_tool():
         raise TypeError("unexpected type")
@@ -318,6 +315,7 @@ async def test_safe_tool_logs_traceback_to_stderr(caplog):
 @pytest.mark.anyio
 async def test_safe_tool_error_contains_tool_name_not_traceback():
     """Error response contains tool name and exception class, NOT full traceback."""
+
     @safe_tool
     async def my_tool():
         raise ValueError("bad value")
@@ -367,7 +365,12 @@ async def test_safe_tool_passes_through_successful_returns():
 @pytest.mark.anyio
 async def test_safe_tool_passes_through_terminal_error():
     """Terminal error (retry_suggested=False) passes through unchanged."""
-    expected = {"status": "error", "error_type": "invalid_inputs", "error": "Bad template name", "retry_suggested": False}
+    expected = {
+        "status": "error",
+        "error_type": "invalid_inputs",
+        "error": "Bad template name",
+        "retry_suggested": False,
+    }
 
     @safe_tool
     async def tool_with_terminal_error():
@@ -381,6 +384,7 @@ async def test_safe_tool_passes_through_terminal_error():
 @pytest.mark.anyio
 async def test_safe_tool_preserves_function_metadata():
     """Decorator preserves __name__ and __doc__ via functools.wraps."""
+
     @safe_tool
     async def my_documented_tool():
         """This is the docstring."""
@@ -435,12 +439,11 @@ async def test_shutdown_removes_pid_file(default_url, tmp_path):
     mock_process.pid = 99999
     mock_process.wait = AsyncMock()
 
-    with patch("slop_studio.server.is_process_alive", return_value=True):
-        with patch("slop_studio.server.graceful_kill"):
-            with patch("slop_studio.server.PID_FILE", pid_file):
-                manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
-                manager._process = mock_process
-                await manager.shutdown()
+    with patch("slop_studio.server.is_process_alive", return_value=True), patch("slop_studio.server.graceful_kill"):
+        with patch("slop_studio.server.PID_FILE", pid_file):
+            manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
+            manager._process = mock_process
+            await manager.shutdown()
 
     assert not pid_file.exists()
 
@@ -456,11 +459,10 @@ async def test_kill_process_removes_pid_file(default_url, tmp_path):
     mock_process.pid = 88888
     mock_process.wait = AsyncMock()
 
-    with patch("slop_studio.server.kill_process_tree"):
-        with patch("slop_studio.server.PID_FILE", pid_file):
-            manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
-            manager._process = mock_process
-            await manager._kill_process()
+    with patch("slop_studio.server.kill_process_tree"), patch("slop_studio.server.PID_FILE", pid_file):
+        manager = ComfyUIManager(default_url, start_cmd="", start_timeout=10)
+        manager._process = mock_process
+        await manager._kill_process()
 
     assert not pid_file.exists()
     assert manager._process is None
@@ -596,25 +598,24 @@ async def test_idle_watcher_shuts_down_after_timeout(default_url):
     manager._managed = True
     manager._last_activity = asyncio.get_event_loop().time()
 
-    with patch("slop_studio.server.is_process_alive", return_value=True):
-        with patch("slop_studio.server.graceful_kill"):
-            # Start the watcher manually with a short sleep interval
-            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-                # Make sleep advance the clock so the timeout is exceeded
-                original_time = asyncio.get_event_loop().time
+    with patch("slop_studio.server.is_process_alive", return_value=True), patch("slop_studio.server.graceful_kill"):
+        # Start the watcher manually with a short sleep interval
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            # Make sleep advance the clock so the timeout is exceeded
+            original_time = asyncio.get_event_loop().time
 
-                call_count = 0
+            call_count = 0
 
-                async def fake_sleep(duration):
-                    nonlocal call_count
-                    call_count += 1
-                    # After first sleep, make time appear to have advanced past idle timeout
-                    manager._last_activity = original_time() - 2  # 2 seconds ago, timeout is 1
+            async def fake_sleep(duration):
+                nonlocal call_count
+                call_count += 1
+                # After first sleep, make time appear to have advanced past idle timeout
+                manager._last_activity = original_time() - 2  # 2 seconds ago, timeout is 1
 
-                mock_sleep.side_effect = fake_sleep
+            mock_sleep.side_effect = fake_sleep
 
-                manager._idle_task = asyncio.create_task(manager._idle_watcher())
-                await manager._idle_task
+            manager._idle_task = asyncio.create_task(manager._idle_watcher())
+            await manager._idle_task
 
     # Shutdown should have been called — process should be cleaned up
     assert manager._process is None
@@ -697,9 +698,8 @@ async def test_idle_watcher_cancelled_on_shutdown(default_url):
     # Give the task a moment to start
     await asyncio.sleep(0)
 
-    with patch("slop_studio.server.is_process_alive", return_value=True):
-        with patch("slop_studio.server.graceful_kill"):
-            await manager.shutdown()
+    with patch("slop_studio.server.is_process_alive", return_value=True), patch("slop_studio.server.graceful_kill"):
+        await manager.shutdown()
 
     assert manager._idle_task is None
     assert manager._process is None
@@ -772,9 +772,7 @@ async def test_idle_watcher_double_check_after_lock(default_url):
     original_time = asyncio.get_event_loop().time
     sleep_count = 0
 
-    # Track whether shutdown was called
     shutdown_called = False
-    original_shutdown = manager.shutdown
 
     async def mock_shutdown():
         nonlocal shutdown_called
@@ -821,6 +819,7 @@ async def test_idle_watcher_double_check_after_lock(default_url):
 @pytest.mark.anyio
 async def test_open_image_file_not_found(tmp_path):
     from slop_studio.server import open_image
+
     with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)):
         result = await open_image(str(tmp_path / "nonexistent.png"))
     assert result["status"] == "error"
@@ -830,6 +829,7 @@ async def test_open_image_file_not_found(tmp_path):
 @pytest.mark.anyio
 async def test_open_image_bad_extension(tmp_path):
     from slop_studio.server import open_image
+
     bad = tmp_path / "script.sh"
     bad.write_bytes(b"#!/bin/sh")
     with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)):
@@ -841,6 +841,7 @@ async def test_open_image_bad_extension(tmp_path):
 @pytest.mark.anyio
 async def test_open_image_outside_output_dir(tmp_path):
     from slop_studio.server import open_image
+
     img = tmp_path / "evil.png"
     img.write_bytes(b"fake image")
     with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path / "output")):
@@ -852,11 +853,14 @@ async def test_open_image_outside_output_dir(tmp_path):
 @pytest.mark.anyio
 async def test_open_image_success(tmp_path):
     from slop_studio.server import open_image
+
     img = tmp_path / "test.png"
     img.write_bytes(b"fake image")
     mock_proc = AsyncMock()
-    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)), \
-         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+    with (
+        patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
         result = await open_image(str(img))
     assert result["status"] == "success"
     assert result["file_path"] == str(img)
@@ -866,10 +870,13 @@ async def test_open_image_success(tmp_path):
 @pytest.mark.anyio
 async def test_open_image_popen_failure(tmp_path):
     from slop_studio.server import open_image
+
     img = tmp_path / "test.png"
     img.write_bytes(b"fake image")
-    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)), \
-         patch("asyncio.create_subprocess_exec", side_effect=OSError("no viewer")):
+    with (
+        patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)),
+        patch("asyncio.create_subprocess_exec", side_effect=OSError("no viewer")),
+    ):
         result = await open_image(str(img))
     assert result["status"] == "error"
     assert "no viewer" in result["error"]

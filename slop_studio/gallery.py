@@ -4,7 +4,6 @@ import os
 import time
 from pathlib import Path
 
-
 _GALLERY_HTML = """\
 <!DOCTYPE html>
 <html lang="en">
@@ -116,9 +115,7 @@ def generate_gallery(image_paths: list[str], output_dir: str) -> str:
         rel_path = os.path.relpath(abs_path, output_dir_path)
         image_data.append({"src": rel_path, "name": abs_path.name})
 
-    html = _GALLERY_HTML.replace(
-        "IMAGE_DATA_PLACEHOLDER", json.dumps(image_data)
-    )
+    html = _GALLERY_HTML.replace("IMAGE_DATA_PLACEHOLDER", json.dumps(image_data))
     gallery_path.write_text(html)
 
     return str(gallery_path)
