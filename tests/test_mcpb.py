@@ -80,8 +80,8 @@ class TestManifest:
         tool_names = {t["name"] for t in manifest["tools"]}
         expected = {
             "list_templates", "get_template", "queue_prompt",
-            "check_next_job", "get_image", "open_image", "post_to_bluesky",
-            "add_template", "update_template", "delete_template",
+            "check_next_job", "get_image", "open_image", "open_gallery",
+            "post_to_bluesky", "add_template", "update_template", "delete_template",
         }
         assert tool_names == expected
 
