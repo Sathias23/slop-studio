@@ -854,12 +854,13 @@ async def test_open_image_success(tmp_path):
     from slop_studio.server import open_image
     img = tmp_path / "test.png"
     img.write_bytes(b"fake image")
+    mock_proc = AsyncMock()
     with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)), \
-         patch("subprocess.Popen") as mock_popen:
+         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
         result = await open_image(str(img))
     assert result["status"] == "success"
     assert result["file_path"] == str(img)
-    mock_popen.assert_called_once()
+    mock_exec.assert_called_once()
 
 
 @pytest.mark.anyio
@@ -868,7 +869,7 @@ async def test_open_image_popen_failure(tmp_path):
     img = tmp_path / "test.png"
     img.write_bytes(b"fake image")
     with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)), \
-         patch("subprocess.Popen", side_effect=OSError("no viewer")):
+         patch("asyncio.create_subprocess_exec", side_effect=OSError("no viewer")):
         result = await open_image(str(img))
     assert result["status"] == "error"
     assert "no viewer" in result["error"]

@@ -538,7 +538,6 @@ async def open_image(file_path: str) -> dict:
     """
     import os
     import platform
-    import subprocess
 
     from slop_studio.config import OUTPUT_DIR
 
@@ -559,9 +558,15 @@ async def open_image(file_path: str) -> dict:
     system = platform.system()
     try:
         if system == "Darwin":
-            subprocess.Popen(["open", real_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            await asyncio.create_subprocess_exec(
+                "open", real_path,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
         elif system == "Linux":
-            subprocess.Popen(["xdg-open", real_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            await asyncio.create_subprocess_exec(
+                "xdg-open", real_path,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
         elif system == "Windows":
             os.startfile(real_path)  # noqa: S606
         else:
@@ -587,7 +592,6 @@ async def open_gallery(file_paths: list[str]) -> dict:
     """
     import os
     import platform
-    import subprocess
 
     from slop_studio.config import OUTPUT_DIR
     from slop_studio.gallery import generate_gallery
@@ -608,14 +612,20 @@ async def open_gallery(file_paths: list[str]) -> dict:
             return {"status": "error", "error": f"File not found: {file_path}"}
         validated_paths.append(real_path)
 
-    gallery_path = generate_gallery(validated_paths, OUTPUT_DIR)
+    gallery_path = await asyncio.to_thread(generate_gallery, validated_paths, OUTPUT_DIR)
 
     system = platform.system()
     try:
         if system == "Darwin":
-            subprocess.Popen(["open", gallery_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            await asyncio.create_subprocess_exec(
+                "open", gallery_path,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
         elif system == "Linux":
-            subprocess.Popen(["xdg-open", gallery_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            await asyncio.create_subprocess_exec(
+                "xdg-open", gallery_path,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
         elif system == "Windows":
             os.startfile(gallery_path)  # noqa: S606
         else:
