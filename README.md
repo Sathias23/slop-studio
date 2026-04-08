@@ -58,6 +58,88 @@ This installs `slop-studio` on your PATH from your local clone. Changes you make
    /generate a sunset over mountains, cinematic lighting
    ```
 
+## Claude Desktop
+
+slop-studio also works with the Claude Desktop app. Desktop uses a global config file instead of per-project `.mcp.json`.
+
+### One-Click Install
+
+Download the latest `slop-studio-*.mcpb` file from [GitHub Releases](https://github.com/Sathias23/slop-studio/releases) and double-click it. Claude Desktop will prompt you for:
+
+- **ComfyUI URL** — defaults to `http://localhost:8188`
+- **ComfyUI Start Command** — leave blank if ComfyUI is already running, or enter the full command (e.g., `python /path/to/ComfyUI/main.py --port 8188`)
+- **Output Directory** — where generated images are saved (defaults to `~/slop-studio/output`)
+
+That's it — restart Claude Desktop and slop-studio tools are ready to use.
+
+**Prerequisites for manual methods below:** Python 3.11+, ComfyUI installed, and `slop-studio` installed via `uv tool install slop-studio`.
+
+### Automatic Setup
+
+Generate the config snippet with auto-detected paths:
+
+```bash
+slop-studio desktop-config
+```
+
+Use `--copy` to copy it directly to your clipboard:
+
+```bash
+slop-studio desktop-config --copy
+```
+
+### Manual Setup
+
+Add slop-studio to your `claude_desktop_config.json`:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "slop-studio": {
+      "command": "/path/to/slop-studio",
+      "args": ["serve"],
+      "env": {
+        "COMFYUI_URL": "http://localhost:8188",
+        "COMFYUI_START_CMD": "python /path/to/ComfyUI/main.py --port 8188",
+        "SLOP_STUDIO_OUTPUT_DIR": "~/slop-studio/output"
+      }
+    }
+  }
+}
+```
+
+Replace `/path/to/slop-studio` with the output of `which slop-studio`. Replace the ComfyUI path with your actual installation.
+
+**Environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `COMFYUI_URL` | ComfyUI server address (default: `http://localhost:8188`) |
+| `COMFYUI_START_CMD` | Full command to launch ComfyUI. slop-studio will start/stop it automatically. |
+| `SLOP_STUDIO_OUTPUT_DIR` | Where generated images are saved. Use an absolute path — Desktop doesn't have a project directory. |
+
+### Code vs Desktop
+
+| | Claude Code | Claude Desktop |
+|---|---|---|
+| Config file | `.mcp.json` (per-project) | `claude_desktop_config.json` (global) |
+| Templates | Per-project `templates/` dir | Package-bundled defaults |
+| Output | Per-project `output/` dir | `~/slop-studio/output` |
+| Env vars | `.env` file or env block | `env` block in config only |
+| Setup | `slop-studio init` | `slop-studio desktop-config` |
+
+### Desktop Troubleshooting
+
+**Tools don't appear after restart:** Verify the `command` path points to the actual `slop-studio` binary (run `which slop-studio` to check). Claude Desktop doesn't use your shell profile, so `uv` and other tools may not be on its PATH.
+
+**ComfyUI not found:** Set `COMFYUI_START_CMD` to the full path to your ComfyUI's `main.py` with the Python executable. Use the absolute path — no `~` expansion.
+
+**Images saved to wrong location:** Set `SLOP_STUDIO_OUTPUT_DIR` to an absolute path (e.g., `/Users/you/slop-studio/output`). Desktop doesn't have a project directory, so relative paths won't work.
+
 ## Bluesky Posting
 
 To post generated images to Bluesky, configure your credentials once:
@@ -73,9 +155,11 @@ Create an app password at [bsky.app](https://bsky.app) > Settings > App Password
 ## CLI
 
 ```
-slop-studio auth     Configure Bluesky credentials
-slop-studio init     Scaffold an art project directory
-slop-studio serve    Launch the MCP server (used by .mcp.json)
+slop-studio auth            Configure Bluesky credentials
+slop-studio init            Scaffold an art project directory
+slop-studio serve           Launch the MCP server (used by .mcp.json)
+slop-studio desktop-config  Generate Claude Desktop config snippet
+slop-studio build-mcpb      Build .mcpb Desktop Extension package
 ```
 
 ## MCP Tools
@@ -86,7 +170,9 @@ slop-studio serve    Launch the MCP server (used by .mcp.json)
 | `get_template` | Inspect inputs and aspect ratios for a template |
 | `queue_prompt` | Submit a generation job |
 | `check_next_job` | Poll multiple jobs for completion |
-| `get_image` | Retrieve the output image path |
+| `get_image` | Retrieve the output image path with inline thumbnail |
+| `open_image` | Open an image in the OS default viewer |
+| `open_gallery` | Open multiple images in a browser-based gallery |
 | `post_to_bluesky` | Post image(s) to Bluesky with text and hashtags |
 | `add_template` | Register a new ComfyUI workflow |
 | `update_template` | Update an existing template |
@@ -110,7 +196,7 @@ The default templates run on 16GB of VRAM. Add your own by exporting a workflow 
 | `COMFYUI_START_CMD` | — | Command to launch ComfyUI (e.g. `python /path/to/ComfyUI/main.py --port 8188`). When set, slop-studio starts and stops ComfyUI automatically. |
 | `COMFYUI_START_TIMEOUT` | `120` | Seconds to wait for ComfyUI to become ready after launch |
 | `SLOP_STUDIO_TEMPLATES_DIR` | `./templates` | Template directory |
-| `SLOP_STUDIO_OUTPUT_DIR` | `./output` | Output directory |
+| `SLOP_STUDIO_OUTPUT_DIR` | `~/slop-studio/output` | Output directory |
 | `BSKY_HANDLE` | — | Bluesky handle (overrides central config) |
 | `BSKY_APP_PASSWORD` | — | Bluesky app password (overrides central config) |
 
@@ -131,6 +217,31 @@ COMFYUI_START_CMD=/path/to/venv/bin/python /path/to/ComfyUI/main.py
 - **Already running:** If ComfyUI is already running when slop-studio starts, it skips the launch and connects to the existing instance. It won't shut down an instance it didn't start.
 
 > **Note:** Point `COMFYUI_START_CMD` at Python directly (not the `comfy` CLI), so slop-studio can manage the process lifecycle cleanly.
+
+## Image Viewing
+
+slop-studio can open generated images directly from the conversation.
+
+- **`open_image`** opens a single image in your OS default viewer (Preview on macOS, etc.). Only image files inside the output directory are allowed — the tool validates both the file extension and path before opening.
+- **`open_gallery`** generates a lightweight HTML page with a dark grid layout and lightbox, then opens it in your browser. Useful for comparing multiple generations side by side.
+
+The gallery is written to the output directory as a temporary HTML file. Image paths are validated against an allowlist of extensions (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.tiff`) and must reside inside the configured output directory.
+
+![Gallery View](docs/gallery.png)
+
+## Key Files
+
+If you're reviewing the code before installing — here are the important files:
+
+| File | What it does |
+|------|-------------|
+| [`slop_studio/server.py`](slop_studio/server.py) | MCP tool definitions — all tool handlers including `open_image` and `open_gallery` |
+| [`slop_studio/comfyui.py`](slop_studio/comfyui.py) | ComfyUI HTTP client — job submission, polling, image retrieval |
+| [`slop_studio/process.py`](slop_studio/process.py) | Cross-platform process management — start/stop/cleanup of ComfyUI |
+| [`slop_studio/config.py`](slop_studio/config.py) | Configuration resolution — env vars, config.toml, defaults |
+| [`slop_studio/gallery.py`](slop_studio/gallery.py) | HTML gallery generator |
+| [`slop_studio/mcpb.py`](slop_studio/mcpb.py) | MCPB Desktop Extension builder |
+| [`manifest.json`](manifest.json) | Desktop Extension manifest — declares tools, user config, and server entry point |
 
 ## Coming Soon
 

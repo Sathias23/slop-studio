@@ -32,4 +32,29 @@ sloppify = [
 dev = [
     "pytest>=9.0.2",
     "respx>=0.22.0",
+    "ruff>=0.11.0",
+    "pre-commit>=4.0.0",
 ]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "RUF",   # ruff-specific rules
+]
+ignore = [
+    "SIM117", # nested with — often clearer than flattened
+]
+
+[tool.ruff.lint.per-file-ignores]
+"slop_studio/server.py" = ["E402"]  # late import after lifespan setup is intentional
+"docs/*" = ["E501", "B", "RUF"]     # reference scripts, not production code

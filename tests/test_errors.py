@@ -1,4 +1,4 @@
-from slop_studio.errors import transient_error, terminal_error
+from slop_studio.errors import terminal_error, transient_error
 
 
 def test_transient_error_returns_dict_with_all_fields():

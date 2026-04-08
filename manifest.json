@@ -1,0 +1,63 @@
+{
+  "manifest_version": "0.4",
+  "name": "slop-studio",
+  "display_name": "Slop Studio",
+  "version": "0.2.0",
+  "description": "Conversational image generation via ComfyUI",
+  "author": {
+    "name": "Brad Sprigg"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sathias/slop-studio"
+  },
+  "server": {
+    "type": "uv",
+    "entry_point": "slop_studio/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "-m", "slop_studio.server"],
+      "env": {
+        "COMFYUI_URL": "${user_config.COMFYUI_URL}",
+        "COMFYUI_START_CMD": "${user_config.COMFYUI_START_CMD}",
+        "SLOP_STUDIO_OUTPUT_DIR": "${user_config.SLOP_STUDIO_OUTPUT_DIR}"
+      }
+    }
+  },
+  "user_config": {
+    "COMFYUI_URL": {
+      "type": "string",
+      "title": "ComfyUI URL",
+      "description": "URL of your local ComfyUI instance",
+      "default": "http://localhost:8188",
+      "required": false
+    },
+    "COMFYUI_START_CMD": {
+      "type": "string",
+      "title": "ComfyUI Start Command",
+      "description": "Command to launch ComfyUI (e.g., 'python /path/to/ComfyUI/main.py --port 8188'). Leave blank if ComfyUI is already running.",
+      "required": false
+    },
+    "SLOP_STUDIO_OUTPUT_DIR": {
+      "type": "directory",
+      "title": "Output Directory",
+      "description": "Where generated images are saved",
+      "default": "${HOME}/slop-studio/output",
+      "required": false
+    }
+  },
+  "tools": [
+    {"name": "list_templates", "description": "List available workflow templates"},
+    {"name": "get_template", "description": "Get template details and inputs"},
+    {"name": "queue_prompt", "description": "Submit an image generation job"},
+    {"name": "check_next_job", "description": "Poll jobs for completion"},
+    {"name": "get_image", "description": "Retrieve generated image with inline preview"},
+    {"name": "open_image", "description": "Open image in OS default viewer"},
+    {"name": "open_gallery", "description": "Open multiple images in an HTML gallery page"},
+    {"name": "post_to_bluesky", "description": "Post image to Bluesky"},
+    {"name": "add_template", "description": "Register a new workflow template"},
+    {"name": "update_template", "description": "Update an existing template"},
+    {"name": "delete_template", "description": "Remove a template"}
+  ]
+}

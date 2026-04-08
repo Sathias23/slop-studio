@@ -58,8 +58,7 @@ async def post_image(
     if len(full_text) > 300:
         return terminal_error(
             "validation_failed",
-            f"Post text with hashtags is {len(full_text)} characters, max 300. "
-            "Shorten the text or reduce tags.",
+            f"Post text with hashtags is {len(full_text)} characters, max 300. Shorten the text or reduce tags.",
         )
 
     # --- Validate all files exist and read bytes ---
@@ -67,9 +66,7 @@ async def post_image(
     for entry in entries:
         path = Path(entry["path"])
         if not path.is_file():
-            return terminal_error(
-                "file_not_found", f"Image file not found: {entry['path']}"
-            )
+            return terminal_error("file_not_found", f"Image file not found: {entry['path']}")
         try:
             data = path.read_bytes()
         except OSError as e:
@@ -94,9 +91,7 @@ async def post_image(
             "Bluesky authentication failed — check BSKY_HANDLE and BSKY_APP_PASSWORD.",
         )
     except (NetworkError, InvokeTimeoutError, RequestException) as e:
-        return transient_error(
-            "network_error", f"Cannot reach Bluesky: {str(e)[:200]}"
-        )
+        return transient_error("network_error", f"Cannot reach Bluesky: {str(e)[:200]}")
 
     # --- Upload blobs ---
     embed_images = []
@@ -104,16 +99,10 @@ async def post_image(
         try:
             uploaded = await client.upload_blob(data)
         except BadRequestError as e:
-            return terminal_error(
-                "blob_upload_failed", f"Image upload rejected: {str(e)[:200]}"
-            )
+            return terminal_error("blob_upload_failed", f"Image upload rejected: {str(e)[:200]}")
         except (NetworkError, InvokeTimeoutError, RequestException) as e:
-            return transient_error(
-                "network_error", f"Image upload failed: {str(e)[:200]}"
-            )
-        embed_images.append(
-            models.AppBskyEmbedImages.Image(alt=entry_alt, image=uploaded.blob)
-        )
+            return transient_error("network_error", f"Image upload failed: {str(e)[:200]}")
+        embed_images.append(models.AppBskyEmbedImages.Image(alt=entry_alt, image=uploaded.blob))
 
     # --- Build embed and post ---
     embed = models.AppBskyEmbedImages.Main(images=embed_images)
@@ -141,14 +130,11 @@ def _normalise_image_entries(
         )
     if images is not None:
         if not images:
-            return terminal_error(
-                "validation_failed", "images list must not be empty."
-            )
+            return terminal_error("validation_failed", "images list must not be empty.")
         if len(images) > MAX_IMAGES:
             return terminal_error(
                 "validation_failed",
-                f"Bluesky supports at most {MAX_IMAGES} images per post, "
-                f"got {len(images)}.",
+                f"Bluesky supports at most {MAX_IMAGES} images per post, got {len(images)}.",
             )
         for i, entry in enumerate(images):
             if not isinstance(entry, dict) or "path" not in entry or "alt_text" not in entry:
@@ -165,9 +151,7 @@ def _normalise_image_entries(
     )
 
 
-def _build_post_text(
-    text: str, tags: list[str] | None = None
-) -> client_utils.TextBuilder:
+def _build_post_text(text: str, tags: list[str] | None = None) -> client_utils.TextBuilder:
     """Build rich text with optional hashtag facets using TextBuilder."""
     tb = client_utils.TextBuilder()
     tb.text(text)

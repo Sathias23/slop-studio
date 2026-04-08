@@ -1,34 +1,37 @@
-import torch
 import gc
-import warnings
-import clip
 import re
 from random import sample
+
+import clip
+import torch
+
 
 def clear_mem():
     torch.cuda.empty_cache()
     gc.collect()
 
-#perceptor, clip_preprocess = clip.load('ViT-B/16')
+
+# perceptor, clip_preprocess = clip.load('ViT-B/16')
 device = "cuda" if torch.cuda.is_available() else "cpu"
-perceptor, clip_preprocess = clip.load('ViT-B/32', device=device)
+perceptor, clip_preprocess = clip.load("ViT-B/32", device=device)
 perceptor.eval().float().requires_grad_(False)
 
 tokenizer = clip.simple_tokenizer.SimpleTokenizer()
 
+
 class synonymiser:
-    def __init__(self, prompt:str, topk:int):
+    def __init__(self, prompt: str, topk: int):
         self.prompt = prompt
         self.topk = topk
         self.stripcommas = False
-        
+
     def asIs(self):
         return self.prompt
-    
+
     def convert_string_to_array(string):
         # Remove punctuation and numbers
-        string = re.sub(r'[^a-zA-Z ]', '', string)
-        
+        string = re.sub(r"[^a-zA-Z ]", "", string)
+
         # Split into a list of words
         words_list = string.split()
 
@@ -43,14 +46,14 @@ class synonymiser:
         num_prompt = 0
         total_index = 0
         for now_token in target_tokens:
-            target_emb = perceptor.token_embedding.weight[now_token,None].detach()
-            token_sim  = torch.cosine_similarity(target_emb,perceptor.token_embedding.weight.detach(),-1)
-            top_token_sim = torch.topk(token_sim,self.topk+1,-1,True,True)
+            target_emb = perceptor.token_embedding.weight[now_token, None].detach()
+            token_sim = torch.cosine_similarity(target_emb, perceptor.token_embedding.weight.detach(), -1)
+            top_token_sim = torch.topk(token_sim, self.topk + 1, -1, True, True)
             top_indices = top_token_sim.indices[1:]
-            top_values  = top_token_sim.values[1:]
+            top_values = top_token_sim.values[1:]
             output = []
             for i in range(top_indices.shape[0]):
-                output.append([tokenizer.decode([top_indices[i].item()]), top_values[i].item()]) 
+                output.append([tokenizer.decode([top_indices[i].item()]), top_values[i].item()])
             shuffle_output = sample(output, len(output))
             new_token = shuffle_output[0][0]
             new_index = shuffle_output[0][1]
@@ -59,10 +62,10 @@ class synonymiser:
             num_prompt += 1
         total_index = total_index / num_prompt
         # strip any unicode characters from new_prompt
-        new_prompt = new_prompt.encode('ascii', 'ignore').decode('ascii')
+        new_prompt = new_prompt.encode("ascii", "ignore").decode("ascii")
         # strip any commas from new_prompt
         if self.stripcommas:
-            new_prompt = new_prompt.replace(", ","")
+            new_prompt = new_prompt.replace(", ", "")
         return new_prompt, total_index
 
 
@@ -74,13 +77,16 @@ class comfyui_promptsynonymiser:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "prompt": ("STRING", {"default": '', "multiline": True}),
+                "prompt": ("STRING", {"default": "", "multiline": True}),
                 "num_synonyms": ("INT", {"default": 0, "min": 0, "max": 10}),
-                "top_k": ("INT", {"default": 1, "min": 1, "max": 32})
+                "top_k": ("INT", {"default": 1, "min": 1, "max": 32}),
             }
         }
 
-    RETURN_TYPES = ("STRING", "STRING", )
+    RETURN_TYPES = (
+        "STRING",
+        "STRING",
+    )
     FUNCTION = "comfyui_promptsynonymiser_run"
 
     CATEGORY = "Sathias"
@@ -95,26 +101,21 @@ class comfyui_promptsynonymiser:
             num_synonyms = len(words)
         # synonymise the prompt
         new_prompt = prompt
-        for i in range(num_synonyms):
+        for _i in range(num_synonyms):
             # select a word at random
             word = sample(words, 1)[0]
             # synonymise the word
             s = synonymiser(word, top_k)
-            new_word, index = s.synonymise()
+            new_word, _index = s.synonymise()
             # trim the word and strip out any unicode characters
-            new_word = new_word.strip().encode('ascii', 'ignore').decode('ascii')
+            new_word = new_word.strip().encode("ascii", "ignore").decode("ascii")
             # replace the word in the prompt with the synonym
             new_prompt = new_prompt.replace(word, new_word)
             # remove the word from the list of words
             words.remove(word)
         return new_prompt, prompt
-        
-NODE_CLASS_MAPPINGS = {
-    "PromptSynonymiser": comfyui_promptsynonymiser
-}
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "PromptSynonymiser": "PromptSynonymiser Node"
-}
 
-    
+NODE_CLASS_MAPPINGS = {"PromptSynonymiser": comfyui_promptsynonymiser}
+
+NODE_DISPLAY_NAME_MAPPINGS = {"PromptSynonymiser": "PromptSynonymiser Node"}

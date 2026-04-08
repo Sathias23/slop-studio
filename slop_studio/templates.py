@@ -23,10 +23,7 @@ def _validate_template_name(name: str) -> str | None:
 
 def _validate_metadata(metadata: dict) -> str | None:
     """Validate meta structure. Returns error message or None."""
-    missing = [
-        f for f in ("name", "model", "description")
-        if not isinstance(metadata.get(f), str) or not metadata[f]
-    ]
+    missing = [f for f in ("name", "model", "description") if not isinstance(metadata.get(f), str) or not metadata[f]]
     if missing:
         return f"Missing required metadata fields: {', '.join(missing)}"
 
@@ -49,8 +46,12 @@ def _validate_metadata(metadata: dict) -> str | None:
         for label, dims in aspect_ratios.items():
             if not isinstance(dims, dict):
                 return f"Aspect ratio '{label}' must be a JSON object with width/height"
-            if (not isinstance(dims.get("width"), int) or isinstance(dims.get("width"), bool)
-                    or not isinstance(dims.get("height"), int) or isinstance(dims.get("height"), bool)):
+            if (
+                not isinstance(dims.get("width"), int)
+                or isinstance(dims.get("width"), bool)
+                or not isinstance(dims.get("height"), int)
+                or isinstance(dims.get("height"), bool)
+            ):
                 return f"Aspect ratio '{label}' requires integer width and height"
 
     res_nodes = metadata.get("resolution_nodes")
@@ -77,13 +78,15 @@ async def list_templates() -> dict:
     for meta_file in sorted(templates_path.glob("*.meta.json")):
         try:
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
-            templates.append({
-                "name": meta["name"],
-                "model": meta["model"],
-                "description": meta["description"],
-                "aspect_ratios": list(meta.get("aspect_ratios", {}).keys()),
-                "expected_duration": meta.get("expected_duration", "unknown"),
-            })
+            templates.append(
+                {
+                    "name": meta["name"],
+                    "model": meta["model"],
+                    "description": meta["description"],
+                    "aspect_ratios": list(meta.get("aspect_ratios", {}).keys()),
+                    "expected_duration": meta.get("expected_duration", "unknown"),
+                }
+            )
         except (json.JSONDecodeError, KeyError, OSError) as exc:
             logger.warning("Skipping invalid template %s: %s", meta_file.name, exc)
     return {"status": "success", "templates": templates}
@@ -172,9 +175,7 @@ async def delete_template(name: str) -> dict:
     return {"status": "success", "name": name, "message": f"Template '{name}' deleted"}
 
 
-async def update_template(
-    name: str, workflow_json: dict | None = None, metadata: dict | None = None
-) -> dict:
+async def update_template(name: str, workflow_json: dict | None = None, metadata: dict | None = None) -> dict:
     """Update an existing workflow template."""
     name_err = _validate_template_name(name)
     if name_err:
@@ -197,9 +198,7 @@ async def update_template(
         try:
             workflow_path.write_text(json.dumps(workflow_json, indent=2), encoding="utf-8")
         except OSError as exc:
-            return transient_error(
-                "storage_error", f"Failed to write workflow for '{name}': {exc}"
-            )
+            return transient_error("storage_error", f"Failed to write workflow for '{name}': {exc}")
 
     if metadata is not None:
         metadata = {**metadata, "name": name}
@@ -209,9 +208,7 @@ async def update_template(
         try:
             meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         except OSError as exc:
-            return transient_error(
-                "storage_error", f"Failed to write metadata for '{name}': {exc}"
-            )
+            return transient_error("storage_error", f"Failed to write metadata for '{name}': {exc}")
 
     logger.info("Template updated: %s", name)
     return {"status": "success", "name": name, "message": f"Template '{name}' updated"}

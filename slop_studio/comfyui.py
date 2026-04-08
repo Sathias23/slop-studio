@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import copy
+import io
 import json
 import logging
 import os
@@ -10,6 +12,7 @@ from datetime import date
 from pathlib import Path
 
 import httpx
+from PIL import Image
 
 from slop_studio.config import COMFYUI_URL, OUTPUT_DIR, TEMPLATES_DIR
 from slop_studio.errors import terminal_error, transient_error
@@ -17,8 +20,41 @@ from slop_studio.errors import terminal_error, transient_error
 logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL = 3  # seconds between polls (FR16)
-MAX_POLL_DURATION = 45     # maximum total polling time in seconds (FR16)
-MAX_FAILURE_RETRIES = 3    # retry failed jobs this many times before reporting
+MAX_POLL_DURATION = 45  # maximum total polling time in seconds (FR16)
+MAX_FAILURE_RETRIES = 3  # retry failed jobs this many times before reporting
+
+
+def generate_thumbnail(image_bytes: bytes, max_size: int = 256, quality: int = 50) -> str:
+    """Generate a base64-encoded JPEG thumbnail from raw image bytes.
+
+    Resizes to fit within max_size x max_size pixels (preserving aspect ratio,
+    never upscaling). Converts non-RGB modes (RGBA, P, L) to RGB for JPEG.
+
+    Args:
+        image_bytes: Raw image data (any PIL-supported format).
+        max_size: Maximum dimension in pixels (default 256).
+        quality: JPEG compression quality 1-95 (default 50).
+
+    Returns:
+        Base64-encoded JPEG string (no data URI prefix).
+
+    Raises:
+        PIL.UnidentifiedImageError: If image_bytes is not a valid image.
+        ValueError: If image_bytes is empty.
+    """
+    if not image_bytes:
+        raise ValueError("image_bytes is empty")
+
+    img = Image.open(io.BytesIO(image_bytes))
+
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+
+    img.thumbnail((max_size, max_size))
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 async def _upload_image(file_path: str) -> str:
@@ -30,16 +66,21 @@ async def _upload_image(file_path: str) -> str:
     if not os.path.isfile(file_path):
         raise ValueError(f"Image file not found: {file_path}")
 
-    from PIL import Image
     try:
         with Image.open(file_path) as img:
             img.verify()
-    except Exception:
-        raise ValueError(f"File is not a valid image: {file_path}")
+    except Exception as exc:
+        raise ValueError(f"File is not a valid image: {file_path}") from exc
 
     ext = os.path.splitext(file_path)[1].lower() or ".png"
-    mime_types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                  ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp"}
+    mime_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+    }
     mime_type = mime_types.get(ext, "application/octet-stream")
     upload_name = f"{uuid.uuid4().hex[:12]}{ext}"
 
@@ -123,25 +164,19 @@ def _inject_resolution(workflow: dict, meta: dict, aspect_ratio: str | None) -> 
         workflow[node_id]["inputs"][height_field] = dims["height"]
 
 
-async def queue_prompt(
-    template_name: str, inputs: dict, aspect_ratio: str | None = None
-) -> dict:
+async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | None = None) -> dict:
     """Load a template, inject inputs, randomize seeds, and submit to ComfyUI."""
     workflow_path = Path(TEMPLATES_DIR) / f"{template_name}.json"
     meta_path = Path(TEMPLATES_DIR) / f"{template_name}.meta.json"
 
     if not workflow_path.is_file() or not meta_path.is_file():
-        return terminal_error(
-            "invalid_inputs", f"Template '{template_name}' not found"
-        )
+        return terminal_error("invalid_inputs", f"Template '{template_name}' not found")
 
     try:
         workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        return terminal_error(
-            "invalid_inputs", f"Failed to read template '{template_name}': {exc}"
-        )
+        return terminal_error("invalid_inputs", f"Failed to read template '{template_name}': {exc}")
 
     if not isinstance(workflow, dict):
         return terminal_error(
@@ -205,16 +240,12 @@ async def queue_prompt(
             f"ComfyUI rejected the workflow: {error_body[:500]}",
         )
     except httpx.RequestError:
-        return transient_error(
-            "unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}"
-        )
+        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
     try:
         data = response.json()
     except (json.JSONDecodeError, ValueError):
-        return terminal_error(
-            "invalid_workflow", "ComfyUI returned a non-JSON response"
-        )
+        return terminal_error("invalid_workflow", "ComfyUI returned a non-JSON response")
 
     prompt_id = data.get("prompt_id")
     if prompt_id is None:
@@ -294,11 +325,9 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
     try:
         result = await _fetch_job_status(prompt_id)
     except (httpx.ConnectError, httpx.TimeoutException):
-        return transient_error("unreachable",
-            f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
     except httpx.HTTPStatusError as exc:
-        return transient_error("unreachable",
-            f"ComfyUI returned HTTP {exc.response.status_code}")
+        return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
 
     # Non-blocking check or terminal state
     if effective_wait <= 0 or result["state"] in ("completed", "failed"):
@@ -313,11 +342,9 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
         try:
             result = await _fetch_job_status(prompt_id)
         except (httpx.ConnectError, httpx.TimeoutException):
-            return transient_error("unreachable",
-                f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+            return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
         except httpx.HTTPStatusError as exc:
-            return transient_error("unreachable",
-                f"ComfyUI returned HTTP {exc.response.status_code}")
+            return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
 
         if result["state"] in ("completed", "failed"):
             return _format_result(prompt_id, result)
@@ -345,27 +372,27 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
                 result = await _fetch_job_status(pid)
             except (httpx.ConnectError, httpx.TimeoutException):
                 still_remaining.append(pid)
-                return transient_error(
-                    "unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}"
-                )
+                return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
             except httpx.HTTPStatusError as exc:
                 still_remaining.append(pid)
-                return transient_error(
-                    "unreachable", f"ComfyUI returned HTTP {exc.response.status_code}"
-                )
+                return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
 
             if result["state"] == "completed":
-                completed.append({
-                    "prompt_id": pid,
-                    "outputs": result.get("outputs", {}),
-                })
+                completed.append(
+                    {
+                        "prompt_id": pid,
+                        "outputs": result.get("outputs", {}),
+                    }
+                )
             elif result["state"] == "failed":
                 failure_counts[pid] = failure_counts.get(pid, 0) + 1
                 if failure_counts[pid] >= MAX_FAILURE_RETRIES:
-                    failed.append({
-                        "prompt_id": pid,
-                        "error": result.get("error", "Job failed in ComfyUI"),
-                    })
+                    failed.append(
+                        {
+                            "prompt_id": pid,
+                            "error": result.get("error", "Job failed in ComfyUI"),
+                        }
+                    )
                 else:
                     still_remaining.append(pid)
             else:
@@ -403,9 +430,7 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
     }
 
 
-def _build_batch_result(
-    completed: list[dict], failed: list[dict], remaining: list[str]
-) -> dict:
+def _build_batch_result(completed: list[dict], failed: list[dict], remaining: list[str]) -> dict:
     """Build the response dict for check_next_job."""
     return {
         "status": "completed",
@@ -415,26 +440,25 @@ def _build_batch_result(
     }
 
 
-async def get_image(prompt_id: str) -> dict:
+async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | list:
     """Retrieve completed image, save to output directory, return absolute path."""
     # 1. Check job status
     try:
         result = await _fetch_job_status(prompt_id)
     except (httpx.ConnectError, httpx.TimeoutException):
-        return transient_error("unreachable",
-            f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
     except httpx.HTTPStatusError as exc:
-        return transient_error("unreachable",
-            f"ComfyUI returned HTTP {exc.response.status_code}")
+        return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
 
     state = result["state"]
 
     if state == "pending":
-        return terminal_error("invalid_inputs",
-            f"Job {prompt_id} is still pending (queued, not started)")
+        return terminal_error("invalid_inputs", f"Job {prompt_id} is still pending (queued, not started)")
     if state == "running":
-        return terminal_error("invalid_inputs",
-            f"Job {prompt_id} is still running. Call check_job with wait to poll for completion first.")
+        return terminal_error(
+            "invalid_inputs",
+            f"Job {prompt_id} is still running. Call check_job with wait to poll for completion first.",
+        )
     if state == "failed":
         error_msg = result.get("error", "Job failed in ComfyUI")
         return terminal_error("generation_failed", error_msg)
@@ -453,14 +477,12 @@ async def get_image(prompt_id: str) -> dict:
             break
 
     if not filename:
-        return terminal_error("completed_no_output",
-            f"Job {prompt_id} completed but produced no output images")
+        return terminal_error("completed_no_output", f"Job {prompt_id} completed but produced no output images")
 
     # 3. Sanitize filename (FR21)
     safe_filename = os.path.basename(filename)
     if not safe_filename or safe_filename in (".", ".."):
-        return terminal_error("completed_no_output",
-            f"Job {prompt_id} produced an invalid filename")
+        return terminal_error("completed_no_output", f"Job {prompt_id} produced an invalid filename")
 
     # 4. Fetch image bytes from ComfyUI
     params = {"filename": filename, "type": "output"}
@@ -472,11 +494,9 @@ async def get_image(prompt_id: str) -> dict:
             response = await client.get(f"{COMFYUI_URL}/view", params=params)
             response.raise_for_status()
     except (httpx.ConnectError, httpx.TimeoutException):
-        return transient_error("unreachable",
-            f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
     except httpx.HTTPStatusError as exc:
-        return transient_error("unreachable",
-            f"ComfyUI returned HTTP {exc.response.status_code} fetching image")
+        return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code} fetching image")
 
     image_bytes = response.content
 
@@ -487,8 +507,7 @@ async def get_image(prompt_id: str) -> dict:
     try:
         os.makedirs(date_dir, exist_ok=True)
     except OSError as exc:
-        return transient_error("storage_error",
-            f"Cannot create output directory '{date_dir}': {exc}")
+        return transient_error("storage_error", f"Cannot create output directory '{date_dir}': {exc}")
 
     output_path = os.path.join(date_dir, safe_filename)
     if os.path.exists(output_path):
@@ -502,10 +521,22 @@ async def get_image(prompt_id: str) -> dict:
         with open(output_path, "wb") as f:
             f.write(image_bytes)
     except OSError as exc:
-        return transient_error("storage_error",
-            f"Cannot write image to '{output_path}': {exc}")
+        return transient_error("storage_error", f"Cannot write image to '{output_path}': {exc}")
 
     abs_path = os.path.abspath(output_path)
     logger.info("Image saved: %s", abs_path)
 
-    return {"status": "success", "file_path": abs_path, "prompt_id": prompt_id}
+    result = {
+        "status": "success",
+        "file_path": abs_path,
+        "prompt_id": prompt_id,
+    }
+
+    # Generate thumbnail for inline display via data URI
+    if include_base64:
+        try:
+            result["thumbnail_base64"] = generate_thumbnail(image_bytes)
+        except Exception:
+            logger.warning("Thumbnail generation failed for %s", abs_path, exc_info=True)
+
+    return result

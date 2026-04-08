@@ -1,13 +1,12 @@
 """Tests for slop_studio.sloppify module."""
 
 import math
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 import slop_studio.sloppify as sloppify_mod
 from slop_studio.sloppify import _extract_words, sloppify_prompt
-
 
 # ---------------------------------------------------------------------------
 # _extract_words
@@ -69,9 +68,7 @@ class TestSloppifyValidation:
 
     @pytest.mark.anyio
     async def test_synonym_ratio_zero_returns_original(self):
-        result = await sloppify_prompt(
-            "a sunset over mountains", top_k=5, synonym_ratio=0
-        )
+        result = await sloppify_prompt("a sunset over mountains", top_k=5, synonym_ratio=0)
         assert result["status"] == "success"
         assert result["sloppified_prompt"] == "a sunset over mountains"
         assert result["original_prompt"] == "a sunset over mountains"
@@ -94,9 +91,7 @@ class TestSloppifyMissingDep:
             raise ImportError("torch and clip not installed")
 
         with patch.object(sloppify_mod, "_ensure_clip", side_effect=fake_ensure):
-            result = await sloppify_prompt(
-                "a sunset over mountains", top_k=5, synonym_ratio=100
-            )
+            result = await sloppify_prompt("a sunset over mountains", top_k=5, synonym_ratio=100)
         assert result["status"] == "error"
         assert result["error_type"] == "missing_dependency"
 
@@ -127,9 +122,7 @@ class TestSloppifyWithMockedCLIP:
 
     @pytest.mark.anyio
     async def test_happy_path_all_words(self):
-        result = await sloppify_prompt(
-            "a sunset over mountains", top_k=5, synonym_ratio=100
-        )
+        result = await sloppify_prompt("a sunset over mountains", top_k=5, synonym_ratio=100)
         assert result["status"] == "success"
         assert result["original_prompt"] == "a sunset over mountains"
         assert result["sloppified_prompt"] != "a sunset over mountains"
@@ -166,9 +159,7 @@ class TestSloppifyWithMockedCLIP:
     @pytest.mark.anyio
     async def test_substring_not_corrupted(self):
         """Replacing 'cat' should not corrupt 'catastrophe'."""
-        result = await sloppify_prompt(
-            "catastrophe of a cat", top_k=5, synonym_ratio=100
-        )
+        result = await sloppify_prompt("catastrophe of a cat", top_k=5, synonym_ratio=100)
         assert result["status"] == "success"
         # 'cat' should be replaced with 'syn_cat', not inside 'catastrophe'
         assert "syn_catastrophe" in result["sloppified_prompt"]
@@ -180,9 +171,7 @@ class TestSloppifyEmptySynonym:
     def setup_mock(self):
         self._patches = [
             patch.object(sloppify_mod, "_ensure_clip"),
-            patch.object(
-                sloppify_mod, "_synonymise_word", return_value=""
-            ),
+            patch.object(sloppify_mod, "_synonymise_word", return_value=""),
         ]
         for p in self._patches:
             p.start()

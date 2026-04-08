@@ -2,8 +2,8 @@ import importlib
 
 import pytest
 
-import slop_studio.config
 import slop_studio.comfyui
+import slop_studio.config
 
 
 @pytest.fixture(autouse=True)
