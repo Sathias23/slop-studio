@@ -71,8 +71,15 @@ const lbImg = document.getElementById("lb-img");
 images.forEach(img => {
   const card = document.createElement("div");
   card.className = "card";
-  card.innerHTML = `<img src="${img.src}" loading="lazy"><div class="label">${img.name}</div>`;
-  card.querySelector("img").addEventListener("click", () => {
+  const imgEl = document.createElement("img");
+  imgEl.src = img.src;
+  imgEl.loading = "lazy";
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = img.name;
+  card.appendChild(imgEl);
+  card.appendChild(label);
+  imgEl.addEventListener("click", () => {
     lbImg.src = img.src;
     lightbox.classList.add("active");
   });
