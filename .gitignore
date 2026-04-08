@@ -25,7 +25,7 @@ CLAUDE.md
 .claude/
 _bmad/
 _bmad-output/
-TODO_*
+TODO*
 manual_test.py
 SATHIAS.md
 .devcontainer/                                                                                                                                                                         

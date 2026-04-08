@@ -1,23 +1,41 @@
 import logging
 import os
+import re
 import tomllib
 from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
 
+_PLACEHOLDER_RE = re.compile(r"\$\{[^}]+\}")
 
-def _is_unresolved_placeholder(value: str) -> bool:
-    """Check if a value is an unresolved ${...} placeholder."""
-    return value.startswith("${") and value.endswith("}")
+
+def _expand_env_placeholders(value: str) -> str:
+    """Expand known shell-style placeholders like ${HOME} using os.environ.
+
+    Unresolvable placeholders (e.g. ${user_config.FOO}) are left as-is so
+    _has_unresolved_placeholder can catch them.
+    """
+    def _replace(m: re.Match) -> str:
+        name = m.group(0)[2:-1]  # strip ${ and }
+        return os.environ.get(name, m.group(0))
+    return _PLACEHOLDER_RE.sub(_replace, value)
+
+
+def _has_unresolved_placeholder(value: str) -> bool:
+    """Check if a value still contains any unresolved ${...} placeholder."""
+    return bool(_PLACEHOLDER_RE.search(value))
 
 
 def _env_or_default(key: str, default: str) -> str:
     """Return env var value, falling back to default if unset or empty."""
     value = os.environ.get(key, "")
-    if value and not _is_unresolved_placeholder(value):
-        return value
-    return default
+    if not value:
+        return default
+    value = _expand_env_placeholders(value)
+    if _has_unresolved_placeholder(value):
+        return default
+    return value
 
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
@@ -47,8 +65,10 @@ _TOML_CONFIG = _load_config_toml()
 def _resolve(env_key: str, toml_key: str, default: str) -> str:
     """Resolve config value: env var → config.toml → default."""
     env_val = os.environ.get(env_key, "")
-    if env_val and not _is_unresolved_placeholder(env_val):
-        return env_val
+    if env_val:
+        env_val = _expand_env_placeholders(env_val)
+        if not _has_unresolved_placeholder(env_val):
+            return env_val
     toml_val = _TOML_CONFIG.get(toml_key)
     if toml_val is None or toml_val == "":
         return default
