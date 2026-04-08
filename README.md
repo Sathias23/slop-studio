@@ -170,7 +170,9 @@ slop-studio build-mcpb      Build .mcpb Desktop Extension package
 | `get_template` | Inspect inputs and aspect ratios for a template |
 | `queue_prompt` | Submit a generation job |
 | `check_next_job` | Poll multiple jobs for completion |
-| `get_image` | Retrieve the output image path |
+| `get_image` | Retrieve the output image path with inline thumbnail |
+| `open_image` | Open an image in the OS default viewer |
+| `open_gallery` | Open multiple images in a browser-based gallery |
 | `post_to_bluesky` | Post image(s) to Bluesky with text and hashtags |
 | `add_template` | Register a new ComfyUI workflow |
 | `update_template` | Update an existing template |
@@ -215,6 +217,29 @@ COMFYUI_START_CMD=/path/to/venv/bin/python /path/to/ComfyUI/main.py
 - **Already running:** If ComfyUI is already running when slop-studio starts, it skips the launch and connects to the existing instance. It won't shut down an instance it didn't start.
 
 > **Note:** Point `COMFYUI_START_CMD` at Python directly (not the `comfy` CLI), so slop-studio can manage the process lifecycle cleanly.
+
+## Image Viewing
+
+slop-studio can open generated images directly from the conversation.
+
+- **`open_image`** opens a single image in your OS default viewer (Preview on macOS, etc.). Only image files inside the output directory are allowed — the tool validates both the file extension and path before opening.
+- **`open_gallery`** generates a lightweight HTML page with a dark grid layout and lightbox, then opens it in your browser. Useful for comparing multiple generations side by side.
+
+The gallery is written to the output directory as a temporary HTML file. Image paths are validated against an allowlist of extensions (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.tiff`) and must reside inside the configured output directory.
+
+## Key Files
+
+If you're reviewing the code before installing — here are the important files:
+
+| File | What it does |
+|------|-------------|
+| [`slop_studio/server.py`](slop_studio/server.py) | MCP tool definitions — all tool handlers including `open_image` and `open_gallery` |
+| [`slop_studio/comfyui.py`](slop_studio/comfyui.py) | ComfyUI HTTP client — job submission, polling, image retrieval |
+| [`slop_studio/process.py`](slop_studio/process.py) | Cross-platform process management — start/stop/cleanup of ComfyUI |
+| [`slop_studio/config.py`](slop_studio/config.py) | Configuration resolution — env vars, config.toml, defaults |
+| [`slop_studio/gallery.py`](slop_studio/gallery.py) | HTML gallery generator |
+| [`slop_studio/mcpb.py`](slop_studio/mcpb.py) | MCPB Desktop Extension builder |
+| [`manifest.json`](manifest.json) | Desktop Extension manifest — declares tools, user config, and server entry point |
 
 ## Coming Soon
 
