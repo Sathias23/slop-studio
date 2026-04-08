@@ -562,19 +562,20 @@ async def open_gallery(file_paths: str | list[str]) -> dict:
     if not file_paths:
         return terminal_error("invalid_inputs", "At least one file path is required")
 
-    real_output = os.path.realpath(OUTPUT_DIR)
+    output_root = Path(OUTPUT_DIR).resolve()
 
     validated_paths = []
     for file_path in file_paths:
-        real_path = os.path.realpath(file_path)
-        if not real_path.startswith(real_output + os.sep) and real_path != real_output:
+        p = Path(file_path).resolve()
+        try:
+            p.relative_to(output_root)
+        except ValueError:
             return terminal_error("invalid_path", f"File must be inside the output directory: {file_path}")
-        ext = os.path.splitext(real_path)[1].lower()
-        if ext not in _IMAGE_EXTENSIONS:
-            return terminal_error("invalid_inputs", f"Unsupported file type: {ext}")
-        if not os.path.isfile(real_path):
+        if p.suffix.lower() not in _IMAGE_EXTENSIONS:
+            return terminal_error("invalid_inputs", f"Unsupported file type: {p.suffix.lower()}")
+        if not p.is_file():
             return terminal_error("invalid_path", f"File not found: {file_path}")
-        validated_paths.append(real_path)
+        validated_paths.append(str(p))
 
     if len(validated_paths) == 1:
         target = validated_paths[0]
