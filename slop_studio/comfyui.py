@@ -207,7 +207,7 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
         await _inject_inputs(prepared, meta_inputs, inputs)
     except ValueError as exc:
         return terminal_error("validation", str(exc))
-    except httpx.RequestError:
+    except httpx.TransportError:
         return transient_error(
             "unreachable",
             f"Cannot upload image to ComfyUI at {COMFYUI_URL}",
@@ -239,7 +239,7 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
             "invalid_workflow",
             f"ComfyUI rejected the workflow: {error_body[:500]}",
         )
-    except httpx.RequestError:
+    except httpx.TransportError:
         return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
     try:
@@ -324,10 +324,10 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
 
     try:
         result = await _fetch_job_status(prompt_id)
-    except (httpx.ConnectError, httpx.TimeoutException):
-        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
     except httpx.HTTPStatusError as exc:
         return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
+    except httpx.TransportError:
+        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
     # Non-blocking check or terminal state
     if effective_wait <= 0 or result["state"] in ("completed", "failed"):
@@ -341,10 +341,10 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
 
         try:
             result = await _fetch_job_status(prompt_id)
-        except (httpx.ConnectError, httpx.TimeoutException):
-            return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
         except httpx.HTTPStatusError as exc:
             return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
+        except httpx.TransportError:
+            return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
         if result["state"] in ("completed", "failed"):
             return _format_result(prompt_id, result)
@@ -370,12 +370,12 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
         for pid in list(remaining):
             try:
                 result = await _fetch_job_status(pid)
-            except (httpx.ConnectError, httpx.TimeoutException):
-                still_remaining.append(pid)
-                return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
             except httpx.HTTPStatusError as exc:
                 still_remaining.append(pid)
                 return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
+            except httpx.TransportError:
+                still_remaining.append(pid)
+                return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
             if result["state"] == "completed":
                 completed.append(
@@ -445,10 +445,10 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
     # 1. Check job status
     try:
         result = await _fetch_job_status(prompt_id)
-    except (httpx.ConnectError, httpx.TimeoutException):
-        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
     except httpx.HTTPStatusError as exc:
         return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
+    except httpx.TransportError:
+        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
     state = result["state"]
 
@@ -493,10 +493,10 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(f"{COMFYUI_URL}/view", params=params)
             response.raise_for_status()
-    except (httpx.ConnectError, httpx.TimeoutException):
-        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
     except httpx.HTTPStatusError as exc:
         return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code} fetching image")
+    except httpx.TransportError:
+        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
     image_bytes = response.content
 

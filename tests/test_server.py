@@ -829,7 +829,7 @@ async def test_open_gallery_empty_list():
 async def test_open_gallery_file_not_found(tmp_path):
     from slop_studio.server import open_gallery
 
-    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)):
+    with patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)):
         result = await open_gallery(str(tmp_path / "nonexistent.png"))
     assert result["status"] == "error"
     assert "not found" in result["error"].lower()
@@ -841,7 +841,7 @@ async def test_open_gallery_bad_extension(tmp_path):
 
     bad = tmp_path / "script.sh"
     bad.write_bytes(b"#!/bin/sh")
-    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)):
+    with patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)):
         result = await open_gallery(str(bad))
     assert result["status"] == "error"
     assert "unsupported file type" in result["error"].lower()
@@ -853,7 +853,7 @@ async def test_open_gallery_outside_output_dir(tmp_path):
 
     img = tmp_path / "evil.png"
     img.write_bytes(b"fake image")
-    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path / "output")):
+    with patch("slop_studio.server.OUTPUT_DIR", str(tmp_path / "output")):
         result = await open_gallery(str(img))
     assert result["status"] == "error"
     assert "output directory" in result["error"].lower()
@@ -867,7 +867,7 @@ async def test_open_gallery_single_string_opens_viewer(tmp_path):
     img.write_bytes(b"fake image")
     mock_proc = AsyncMock()
     with (
-        patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
     ):
         result = await open_gallery(str(img))
@@ -885,7 +885,7 @@ async def test_open_gallery_single_list_opens_viewer(tmp_path):
     img.write_bytes(b"fake image")
     mock_proc = AsyncMock()
     with (
-        patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
     ):
         result = await open_gallery([str(img)])
@@ -906,7 +906,7 @@ async def test_open_gallery_multiple_generates_html(tmp_path):
     mock_proc = AsyncMock()
     gallery_html = str(tmp_path / "gallery.html")
     with (
-        patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
         patch("slop_studio.gallery.generate_gallery", return_value=gallery_html) as mock_gen,
     ):
@@ -926,7 +926,7 @@ async def test_open_gallery_popen_failure(tmp_path):
     img = tmp_path / "test.png"
     img.write_bytes(b"fake image")
     with (
-        patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
         patch("asyncio.create_subprocess_exec", side_effect=OSError("no viewer")),
     ):
         result = await open_gallery(str(img))

@@ -2,6 +2,8 @@ import asyncio
 import atexit
 import functools
 import logging
+import os
+import platform
 import shlex
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -15,6 +17,7 @@ from slop_studio.config import (
     COMFYUI_START_CMD,
     COMFYUI_START_TIMEOUT,
     COMFYUI_URL,
+    OUTPUT_DIR,
     PID_FILE,
 )
 from slop_studio.errors import terminal_error, transient_error
@@ -27,6 +30,8 @@ from slop_studio.process import (
 )
 
 logger = logging.getLogger(__name__)
+
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
 
 
 def safe_tool(func):
@@ -551,13 +556,6 @@ async def open_gallery(file_paths: str | list[str]) -> dict:
         file_paths: Absolute path to an image file, or a list of paths.
                     All must be inside the configured output directory.
     """
-    import os
-    import platform
-
-    from slop_studio.config import OUTPUT_DIR
-
-    _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
-
     if isinstance(file_paths, str):
         file_paths = [file_paths]
 
@@ -602,7 +600,7 @@ async def open_gallery(file_paths: str | list[str]) -> dict:
                 stderr=asyncio.subprocess.DEVNULL,
             )
         elif system == "Windows":
-            os.startfile(target)
+            await asyncio.to_thread(os.startfile, target)
         else:
             return terminal_error("invalid_inputs", f"Unsupported platform: {system}")
     except OSError as exc:
