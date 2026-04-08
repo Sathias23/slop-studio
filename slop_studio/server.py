@@ -17,7 +17,7 @@ from slop_studio.config import (
     COMFYUI_URL,
     PID_FILE,
 )
-from slop_studio.errors import transient_error
+from slop_studio.errors import terminal_error, transient_error
 from slop_studio.process import (
     get_process_cmdline,
     graceful_kill,
@@ -167,7 +167,10 @@ class ComfyUIManager:
             await asyncio.wait_for(self._process.wait(), timeout=5.0)
         except TimeoutError:
             logger.warning("Process (pid=%d) did not exit within 5s after SIGKILL", self._process.pid)
-            await self._process.wait()
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=10.0)
+            except TimeoutError:
+                logger.error("Process (pid=%d) still alive 10s after SIGKILL — giving up", self._process.pid)
         self._process = None
         self._managed = False
         self._remove_pid_file()
@@ -289,20 +292,21 @@ class ComfyUIManager:
 
     async def shutdown(self) -> None:
         """Graceful shutdown: SIGTERM → wait 10s → SIGKILL."""
-        await self._cancel_idle_watcher()
-        if not self._process or self._process.returncode is not None:
-            return
-        if not is_process_alive(self._process.pid):
-            self._process = None
+        async with self._lock:
+            await self._cancel_idle_watcher()
+            if not self._process or self._process.returncode is not None:
+                return
+            if not is_process_alive(self._process.pid):
+                self._process = None
+                self._managed = False
+                self._remove_pid_file()
+                return
+            logger.info("Shutting down ComfyUI (pid=%d)", self._process.pid)
+            await asyncio.to_thread(graceful_kill, self._process.pid, timeout=10.0)
+            await self._process.wait()
             self._managed = False
+            self._process = None
             self._remove_pid_file()
-            return
-        logger.info("Shutting down ComfyUI (pid=%d)", self._process.pid)
-        await asyncio.to_thread(graceful_kill, self._process.pid, timeout=10.0)
-        await self._process.wait()
-        self._managed = False
-        self._process = None
-        self._remove_pid_file()
 
 
 async def cleanup_orphan(pid_file) -> None:
@@ -550,14 +554,14 @@ async def open_image(file_path: str) -> dict:
     real_path = os.path.realpath(file_path)
     real_output = os.path.realpath(OUTPUT_DIR)
     if not real_path.startswith(real_output + os.sep) and real_path != real_output:
-        return {"status": "error", "error": "File must be inside the output directory"}
+        return terminal_error("invalid_path", "File must be inside the output directory")
 
     ext = os.path.splitext(real_path)[1].lower()
     if ext not in _IMAGE_EXTENSIONS:
-        return {"status": "error", "error": f"Unsupported file type: {ext}"}
+        return terminal_error("invalid_inputs", f"Unsupported file type: {ext}")
 
     if not os.path.isfile(real_path):
-        return {"status": "error", "error": f"File not found: {file_path}"}
+        return terminal_error("invalid_path", f"File not found: {file_path}")
 
     system = platform.system()
     try:
@@ -578,9 +582,9 @@ async def open_image(file_path: str) -> dict:
         elif system == "Windows":
             os.startfile(real_path)
         else:
-            return {"status": "error", "error": f"Unsupported platform: {system}"}
+            return terminal_error("invalid_inputs", f"Unsupported platform: {system}")
     except OSError as exc:
-        return {"status": "error", "error": f"Failed to open: {exc}"}
+        return transient_error("open_failed", f"Failed to open: {exc}")
 
     return {"status": "success", "file_path": real_path}
 
@@ -612,12 +616,12 @@ async def open_gallery(file_paths: list[str]) -> dict:
     for file_path in file_paths:
         real_path = os.path.realpath(file_path)
         if not real_path.startswith(real_output + os.sep) and real_path != real_output:
-            return {"status": "error", "error": f"File must be inside the output directory: {file_path}"}
+            return terminal_error("invalid_path", f"File must be inside the output directory: {file_path}")
         ext = os.path.splitext(real_path)[1].lower()
         if ext not in _IMAGE_EXTENSIONS:
-            return {"status": "error", "error": f"Unsupported file type: {ext}"}
+            return terminal_error("invalid_inputs", f"Unsupported file type: {ext}")
         if not os.path.isfile(real_path):
-            return {"status": "error", "error": f"File not found: {file_path}"}
+            return terminal_error("invalid_path", f"File not found: {file_path}")
         validated_paths.append(real_path)
 
     gallery_path = await asyncio.to_thread(generate_gallery, validated_paths, OUTPUT_DIR)
@@ -641,9 +645,9 @@ async def open_gallery(file_paths: list[str]) -> dict:
         elif system == "Windows":
             os.startfile(gallery_path)
         else:
-            return {"status": "error", "error": f"Unsupported platform: {system}"}
+            return terminal_error("invalid_inputs", f"Unsupported platform: {system}")
     except OSError as exc:
-        return {"status": "error", "error": f"Failed to open gallery: {exc}"}
+        return transient_error("open_failed", f"Failed to open gallery: {exc}")
 
     return {"status": "success", "gallery_path": gallery_path, "image_count": len(validated_paths)}
 

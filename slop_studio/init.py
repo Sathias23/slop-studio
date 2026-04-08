@@ -52,13 +52,22 @@ def _load_config_toml() -> dict:
 def _save_to_config_toml(key: str, value: str) -> None:
     """Read existing config.toml, set *key* = *value*, and write back.
 
-    Only string values are preserved; non-string values (tables, arrays)
-    are dropped to avoid producing invalid TOML.
+    Scalar values (str, bool, int, float) are preserved; non-scalar values
+    (tables, arrays) are dropped with a warning to avoid producing invalid TOML.
     """
     config = _load_config_toml()
     config[key] = value
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    lines = [f"{k} = {json.dumps(v)}" for k, v in sorted(config.items()) if isinstance(v, str)]
+    lines = []
+    for k, v in sorted(config.items()):
+        if isinstance(v, str):
+            lines.append(f"{k} = {json.dumps(v)}")
+        elif isinstance(v, bool):
+            lines.append(f"{k} = {str(v).lower()}")
+        elif isinstance(v, (int, float)):
+            lines.append(f"{k} = {v}")
+        else:
+            logger.warning("_save_to_config_toml: dropping non-scalar key %r (%s)", k, type(v).__name__)
     _CONFIG_FILE.write_text("\n".join(lines) + "\n")
 
 
@@ -111,7 +120,7 @@ def _prompt_comfyui_setup(saved_config: dict, detected_dir: Path | None) -> str 
 
     comfyui_dir = Path(dir_str).expanduser().resolve()
     if not (comfyui_dir / "main.py").is_file():
-        print(f"  Warning: {comfyui_dir / 'main.py'} not found")
+        logger.warning("%s not found", comfyui_dir / "main.py")
 
     # Check for venv inside ComfyUI dir first
     builtin_venv = comfyui_dir / "venv"
@@ -121,7 +130,7 @@ def _prompt_comfyui_setup(saved_config: dict, detected_dir: Path | None) -> str 
     venv_dir = Path(venv_str).expanduser().resolve() if venv_str else None
 
     if venv_dir and not _python_from_venv(venv_dir):
-        print(f"  Warning: no python found in {venv_dir}/bin/ or {venv_dir}/Scripts/")
+        logger.warning("No python found in %s/bin/ or %s/Scripts/", venv_dir, venv_dir)
 
     cmd = _build_start_cmd(comfyui_dir, venv_dir)
 
@@ -160,7 +169,7 @@ def init_project(target: Path) -> bool:
     # 2. Generate .mcp.json (skip if exists)
     mcp_json_path = target / ".mcp.json"
     if mcp_json_path.exists():
-        print(f"Warning: {mcp_json_path} already exists — skipping", file=sys.stderr)
+        logger.warning("%s already exists — skipping", mcp_json_path)
     else:
         env = {}
         saved_config = _load_config_toml()
@@ -212,7 +221,7 @@ def init_project(target: Path) -> bool:
     # 4. Copy CLAUDE.md template (skip if exists)
     claude_md_path = target / "CLAUDE.md"
     if claude_md_path.exists():
-        print(f"Warning: {claude_md_path} already exists — skipping", file=sys.stderr)
+        logger.warning("%s already exists — skipping", claude_md_path)
     else:
         shutil.copy2(ASSETS_DIR / "claude-md-template.md", claude_md_path)
 

@@ -112,7 +112,7 @@ def generate_gallery(image_paths: list[str], output_dir: str) -> str:
     image_data = []
     for img_path in image_paths:
         abs_path = Path(img_path).resolve()
-        rel_path = os.path.relpath(abs_path, output_dir_path)
+        rel_path = Path(os.path.relpath(abs_path, output_dir_path)).as_posix()
         image_data.append({"src": rel_path, "name": abs_path.name})
 
     html = _GALLERY_HTML.replace("IMAGE_DATA_PLACEHOLDER", json.dumps(image_data))
