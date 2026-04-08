@@ -2,9 +2,12 @@ import asyncio
 import atexit
 import functools
 import logging
+import os
+import platform
 import shlex
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 
 import httpx
 from fastmcp import FastMCP
@@ -15,6 +18,7 @@ from slop_studio.config import (
     COMFYUI_START_CMD,
     COMFYUI_START_TIMEOUT,
     COMFYUI_URL,
+    OUTPUT_DIR,
     PID_FILE,
 )
 from slop_studio.errors import terminal_error, transient_error
@@ -27,6 +31,8 @@ from slop_studio.process import (
 )
 
 logger = logging.getLogger(__name__)
+
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
 
 
 def safe_tool(func):
@@ -539,118 +545,72 @@ async def get_image(prompt_id: str, include_base64: bool = False) -> dict | list
 
 @mcp.tool()
 @safe_tool
-async def open_image(file_path: str) -> dict:
-    """Open an image file in the OS default viewer.
+async def open_gallery(file_paths: str | list[str]) -> dict:
+    """Open image(s) for viewing.
 
-    Uses 'open' on macOS, 'xdg-open' on Linux, and 'os.startfile' on Windows.
-    The file_path must be inside the configured output directory.
+    Accepts a single image path or a list. When given one image, opens it
+    directly in the OS default viewer (Preview on macOS, etc.). When given
+    multiple images, generates a lightweight HTML gallery with a dark-themed
+    responsive grid and click-to-lightbox, then opens it in the default browser.
+
+    Args:
+        file_paths: Absolute path to an image file, or a list of paths.
+                    All must be inside the configured output directory.
     """
-    import os
-    import platform
+    if isinstance(file_paths, str):
+        file_paths = [file_paths]
 
-    from slop_studio.config import OUTPUT_DIR
+    if not file_paths:
+        return terminal_error("invalid_inputs", "At least one file path is required")
 
-    _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
+    output_root = Path(OUTPUT_DIR).resolve()
 
-    real_path = os.path.realpath(file_path)
-    real_output = os.path.realpath(OUTPUT_DIR)
-    if not real_path.startswith(real_output + os.sep) and real_path != real_output:
-        return terminal_error("invalid_path", "File must be inside the output directory")
+    validated_paths = []
+    for file_path in file_paths:
+        p = Path(file_path).resolve()
+        try:
+            p.relative_to(output_root)
+        except ValueError:
+            return terminal_error("invalid_path", f"File must be inside the output directory: {file_path}")
+        if p.suffix.lower() not in _IMAGE_EXTENSIONS:
+            return terminal_error("invalid_inputs", f"Unsupported file type: {p.suffix.lower()}")
+        if not p.is_file():
+            return terminal_error("invalid_path", f"File not found: {file_path}")
+        validated_paths.append(str(p))
 
-    ext = os.path.splitext(real_path)[1].lower()
-    if ext not in _IMAGE_EXTENSIONS:
-        return terminal_error("invalid_inputs", f"Unsupported file type: {ext}")
+    if len(validated_paths) == 1:
+        target = validated_paths[0]
+    else:
+        from slop_studio.gallery import generate_gallery
 
-    if not os.path.isfile(real_path):
-        return terminal_error("invalid_path", f"File not found: {file_path}")
+        target = await asyncio.to_thread(generate_gallery, validated_paths, OUTPUT_DIR)
 
     system = platform.system()
     try:
         if system == "Darwin":
             await asyncio.create_subprocess_exec(
                 "open",
-                real_path,
+                target,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
         elif system == "Linux":
             await asyncio.create_subprocess_exec(
                 "xdg-open",
-                real_path,
+                target,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
         elif system == "Windows":
-            os.startfile(real_path)
+            await asyncio.to_thread(os.startfile, target)
         else:
             return terminal_error("invalid_inputs", f"Unsupported platform: {system}")
     except OSError as exc:
         return transient_error("open_failed", f"Failed to open: {exc}")
 
-    return {"status": "success", "file_path": real_path}
-
-
-@mcp.tool()
-@safe_tool
-async def open_gallery(file_paths: list[str]) -> dict:
-    """Open multiple images in a single HTML gallery page.
-
-    Generates a lightweight HTML file with a dark-themed responsive grid and
-    click-to-lightbox, then opens it in the default browser. Use this instead
-    of calling open_image multiple times when viewing a batch of images.
-
-    Args:
-        file_paths: List of absolute paths to image files. All must be
-                    inside the configured output directory.
-    """
-    import os
-    import platform
-
-    from slop_studio.config import OUTPUT_DIR
-    from slop_studio.gallery import generate_gallery
-
-    _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
-
-    real_output = os.path.realpath(OUTPUT_DIR)
-
-    validated_paths = []
-    for file_path in file_paths:
-        real_path = os.path.realpath(file_path)
-        if not real_path.startswith(real_output + os.sep) and real_path != real_output:
-            return terminal_error("invalid_path", f"File must be inside the output directory: {file_path}")
-        ext = os.path.splitext(real_path)[1].lower()
-        if ext not in _IMAGE_EXTENSIONS:
-            return terminal_error("invalid_inputs", f"Unsupported file type: {ext}")
-        if not os.path.isfile(real_path):
-            return terminal_error("invalid_path", f"File not found: {file_path}")
-        validated_paths.append(real_path)
-
-    gallery_path = await asyncio.to_thread(generate_gallery, validated_paths, OUTPUT_DIR)
-
-    system = platform.system()
-    try:
-        if system == "Darwin":
-            await asyncio.create_subprocess_exec(
-                "open",
-                gallery_path,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-        elif system == "Linux":
-            await asyncio.create_subprocess_exec(
-                "xdg-open",
-                gallery_path,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-        elif system == "Windows":
-            os.startfile(gallery_path)
-        else:
-            return terminal_error("invalid_inputs", f"Unsupported platform: {system}")
-    except OSError as exc:
-        return transient_error("open_failed", f"Failed to open gallery: {exc}")
-
-    return {"status": "success", "gallery_path": gallery_path, "image_count": len(validated_paths)}
+    if len(validated_paths) == 1:
+        return {"status": "success", "file_path": validated_paths[0]}
+    return {"status": "success", "gallery_path": target, "image_count": len(validated_paths)}
 
 
 @mcp.tool()

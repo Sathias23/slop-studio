@@ -813,70 +813,122 @@ async def test_idle_watcher_double_check_after_lock(default_url):
     assert not shutdown_called
 
 
-# --- open_image tool tests ---
+# --- open_gallery tool tests ---
 
 
 @pytest.mark.anyio
-async def test_open_image_file_not_found(tmp_path):
-    from slop_studio.server import open_image
+async def test_open_gallery_empty_list():
+    from slop_studio.server import open_gallery
 
-    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)):
-        result = await open_image(str(tmp_path / "nonexistent.png"))
+    result = await open_gallery([])
+    assert result["status"] == "error"
+    assert "at least one" in result["error"].lower()
+
+
+@pytest.mark.anyio
+async def test_open_gallery_file_not_found(tmp_path):
+    from slop_studio.server import open_gallery
+
+    with patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)):
+        result = await open_gallery(str(tmp_path / "nonexistent.png"))
     assert result["status"] == "error"
     assert "not found" in result["error"].lower()
 
 
 @pytest.mark.anyio
-async def test_open_image_bad_extension(tmp_path):
-    from slop_studio.server import open_image
+async def test_open_gallery_bad_extension(tmp_path):
+    from slop_studio.server import open_gallery
 
     bad = tmp_path / "script.sh"
     bad.write_bytes(b"#!/bin/sh")
-    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)):
-        result = await open_image(str(bad))
+    with patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)):
+        result = await open_gallery(str(bad))
     assert result["status"] == "error"
     assert "unsupported file type" in result["error"].lower()
 
 
 @pytest.mark.anyio
-async def test_open_image_outside_output_dir(tmp_path):
-    from slop_studio.server import open_image
+async def test_open_gallery_outside_output_dir(tmp_path):
+    from slop_studio.server import open_gallery
 
     img = tmp_path / "evil.png"
     img.write_bytes(b"fake image")
-    with patch("slop_studio.config.OUTPUT_DIR", str(tmp_path / "output")):
-        result = await open_image(str(img))
+    with patch("slop_studio.server.OUTPUT_DIR", str(tmp_path / "output")):
+        result = await open_gallery(str(img))
     assert result["status"] == "error"
     assert "output directory" in result["error"].lower()
 
 
 @pytest.mark.anyio
-async def test_open_image_success(tmp_path):
-    from slop_studio.server import open_image
+async def test_open_gallery_single_string_opens_viewer(tmp_path):
+    from slop_studio.server import open_gallery
 
     img = tmp_path / "test.png"
     img.write_bytes(b"fake image")
     mock_proc = AsyncMock()
     with (
-        patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
     ):
-        result = await open_image(str(img))
+        result = await open_gallery(str(img))
     assert result["status"] == "success"
     assert result["file_path"] == str(img)
+    assert "gallery_path" not in result
     mock_exec.assert_called_once()
 
 
 @pytest.mark.anyio
-async def test_open_image_popen_failure(tmp_path):
-    from slop_studio.server import open_image
+async def test_open_gallery_single_list_opens_viewer(tmp_path):
+    from slop_studio.server import open_gallery
+
+    img = tmp_path / "test.png"
+    img.write_bytes(b"fake image")
+    mock_proc = AsyncMock()
+    with (
+        patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        result = await open_gallery([str(img)])
+    assert result["status"] == "success"
+    assert result["file_path"] == str(img)
+    assert "gallery_path" not in result
+    mock_exec.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_open_gallery_multiple_generates_html(tmp_path):
+    from slop_studio.server import open_gallery
+
+    img_a = tmp_path / "a.png"
+    img_b = tmp_path / "b.png"
+    img_a.write_bytes(b"fake image")
+    img_b.write_bytes(b"fake image")
+    mock_proc = AsyncMock()
+    gallery_html = str(tmp_path / "gallery.html")
+    with (
+        patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+        patch("slop_studio.gallery.generate_gallery", return_value=gallery_html) as mock_gen,
+    ):
+        result = await open_gallery([str(img_a), str(img_b)])
+    assert result["status"] == "success"
+    assert result["gallery_path"] == gallery_html
+    assert result["image_count"] == 2
+    assert "file_path" not in result
+    mock_gen.assert_called_once()
+    mock_exec.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_open_gallery_popen_failure(tmp_path):
+    from slop_studio.server import open_gallery
 
     img = tmp_path / "test.png"
     img.write_bytes(b"fake image")
     with (
-        patch("slop_studio.config.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
         patch("asyncio.create_subprocess_exec", side_effect=OSError("no viewer")),
     ):
-        result = await open_image(str(img))
+        result = await open_gallery(str(img))
     assert result["status"] == "error"
     assert "no viewer" in result["error"]
