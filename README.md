@@ -24,7 +24,7 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 ## Install
 
 ```bash
-uv tool install slop-studio
+uv tool install git+https://github.com/Sathias23/slop-studio.git
 ```
 
 This puts the `slop-studio` command on your PATH.
@@ -72,7 +72,7 @@ Download the latest `slop-studio-*.mcpb` file from [GitHub Releases](https://git
 
 That's it — restart Claude Desktop and slop-studio tools are ready to use.
 
-**Prerequisites for manual methods below:** Python 3.11+, ComfyUI installed, and `slop-studio` installed via `uv tool install slop-studio`.
+**Prerequisites for manual methods below:** Python 3.11+, ComfyUI installed, and `slop-studio` installed via `uv tool install git+https://github.com/Sathias23/slop-studio.git`.
 
 ### Automatic Setup
 
