@@ -8,9 +8,10 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 
 ## Features
 
-- Conversational image generation through Claude Code
+- Conversational image generation through Claude Code and Claude Desktop
 - Support for text-to-image and image-to-image models, currently Flux.2 Klein (more to come)
 - Workflow template system with browsing, customization, and aspect ratios
+- Automatic ComfyUI spawning and lifecycle management
 - Job queuing and automatic polling
 - Bluesky posting built in
 - One-command project scaffolding (`slop-studio init`)
@@ -52,10 +53,14 @@ This installs `slop-studio` on your PATH from your local clone. Changes you make
 
    This scaffolds the directory with starter templates, `.mcp.json` (MCP server config for Claude Code), a `/generate` slash command, and a `CLAUDE.md`.
 
-3. **Open Claude Code** in the project directory and use `/generate` to create images:
+3. **Open Claude Code** in the project directory and start creating. Use the `/generate` slash command or just ask Claude to make an image:
 
    ```
    /generate a sunset over mountains, cinematic lighting
+   ```
+
+   ```
+   make me a horror-themed portrait of a haunted lighthouse
    ```
 
 ## Claude Desktop
@@ -64,7 +69,13 @@ slop-studio also works with the Claude Desktop app. Desktop uses a global config
 
 ### One-Click Install
 
-Download the latest `slop-studio-*.mcpb` file from [GitHub Releases](https://github.com/Sathias23/slop-studio/releases) and double-click it. Claude Desktop will prompt you for:
+Build the Desktop Extension package locally:
+
+```bash
+slop-studio build-mcpb
+```
+
+This creates a `slop-studio-*.mcpb` file in the current directory. Double-click it and Claude Desktop will prompt you for:
 
 - **ComfyUI URL** — defaults to `http://localhost:8188`
 - **ComfyUI Start Command** — leave blank if ComfyUI is already running, or enter the full command (e.g., `python /path/to/ComfyUI/main.py --port 8188`)
@@ -90,11 +101,7 @@ slop-studio desktop-config --copy
 
 ### Manual Setup
 
-Add slop-studio to your `claude_desktop_config.json`:
-
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+Add slop-studio to your `claude_desktop_config.json`. Open it from Claude Desktop via **Settings → Developer → Edit Config**, then add:
 
 ```json
 {
@@ -185,7 +192,7 @@ Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Three s
 - **flux2_klein_ultrawide** — 3440x1440 wallpapers with 4x upscale (~60s)
 - **flux2_klein_edit** — multi-reference image editing with style/content transfer (~60s)
 
-The default templates run on 16GB of VRAM. Add your own by exporting a workflow from ComfyUI's browser UI and calling `add_template`.
+The default templates run on 16GB of VRAM. More coming soon! Add your own by exporting a workflow from ComfyUI's browser UI and calling `add_template`.
 
 ## Configuration
 
@@ -251,7 +258,7 @@ If you're reviewing the code before installing — here are the important files:
 
 ## Troubleshooting
 
-**MCP server not connecting:** If you start Claude Code before ComfyUI is running, the MCP server won't be able to connect. Use the `/mcp` command inside Claude Code to reconnect after starting ComfyUI. Alternatively, set `COMFYUI_START_CMD` in your `.env` to have slop-studio launch ComfyUI automatically.
+**ComfyUI not starting automatically:** slop-studio will launch ComfyUI for you when `COMFYUI_START_CMD` is configured, but this isn't bulletproof on every setup. If you run into issues, start ComfyUI manually before opening Claude Code or Claude Desktop — slop-studio will detect the running instance and connect to it.
 
 ## Development
 
