@@ -605,7 +605,13 @@ class LocalBackend(Backend):
         return {}
 
     async def view(self, filename: str, subfolder: str = "", file_type: str = "output") -> bytes:
-        params: dict[str, str] = {"filename": filename, "type": file_type}
+        # Strip path components before forwarding to ComfyUI — mirrors get_image's
+        # sanitization (FR21). Prevents a malicious filename with embedded path
+        # traversal from reaching ComfyUI's filesystem.
+        safe_filename = os.path.basename(filename)
+        if not safe_filename or safe_filename in (".", ".."):
+            raise ValueError(f"Invalid filename: {filename!r}")
+        params: dict[str, str] = {"filename": safe_filename, "type": file_type}
         if subfolder:
             params["subfolder"] = subfolder
         async with httpx.AsyncClient(timeout=30.0) as client:
