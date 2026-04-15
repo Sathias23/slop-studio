@@ -13,7 +13,15 @@ class Backend(ABC):
     dicts/bytes/str.
     """
 
-    name: str  # "local" | "cloud" — reserved for prompt_id prefixing in Story 6.3
+    # "local" | "cloud" — reserved for prompt_id prefixing in Story 6.3.
+    # Declared as an abstract property so subclasses that forget to set it
+    # fail at instantiation (TypeError) rather than at first attribute access.
+    # Concrete subclasses typically satisfy this with a plain class attribute
+    # (e.g. ``name = "local"``) — Python's ABC machinery accepts that as
+    # fulfilling the abstract property.
+    @property
+    @abstractmethod
+    def name(self) -> str: ...
 
     # Error contract (Story 6.2):
     #   submit()       — catches HTTP errors, returns terminal_error/transient_error dicts.
@@ -61,6 +69,7 @@ class Backend(ABC):
     async def view(self, filename: str, subfolder: str = "", file_type: str = "output") -> bytes:
         """Download raw bytes for an output file referenced in a history outputs entry.
 
+        Raises ValueError for invalid filenames (e.g. empty, path traversal).
         Raises httpx.HTTPStatusError / httpx.TransportError on network failure.
         """
 

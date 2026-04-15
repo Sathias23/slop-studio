@@ -1140,3 +1140,47 @@ def test_generate_thumbnail_empty_bytes_raises():
     """Empty bytes -> raises ValueError."""
     with pytest.raises(ValueError, match="empty"):
         slop_studio.comfyui.generate_thumbnail(b"")
+
+
+# --- LocalBackend.view() input sanitization (Story 6.2 follow-up) ---
+
+
+@pytest.mark.anyio
+async def test_local_backend_view_rejects_empty_filename():
+    """view() raises ValueError for empty filenames (nothing left after basename)."""
+    from slop_studio.backends.local import LocalBackend
+
+    backend = LocalBackend()
+    with pytest.raises(ValueError, match="Invalid filename"):
+        await backend.view("")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("bad", [".", "..", "./", "../"])
+async def test_local_backend_view_rejects_dot_only_filenames(bad):
+    """Names that basename to '.' or '..' must raise rather than reach ComfyUI."""
+    from slop_studio.backends.local import LocalBackend
+
+    backend = LocalBackend()
+    with pytest.raises(ValueError, match="Invalid filename"):
+        await backend.view(bad)
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_local_backend_view_strips_path_components():
+    """Path traversal segments are stripped — ComfyUI only sees the basename."""
+    import slop_studio.backends.local as _local
+    from slop_studio.backends.local import LocalBackend
+
+    route = respx.get(f"{_local.COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=b"fake-bytes"))
+    backend = LocalBackend()
+    result = await backend.view("../../../etc/passwd")
+
+    assert result == b"fake-bytes"
+    assert route.called
+    # The request URL must show only "passwd" — no traversal segments leaked.
+    sent_url = str(route.calls[0].request.url)
+    assert "filename=passwd" in sent_url
+    assert ".." not in sent_url
+    assert "etc" not in sent_url
