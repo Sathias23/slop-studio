@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-15
+
+### Changed
+
+- Extracted local ComfyUI backend from `slop_studio/comfyui.py` into `slop_studio/backends/local.py` behind a `Backend` interface (Story 6.1)
+
+### Fixed
+
+- Off-thread synchronous disk I/O and image decoding in the local backend (`_upload_image` verify, `get_image` write) so they no longer block the asyncio event loop
+
 ## [0.3.0] - 2026-04-08
 
 ### Removed
@@ -70,7 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Output and templates resolve to the art project dir, not the package dir
 
-[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/sathias/slop-studio/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sathias/slop-studio/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sathias/slop-studio/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sathias/slop-studio/releases/tag/v0.1.0

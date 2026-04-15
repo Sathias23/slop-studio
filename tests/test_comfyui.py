@@ -1,5 +1,4 @@
 import base64
-import builtins
 import importlib
 import io
 import json
@@ -677,15 +676,16 @@ async def test_get_image_thumbnail_failure_omits_thumbnail(templates_dir, output
 async def test_get_image_saves_full_res_before_thumbnail(templates_dir, output_dir, monkeypatch):
     """Verify the file is written to disk BEFORE generate_thumbnail is called."""
     from datetime import date
+    from pathlib import Path
 
     call_order = []
 
-    original_open = builtins.open
+    original_write_bytes = Path.write_bytes
 
-    def tracking_open(path, *args, **kwargs):
-        if isinstance(path, str) and "ComfyUI" in path and "wb" in args:
+    def tracking_write_bytes(self, data):
+        if "ComfyUI" in str(self):
             call_order.append("file_write")
-        return original_open(path, *args, **kwargs)
+        return original_write_bytes(self, data)
 
     def tracking_thumbnail(*a, **kw):
         call_order.append("generate_thumbnail")
@@ -695,7 +695,7 @@ async def test_get_image_saves_full_res_before_thumbnail(templates_dir, output_d
         return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
     )
     respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
-    monkeypatch.setattr(builtins, "open", tracking_open)
+    monkeypatch.setattr(Path, "write_bytes", tracking_write_bytes)
     monkeypatch.setattr(slop_studio.comfyui, "generate_thumbnail", tracking_thumbnail)
     result = await slop_studio.comfyui.get_image("abc-123", include_base64=True)
     assert os.path.exists(result["file_path"])
