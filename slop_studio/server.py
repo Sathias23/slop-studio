@@ -381,7 +381,8 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 mcp = FastMCP("slop-studio", lifespan=lifespan)
 
 
-from slop_studio import bluesky, comfyui, templates
+from slop_studio import bluesky, templates
+from slop_studio.backends import router
 
 
 @mcp.tool()
@@ -497,11 +498,10 @@ async def queue_prompt(
     error = await manager.ensure_ready()
     if error:
         return error
-    return await comfyui.queue_prompt(template_name, inputs, aspect_ratio)
+    return await router.route_submission(template_name, inputs, aspect_ratio)
 
 
-# check_job is deprecated in favour of check_next_job.
-# Code lives in slop_studio/comfyui.py but is no longer registered as a tool.
+# check_job is deprecated in favour of check_next_job — code lives in slop_studio/backends/local.py.
 
 
 @mcp.tool()
@@ -521,7 +521,7 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
     Use this instead of check_job when you have multiple jobs queued.
     Avoids redundant pending checks by batching all IDs into one polling loop.
     """
-    return await comfyui.check_next_job(prompt_ids, wait)
+    return await router.check_next_job(prompt_ids, wait)
 
 
 @mcp.tool()
@@ -540,7 +540,7 @@ async def get_image(prompt_id: str, include_base64: bool = False) -> dict | list
     Call this after check_job returns status 'completed'. If the job is
     still running, call check_job with wait first to poll for completion.
     """
-    return await comfyui.get_image(prompt_id, include_base64=include_base64)
+    return await router.get_image(prompt_id, include_base64=include_base64)
 
 
 @mcp.tool()
