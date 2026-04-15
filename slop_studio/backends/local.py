@@ -58,6 +58,12 @@ def generate_thumbnail(image_bytes: bytes, max_size: int = 256, quality: int = 5
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def _verify_image(file_path: str) -> None:
+    """Open and verify an image file. Blocking; call via asyncio.to_thread."""
+    with Image.open(file_path) as img:
+        img.verify()
+
+
 async def _upload_image(file_path: str) -> str:
     """Upload a local image file to ComfyUI's input directory.
 
@@ -68,8 +74,7 @@ async def _upload_image(file_path: str) -> str:
         raise ValueError(f"Image file not found: {file_path}")
 
     try:
-        with Image.open(file_path) as img:
-            img.verify()
+        await asyncio.to_thread(_verify_image, file_path)
     except Exception as exc:
         raise ValueError(f"File is not a valid image: {file_path}") from exc
 
@@ -522,8 +527,7 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
                 output_path = candidate
                 break
     try:
-        with open(output_path, "wb") as f:
-            f.write(image_bytes)
+        await asyncio.to_thread(Path(output_path).write_bytes, image_bytes)
     except OSError as exc:
         return transient_error("storage_error", f"Cannot write image to '{output_path}': {exc}")
 
