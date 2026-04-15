@@ -608,7 +608,7 @@ class LocalBackend(Backend):
         # Strip path components before forwarding to ComfyUI — mirrors get_image's
         # sanitization (FR21). Prevents a malicious filename with embedded path
         # traversal from reaching ComfyUI's filesystem.
-        safe_filename = os.path.basename(filename)
+        safe_filename = Path(filename).name
         if not safe_filename or safe_filename in (".", ".."):
             raise ValueError(f"Invalid filename: {filename!r}")
         params: dict[str, str] = {"filename": safe_filename, "type": file_type}

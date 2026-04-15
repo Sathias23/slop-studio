@@ -69,6 +69,7 @@ class Backend(ABC):
     async def view(self, filename: str, subfolder: str = "", file_type: str = "output") -> bytes:
         """Download raw bytes for an output file referenced in a history outputs entry.
 
+        Raises ValueError for invalid filenames (e.g. empty, path traversal).
         Raises httpx.HTTPStatusError / httpx.TransportError on network failure.
         """
 
