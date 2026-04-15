@@ -85,13 +85,16 @@ async def _upload_image(file_path: str) -> str:
     mime_type = mime_types.get(ext, "application/octet-stream")
     upload_name = f"{uuid.uuid4().hex[:12]}{ext}"
 
+    # Read bytes off-thread — httpx's multipart reads from the file-like object
+    # synchronously, so passing an open fd would block the event loop.
+    image_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
+
     async with httpx.AsyncClient(timeout=30.0) as client:
-        with open(file_path, "rb") as f:
-            resp = await client.post(
-                f"{COMFYUI_URL}/upload/image",
-                files={"image": (upload_name, f, mime_type)},
-                data={"type": "input", "overwrite": "true"},
-            )
+        resp = await client.post(
+            f"{COMFYUI_URL}/upload/image",
+            files={"image": (upload_name, image_bytes, mime_type)},
+            data={"type": "input", "overwrite": "true"},
+        )
         resp.raise_for_status()
 
     data = resp.json()
@@ -597,8 +600,8 @@ class LocalBackend(Backend):
             return result.get("outputs", {})
         return {}
 
-    async def view(self, filename: str, subfolder: str = "", type: str = "output") -> bytes:
-        params: dict[str, str] = {"filename": filename, "type": type}
+    async def view(self, filename: str, subfolder: str = "", file_type: str = "output") -> bytes:
+        params: dict[str, str] = {"filename": filename, "type": file_type}
         if subfolder:
             params["subfolder"] = subfolder
         async with httpx.AsyncClient(timeout=30.0) as client:
