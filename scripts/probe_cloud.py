@@ -10,6 +10,11 @@ Answers four deferred Cloud API unknowns that block CloudBackend implementation:
             distinguish rate-limit from payment-lapsed?
   probe-5 — Concurrency overflow on Standard plan: do excess concurrent
             submissions queue silently or reject at submit?
+  probe-real — Real-pipeline verification: submit a full API-format workflow
+            JSON, poll to completion, fetch outputs, report credits + wall-time.
+            Verifies the Flux inference path (UNETLoader/CLIPLoader/VAELoader/
+            SamplerCustomAdvanced/Flux2Scheduler/ReferenceLatent) end-to-end
+            against cloud — the passthrough workflow in probes #2/#3/#5 does not.
 
 Each subcommand is independently runnable and prints a Markdown-ready block
 for direct paste into SecA.6 of the 2026-04-14 research doc.
@@ -21,6 +26,7 @@ Usage:
     python scripts/probe_cloud.py probe-3 [--dry-run]
     python scripts/probe_cloud.py probe-4 [--dry-run]
     python scripts/probe_cloud.py probe-5 [--dry-run]
+    python scripts/probe_cloud.py probe-real --workflow <path> [--dry-run]
 
 Exit codes:
     0 — probe resolved (finding captured)
@@ -33,6 +39,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +106,7 @@ def _find_reference_image() -> Path | None:
 
 
 # ---------- Probe 2: LoadImage asset-reference format ----------
+
 
 def _minimal_loadimage_workflow(candidate: str, prefix: str = "probe") -> dict:
     """LoadImage -> SaveImage pass-through. Exercises asset resolution only,
@@ -182,14 +190,17 @@ async def probe_2(dry_run: bool) -> int:
             _asset_hash, asset = await _upload_ref_asset(client)
         except RuntimeError as e:
             _print_block(
-                2, "LoadImage reference",
-                "[FAIL] upload precondition failed", str(e),
+                2,
+                "LoadImage reference",
+                "[FAIL] upload precondition failed",
+                str(e),
                 "Ensure output/ contains at least one PNG.",
             )
             return 1
         except httpx.HTTPStatusError as e:
             _print_block(
-                2, "LoadImage reference",
+                2,
+                "LoadImage reference",
                 f"[FAIL] upload rejected ({e.response.status_code})",
                 "Asset upload failed before candidate testing.",
                 f"{e.response.status_code} {e.response.reason_phrase}\n{e.response.text}",
@@ -197,8 +208,11 @@ async def probe_2(dry_run: bool) -> int:
             return 1
         except httpx.TransportError as e:
             _print_block(
-                2, "LoadImage reference",
-                "[FAIL] transport error", f"POST /api/assets failed: {type(e).__name__}", str(e),
+                2,
+                "LoadImage reference",
+                "[FAIL] transport error",
+                f"POST /api/assets failed: {type(e).__name__}",
+                str(e),
             )
             return 1
 
@@ -211,7 +225,9 @@ async def probe_2(dry_run: bool) -> int:
 
         if not candidates:
             _print_block(
-                2, "LoadImage reference", "[FAIL] no candidates in upload response",
+                2,
+                "LoadImage reference",
+                "[FAIL] no candidates in upload response",
                 "Upload response contained no string-typed fields matching expected names.",
                 f"Response:\n{json.dumps(asset, indent=2)}",
             )
@@ -237,9 +253,7 @@ async def probe_2(dry_run: bool) -> int:
                 continue
 
             if not (200 <= sub.status_code < 300):
-                attempts.append(
-                    f"  field={field_name!r}  ->  submit rejected ({sub.status_code}) {sub.text[:200]}"
-                )
+                attempts.append(f"  field={field_name!r}  ->  submit rejected ({sub.status_code}) {sub.text[:200]}")
                 continue
 
             sub_body = _parse_json_safe(sub)
@@ -275,7 +289,8 @@ async def probe_2(dry_run: bool) -> int:
                     f"Submission attempts (end-to-end):\n" + "\n".join(attempts) + "\n"
                 )
                 _print_block(
-                    2, "LoadImage reference",
+                    2,
+                    "LoadImage reference",
                     f"[OK] `{field_name}` works end-to-end",
                     f"The LoadImage node's `image` input is resolved by the cloud worker using "
                     f"the `{field_name}` value from POST /api/assets. Submit-only is insufficient "
@@ -288,8 +303,7 @@ async def probe_2(dry_run: bool) -> int:
             err_raw = exec_body.get("error_message")
             err = str(err_raw) if err_raw else "(no error_message)"
             attempts.append(
-                f"  field={field_name!r} value={candidate!r}  ->  submit 2xx, execute {exec_state}"
-                f"  error={err[:200]}"
+                f"  field={field_name!r} value={candidate!r}  ->  submit 2xx, execute {exec_state}  error={err[:200]}"
             )
 
         evidence = (
@@ -297,7 +311,8 @@ async def probe_2(dry_run: bool) -> int:
             f"All candidates failed end-to-end:\n" + "\n".join(attempts) + "\n"
         )
         _print_block(
-            2, "LoadImage reference",
+            2,
+            "LoadImage reference",
             "[FAIL] no candidate resolved at execution",
             "None of the fields from /api/assets produced a successful execution. "
             "Manual inspection of the upload response shape required.",
@@ -307,6 +322,7 @@ async def probe_2(dry_run: bool) -> int:
 
 
 # ---------- Probe 3: /api/view cross-host redirect auth behavior ----------
+
 
 async def probe_3(dry_run: bool) -> int:
     key = _load_key()
@@ -339,8 +355,10 @@ async def probe_3(dry_run: bool) -> int:
             asset_hash, _asset = await _upload_ref_asset(client)
         except (RuntimeError, httpx.HTTPStatusError, httpx.TransportError) as e:
             _print_block(
-                3, "redirect auth-stripping",
-                "[FAIL] asset upload failed", f"{type(e).__name__}: {e}",
+                3,
+                "redirect auth-stripping",
+                "[FAIL] asset upload failed",
+                f"{type(e).__name__}: {e}",
                 "Cannot proceed without a test asset.",
             )
             return 1
@@ -354,7 +372,8 @@ async def probe_3(dry_run: bool) -> int:
             status_code = getattr(getattr(e, "response", None), "status_code", "transport")
             body_text = getattr(getattr(e, "response", None), "text", str(e))[:500]
             _print_block(
-                3, "redirect auth-stripping",
+                3,
+                "redirect auth-stripping",
                 f"[FAIL] submit failed ({status_code})",
                 "Could not start a job for redirect inspection.",
                 f"{status_code}\n{body_text}",
@@ -365,7 +384,9 @@ async def probe_3(dry_run: bool) -> int:
         prompt_id = sub_body.get("prompt_id") if sub_body else None
         if not isinstance(prompt_id, str) or not prompt_id:
             _print_block(
-                3, "redirect auth-stripping", "[FAIL] no prompt_id in submit response",
+                3,
+                "redirect auth-stripping",
+                "[FAIL] no prompt_id in submit response",
                 "Submit succeeded but response did not contain a string prompt_id.",
                 sub.text[:500],
             )
@@ -384,7 +405,8 @@ async def probe_3(dry_run: bool) -> int:
                 status_code = getattr(getattr(e, "response", None), "status_code", "transport")
                 body_text = getattr(getattr(e, "response", None), "text", str(e))[:500]
                 _print_block(
-                    3, "redirect auth-stripping",
+                    3,
+                    "redirect auth-stripping",
                     f"[FAIL] status polling failed ({status_code})",
                     "Could not determine job completion state.",
                     f"{status_code}\n{body_text}",
@@ -393,8 +415,11 @@ async def probe_3(dry_run: bool) -> int:
             parsed = _parse_json_safe(stat)
             if parsed is None:
                 _print_block(
-                    3, "redirect auth-stripping", "[FAIL] status returned non-JSON body",
-                    "Cannot parse status response.", stat.text[:500],
+                    3,
+                    "redirect auth-stripping",
+                    "[FAIL] status returned non-JSON body",
+                    "Cannot parse status response.",
+                    stat.text[:500],
                 )
                 return 1
             body = parsed
@@ -403,14 +428,18 @@ async def probe_3(dry_run: bool) -> int:
                 break
             if state in ("failed", "error"):
                 _print_block(
-                    3, "redirect auth-stripping", "[FAIL] job failed before completion",
+                    3,
+                    "redirect auth-stripping",
+                    "[FAIL] job failed before completion",
                     "Probe job did not produce an output to inspect.",
                     json.dumps(body, indent=2)[:1500],
                 )
                 return 1
         else:
             _print_block(
-                3, "redirect auth-stripping", "[WARN] timed out waiting for completion",
+                3,
+                "redirect auth-stripping",
+                "[WARN] timed out waiting for completion",
                 "Job did not complete within 90s; cannot inspect redirect.",
                 f"last status body:\n{json.dumps(body, indent=2)[:1500]}",
             )
@@ -454,7 +483,9 @@ async def probe_3(dry_run: bool) -> int:
             f"history body:\n{json.dumps(history_body, indent=2)[:1500] if history_body else '(empty)'}"
         )
         _print_block(
-            3, "redirect auth-stripping", "[WARN] no output filename found",
+            3,
+            "redirect auth-stripping",
+            "[WARN] no output filename found",
             "Job completed but no image filename surfaced in status or history outputs. "
             "History endpoint may require a different path or the response shape differs.",
             evidence,
@@ -470,7 +501,9 @@ async def probe_3(dry_run: bool) -> int:
             )
         except httpx.TransportError as e:
             _print_block(
-                3, "redirect auth-stripping", "[FAIL] view transport error",
+                3,
+                "redirect auth-stripping",
+                "[FAIL] view transport error",
                 f"{type(e).__name__}: {e}",
                 json.dumps(logged, indent=2),
             )
@@ -481,8 +514,11 @@ async def probe_3(dry_run: bool) -> int:
     #    the A->B transition even if C is same-host as A.
     if not logged:
         _print_block(
-            3, "redirect auth-stripping", "[FAIL] no requests logged",
-            "Event hook recorded zero requests; cannot analyze.", "(empty)",
+            3,
+            "redirect auth-stripping",
+            "[FAIL] no requests logged",
+            "Event hook recorded zero requests; cannot analyze.",
+            "(empty)",
         )
         return 1
 
@@ -499,15 +535,15 @@ async def probe_3(dry_run: bool) -> int:
 
     redirect_requests = logged[1:]
     evidence = (
-        f"View final status: {view.status_code}\n"
-        f"Request trace (origin + redirects):\n"
-        f"{json.dumps(logged, indent=2)}"
+        f"View final status: {view.status_code}\nRequest trace (origin + redirects):\n{json.dumps(logged, indent=2)}"
     )
 
     if cross_host_leak:
         from_host, to_host = cross_host_leak_detail or ("?", "?")
         _print_block(
-            3, "redirect auth-stripping", "[WARN] auth leaked",
+            3,
+            "redirect auth-stripping",
+            "[WARN] auth leaked",
             f"SECURITY CONCERN: httpx forwarded auth headers across hosts. "
             f"Redirect {from_host} -> {to_host} carried X-API-Key (or Authorization). "
             f"CloudBackend.view() must strip auth manually or use a two-hop fetch.",
@@ -517,7 +553,9 @@ async def probe_3(dry_run: bool) -> int:
 
     if not redirect_requests:
         _print_block(
-            3, "redirect auth-stripping", "[WARN] no redirect observed",
+            3,
+            "redirect auth-stripping",
+            "[WARN] no redirect observed",
             f"/api/view returned {view.status_code} directly from {origin_host} "
             f"without a 302. Redirect-auth concern may not apply to this endpoint shape "
             f"in cloud.comfy.org's current behavior — could-not-trigger.",
@@ -528,7 +566,9 @@ async def probe_3(dry_run: bool) -> int:
     hosts_seen = {r["host"] for r in logged}
     if len(hosts_seen) == 1:
         _print_block(
-            3, "redirect auth-stripping", "[OK] same-host redirect",
+            3,
+            "redirect auth-stripping",
+            "[OK] same-host redirect",
             f"Redirect stayed within {origin_host}; no cross-host hops. "
             f"Cross-host auth leak does not apply to this flow.",
             evidence,
@@ -537,7 +577,9 @@ async def probe_3(dry_run: bool) -> int:
 
     # Cross-host transitions occurred but no leak captured
     _print_block(
-        3, "redirect auth-stripping", "[OK] auth stripped on cross-host redirect",
+        3,
+        "redirect auth-stripping",
+        "[OK] auth stripped on cross-host redirect",
         f"Cross-host redirect observed ({origin_host} -> {logged[-1]['host']}); "
         f"httpx stripped auth headers on the transition. Safe to use follow_redirects=True "
         f"for this specific flow — but the behavior depends on the redirect target; "
@@ -566,6 +608,7 @@ def _first_output_filename(outputs: dict) -> str | None:
 
 # ---------- Probe 4: 429 disambiguation ----------
 
+
 async def probe_4(dry_run: bool) -> int:
     """Burst invalid workflows; record any 429 bodies. Invalid payload -> no credit spend."""
     key = _load_key()
@@ -582,10 +625,7 @@ async def probe_4(dry_run: bool) -> int:
         return 0
 
     async with _client(key) as client:
-        tasks = [
-            client.post(f"{CLOUD_BASE_URL}/api/prompt", json=invalid_payload)
-            for _ in range(burst_count)
-        ]
+        tasks = [client.post(f"{CLOUD_BASE_URL}/api/prompt", json=invalid_payload) for _ in range(burst_count)]
         responses = await asyncio.gather(*tasks, return_exceptions=True)
 
     results = []
@@ -624,6 +664,7 @@ async def probe_4(dry_run: bool) -> int:
 
 # ---------- Probe 5: concurrency overflow on Standard plan ----------
 
+
 async def probe_5(dry_run: bool) -> int:
     """Submit 3 valid workflows in quick succession; observe queue vs reject behavior."""
     key = _load_key()
@@ -642,16 +683,17 @@ async def probe_5(dry_run: bool) -> int:
             asset_name = await _upload_ref_asset(client)
         except (RuntimeError, httpx.HTTPStatusError, httpx.TransportError) as e:
             _print_block(
-                5, "concurrency overflow",
-                "[FAIL] asset upload failed", f"{type(e).__name__}: {e}",
+                5,
+                "concurrency overflow",
+                "[FAIL] asset upload failed",
+                f"{type(e).__name__}: {e}",
                 "Cannot proceed without a test asset.",
             )
             return 1
 
         # 3 distinct workflows (different filename_prefixes to avoid any server-side dedup)
         payloads = [
-            {"prompt": _minimal_loadimage_workflow(asset_name, prefix=f"probe5_{i}")}
-            for i in range(burst_count)
+            {"prompt": _minimal_loadimage_workflow(asset_name, prefix=f"probe5_{i}")} for i in range(burst_count)
         ]
         tasks = [client.post(f"{CLOUD_BASE_URL}/api/prompt", json=p) for p in payloads]
         responses = await asyncio.gather(*tasks, return_exceptions=True)
@@ -697,7 +739,250 @@ async def probe_5(dry_run: bool) -> int:
     return 0
 
 
+# ---------- Probe Real: real-pipeline verification ----------
+
+CREDITS_PER_SECOND = 0.39  # Research doc §"Comfy Cloud Platform — Overview" (Dec 2025 pricing).
+REAL_POLL_CAP_SECONDS = 300
+
+
+def _patch_loadimage_nodes(workflow: dict, asset_hash: str) -> list[str]:
+    """Overwrite every LoadImage node's `image` input with `asset_hash`. Returns patched node_ids."""
+    patched = []
+    for node_id, node in workflow.items():
+        if isinstance(node, dict) and node.get("class_type") == "LoadImage":
+            inputs = node.get("inputs")
+            if isinstance(inputs, dict) and "image" in inputs:
+                inputs["image"] = asset_hash
+                patched.append(node_id)
+    return patched
+
+
+def _collect_output_filenames(outputs: Any) -> list[str]:
+    """Flatten a history outputs dict into a list of filenames (images/videos/audio)."""
+    files: list[str] = []
+    if not isinstance(outputs, dict):
+        return files
+    for node in outputs.values():
+        if not isinstance(node, dict):
+            continue
+        for key in ("images", "videos", "audio"):
+            items = node.get(key)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("filename"), str):
+                    files.append(item["filename"])
+    return files
+
+
+async def probe_real(workflow_path: str, dry_run: bool) -> int:
+    """Run a full API-format workflow end-to-end; report wall-time + credit estimate."""
+    key = _load_key()
+
+    path = Path(workflow_path)
+    if not path.is_absolute():
+        path = (Path.cwd() / path).resolve()
+    if not path.is_file():
+        print(f"ERROR: workflow file not found: {path}", file=sys.stderr)
+        return 2
+
+    try:
+        workflow = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"ERROR: cannot read workflow JSON ({path}): {e}", file=sys.stderr)
+        return 2
+
+    if not isinstance(workflow, dict):
+        print(f"ERROR: workflow JSON must be an object (API format), got {type(workflow).__name__}", file=sys.stderr)
+        return 2
+
+    loadimage_nodes = [
+        nid for nid, node in workflow.items() if isinstance(node, dict) and node.get("class_type") == "LoadImage"
+    ]
+
+    if dry_run:
+        try:
+            rel = path.relative_to(REPO_ROOT)
+        except ValueError:
+            rel = path
+        print(f"[DRY RUN] Workflow: {rel}")
+        print(f"[DRY RUN] {len(workflow)} nodes; LoadImage nodes: {loadimage_nodes or 'none'}")
+        if loadimage_nodes:
+            ref = _find_reference_image()
+            if ref:
+                print(f"[DRY RUN] Would upload ref image: {ref.relative_to(REPO_ROOT)} and patch LoadImage.image")
+            else:
+                print("[DRY RUN] WARN: LoadImage nodes present but no PNG in output/ to upload")
+        print(f"[DRY RUN] Would POST {CLOUD_BASE_URL}/api/prompt  (X-API-Key: {_mask_key(key)})")
+        print(f"[DRY RUN] Then poll /api/job/<id>/status until terminal (cap {REAL_POLL_CAP_SECONDS}s)")
+        print("[DRY RUN] Then GET /api/history/<id>; flatten outputs to filenames")
+        print(f"[DRY RUN] Credit estimate: wall_time_seconds * {CREDITS_PER_SECOND} (per research doc)")
+        return 0
+
+    print(
+        "WARNING: probe-real runs a live workflow. Credit spend unknown upfront "
+        "(typical Flux run: 8-30 credits). Ctrl-C within 3s to abort.",
+        file=sys.stderr,
+    )
+    await asyncio.sleep(3)
+
+    t0 = time.monotonic()
+    sub_body: dict | None = None
+    status_body: dict = {}
+    history_body: Any = None
+    outputs: dict | None = None
+    prompt_id: str = ""
+
+    async with _client(key) as client:
+        # 1. Upload ref image if workflow has LoadImage nodes.
+        if loadimage_nodes:
+            try:
+                asset_hash, _asset = await _upload_ref_asset(client)
+            except (RuntimeError, httpx.HTTPStatusError, httpx.TransportError) as e:
+                _print_real_block(
+                    path.name,
+                    "[FAIL] ref asset upload failed",
+                    f"{type(e).__name__}: {e}",
+                    "Workflow has LoadImage node(s); need a PNG in output/ to upload.",
+                )
+                return 1
+            patched = _patch_loadimage_nodes(workflow, asset_hash)
+            print(
+                f"Patched {len(patched)} LoadImage node(s) {patched} with asset_hash={asset_hash[:16]}...",
+                file=sys.stderr,
+            )
+
+        # 2. Submit.
+        try:
+            sub = await client.post(f"{CLOUD_BASE_URL}/api/prompt", json={"prompt": workflow})
+            sub.raise_for_status()
+        except (httpx.HTTPStatusError, httpx.TransportError) as e:
+            status_code = getattr(getattr(e, "response", None), "status_code", "transport")
+            body_text = getattr(getattr(e, "response", None), "text", str(e))[:2000]
+            _print_real_block(
+                path.name,
+                f"[FAIL] submit rejected ({status_code})",
+                "Workflow failed validation at cloud /api/prompt. "
+                "Likely cause: unsupported node type on cloud (check error body for VALIDATION_ERROR).",
+                f"{status_code}\n{body_text}",
+            )
+            return 1
+
+        sub_body = _parse_json_safe(sub)
+        prompt_id = sub_body.get("prompt_id") if isinstance(sub_body, dict) else ""
+        if not isinstance(prompt_id, str) or not prompt_id:
+            _print_real_block(
+                path.name,
+                "[FAIL] no prompt_id in submit response",
+                "Submit succeeded but response did not contain a string prompt_id.",
+                sub.text[:500],
+            )
+            return 1
+
+        node_errors = sub_body.get("node_errors") if isinstance(sub_body, dict) else None
+        print(f"Submitted prompt_id={prompt_id} (node_errors={node_errors})", file=sys.stderr)
+
+        # 3. Poll status to terminal (cap REAL_POLL_CAP_SECONDS).
+        state: str | None = None
+        iterations = REAL_POLL_CAP_SECONDS // 3
+        for _ in range(iterations):
+            await asyncio.sleep(3)
+            try:
+                stat = await client.get(f"{CLOUD_BASE_URL}/api/job/{prompt_id}/status")
+                stat.raise_for_status()
+            except (httpx.HTTPStatusError, httpx.TransportError) as e:
+                status_code = getattr(getattr(e, "response", None), "status_code", "transport")
+                body_text = getattr(getattr(e, "response", None), "text", str(e))[:500]
+                _print_real_block(
+                    path.name,
+                    f"[FAIL] status polling failed ({status_code})",
+                    "Could not determine job completion state.",
+                    f"{status_code}\n{body_text}",
+                )
+                return 1
+            parsed = _parse_json_safe(stat)
+            if parsed is None:
+                continue
+            status_body = parsed
+            state = status_body.get("status") or status_body.get("state")
+            elapsed = time.monotonic() - t0
+            print(f"  [{elapsed:5.1f}s] state={state}", file=sys.stderr)
+            if state in ("completed", "success"):
+                break
+            if state in ("failed", "error", "cancelled"):
+                _print_real_block(
+                    path.name,
+                    f"[FAIL] job {state} during execution",
+                    f"Workflow validated at submit but did not complete. Wall time: {elapsed:.1f}s. "
+                    f"Error: {status_body.get('error_message') or '(no error_message field)'}.",
+                    json.dumps(status_body, indent=2)[:2000],
+                )
+                return 1
+        else:
+            elapsed = time.monotonic() - t0
+            _print_real_block(
+                path.name,
+                f"[WARN] timed out after {REAL_POLL_CAP_SECONDS}s",
+                f"Job did not reach terminal state. Last state={state}. Wall time: {elapsed:.1f}s.",
+                f"last status:\n{json.dumps(status_body, indent=2)[:2000]}",
+            )
+            return 1
+
+        wall_time_s = time.monotonic() - t0
+
+        # 4. Fetch outputs via /api/history (per §A.6.2 evidence — history_v2 fallback).
+        for path_suffix in (f"/api/history/{prompt_id}", f"/api/history_v2?prompt_id={prompt_id}"):
+            try:
+                hist = await client.get(f"{CLOUD_BASE_URL}{path_suffix}")
+                hist.raise_for_status()
+            except (httpx.HTTPStatusError, httpx.TransportError):
+                continue
+            parsed_hist = _parse_json_safe(hist)
+            if parsed_hist is None:
+                continue
+            history_body = parsed_hist
+            if isinstance(history_body.get("history"), list):
+                for entry in history_body["history"]:
+                    if isinstance(entry, dict) and entry.get("prompt_id") == prompt_id:
+                        outputs = entry.get("outputs")
+                        break
+            elif prompt_id in history_body and isinstance(history_body[prompt_id], dict):
+                outputs = history_body[prompt_id].get("outputs")
+            if outputs:
+                break
+
+    output_files = _collect_output_filenames(outputs)
+    est_credits = wall_time_s * CREDITS_PER_SECOND
+    status = f"[OK] completed in {wall_time_s:.1f}s (~{est_credits:.1f} credits)"
+    finding = (
+        f"Workflow `{path.name}` executed end-to-end on cloud.comfy.org. "
+        f"Wall time: {wall_time_s:.1f}s. Estimated credits: ~{est_credits:.1f} "
+        f"(at {CREDITS_PER_SECOND} credits/s). Outputs: {len(output_files)} file(s). "
+        f"Verifies full Flux inference path against cloud — no unsupported-node rejections."
+    )
+    evidence = (
+        f"Submit response:\n{json.dumps(sub_body, indent=2)[:600]}\n\n"
+        f"Final status:\n{json.dumps(status_body, indent=2)[:800]}\n\n"
+        f"Output filenames ({len(output_files)}): {output_files[:5]}"
+    )
+    _print_real_block(path.name, status, finding, evidence)
+    return 0
+
+
+def _print_real_block(workflow_name: str, status: str, finding: str, evidence: str) -> None:
+    """Paste-ready Markdown block for probe-real (parallels _print_block shape)."""
+    print(f"### Probe REAL — {workflow_name}\n")
+    print(f"**Status:** {status}\n")
+    print(f"**Finding:** {finding}\n")
+    print("**Raw evidence:**\n")
+    print("```")
+    print(evidence.rstrip())
+    print("```")
+    print()
+
+
 # ---------- CLI ----------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -715,15 +1000,30 @@ def main() -> None:
             help="Print the would-be request(s) with masked key and exit 0. Zero credits.",
         )
 
+    p_real = sub.add_parser("probe-real", help="Run a real workflow end-to-end")
+    p_real.add_argument(
+        "--workflow",
+        required=True,
+        help="Path to an API-format workflow JSON (e.g. templates/image_flux2.json).",
+    )
+    p_real.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print plan + masked key; zero credits.",
+    )
+
     args = parser.parse_args()
 
-    probes = {
-        "probe-2": probe_2,
-        "probe-3": probe_3,
-        "probe-4": probe_4,
-        "probe-5": probe_5,
-    }
-    rc = asyncio.run(probes[args.cmd](args.dry_run))
+    if args.cmd == "probe-real":
+        rc = asyncio.run(probe_real(args.workflow, args.dry_run))
+    else:
+        probes = {
+            "probe-2": probe_2,
+            "probe-3": probe_3,
+            "probe-4": probe_4,
+            "probe-5": probe_5,
+        }
+        rc = asyncio.run(probes[args.cmd](args.dry_run))
     sys.exit(rc)
 
 

@@ -1,0 +1,21 @@
+{
+  "name": "image_flux2",
+  "model": "flux-2-dev-fp8mixed",
+  "description": "Flux 2 Dev single-reference image edit pipeline using full-precision FP8-mixed weights (cloud-compatible, no GGUF). Edits an input image guided by a text prompt via ReferenceLatent conditioning. Runs 20 euler steps by default (LoRA turbo mode disabled via the internal ComfySwitchNode toggle). Input image is scaled to ~1 megapixel before encoding; output aspect ratio matches the input image.",
+  "expected_duration": "45 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "68:6",
+      "field": "text",
+      "type": "required",
+      "description": "Text instruction describing the edit to apply to the input image (e.g., 'Add a pale yellow knitted beanie with a white patch reading FLUX.2 COMFY')."
+    },
+    "image": {
+      "node_id": "46",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Reference image to edit. Output aspect ratio and approximate content layout are inherited from this image."
+    }
+  }
+}
