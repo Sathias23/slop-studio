@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-04-16
+
+### Changed
+
+- Returned `prompt_id` values from `queue_prompt` now carry a `"local:"` backend prefix (e.g. `"local:abc-123"`). `check_next_job` and `get_image` accept both the prefixed form and legacy bare ids — callers holding pre-0.3.2 ids continue to work (Story 6.3)
+- Introduced a backend router (`slop_studio.backends.router`) between the MCP tool layer and `backends.local`, preparing the seam for a future cloud backend (Story 6.2)
+
+### Fixed
+
+- Normalised sanitisation of the `view()` image-URL handler and addressed deferred cleanup from the Stories 6.1/6.2 refactors (Story 6.2 followups)
+
 ## [0.3.1] - 2026-04-15
 
 ### Changed
