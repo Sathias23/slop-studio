@@ -365,7 +365,7 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
 async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
     """Poll multiple jobs, return all that complete/fail within the wait window."""
     if not prompt_ids:
-        return terminal_error("invalid_input", "prompt_ids list is empty")
+        return terminal_error("invalid_inputs", "prompt_ids list is empty")
 
     effective_wait = min(wait, MAX_POLL_DURATION)
     remaining = list(dict.fromkeys(prompt_ids))  # deduplicate, preserve order

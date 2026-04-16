@@ -6,6 +6,36 @@ while the implementation moves behind the Backend ABC (see Story 6.1, Epic 6).
 
 Kept intentionally minimal — no logic here. Scheduled for deletion once all
 call sites switch to the router (Story 6.2) and backends package directly.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LOAD-BEARING CONTRACT — read before refactoring any caller of backends.local
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The ``_ForwardingShim.__setattr__`` below mirrors attribute writes on this
+module to ``slop_studio.backends.local``. Test patches applied at the shim
+(e.g. ``mock.patch("slop_studio.comfyui.queue_prompt", ...)``) therefore
+also land on the real module. This is how ``tests/test_server.py`` keeps
+working without modification across the Story 6.1 extraction and the Story
+6.2 router introduction.
+
+For that forwarding to actually take effect at runtime, callers that dispatch
+into ``backends.local`` MUST use module-attribute access, NOT name imports:
+
+    # CORRECT — attribute lookup resolves against backends.local's namespace
+    # at call time, so patches applied via the shim are seen:
+    from slop_studio.backends import local as _local
+    await _local.queue_prompt(...)
+
+    # WRONG — captures the pre-patch function reference at import time;
+    # patches applied via the shim are invisible to this call site:
+    from slop_studio.backends.local import queue_prompt
+    await queue_prompt(...)
+
+If you're adding a new caller of ``backends.local.{queue_prompt, check_job,
+check_next_job, get_image, _fetch_job_status, ...}``, follow the module-attr
+pattern. If you break this rule, the nearest canary is
+``tests/test_server.py::test_queue_prompt_calls_ensure_ready`` — it will
+fail with a real httpx connection error instead of the expected mock return.
 """
 
 import importlib
