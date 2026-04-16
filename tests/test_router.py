@@ -76,7 +76,7 @@ async def test_check_next_job_empty_list_returns_terminal_error():
     # AC #6 parity with backends.local.check_next_job — same error shape.
     result = await router.check_next_job([])
     assert result["status"] == "error"
-    assert result["error_type"] == "invalid_input"
+    assert result["error_type"] == "invalid_inputs"
     assert result["retry_suggested"] is False
 
 
@@ -419,19 +419,14 @@ HISTORY_COMPLETED = {
 }
 
 
-def _make_fake_image_bytes() -> bytes:
-    """Create a minimal valid PNG for testing."""
-    import io
-
-    from PIL import Image as PILImage
-
-    img = PILImage.new("RGB", (32, 32), color=(0, 128, 0))
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-E2E_IMAGE_BYTES = _make_fake_image_bytes()
+# Minimal valid 1x1 green PNG served by the mocked /view endpoint. Hardcoded
+# (rather than built via PIL) so importing this test module stays cheap even
+# when the e2e tests aren't selected.
+E2E_IMAGE_BYTES = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f"
+    b"\x00\x00\x00\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
 @pytest.fixture

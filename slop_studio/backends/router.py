@@ -116,7 +116,7 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
     prefixes surface as ``terminal_error("invalid_inputs", ...)``.
     """
     if not prompt_ids:
-        return terminal_error("invalid_input", "prompt_ids list is empty")
+        return terminal_error("invalid_inputs", "prompt_ids list is empty")
 
     try:
         resolved = [route_for_prompt_id(pid) for pid in prompt_ids]
