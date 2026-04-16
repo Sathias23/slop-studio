@@ -495,10 +495,12 @@ async def queue_prompt(
     "9:16", "1:1"). Use get_template to see supported aspect ratios.
     """
     manager = ctx.lifespan_context["comfyui_manager"]
-    error = await manager.ensure_ready()
-    if error:
-        return error
-    return await router.route_submission(template_name, inputs, aspect_ratio)
+    return await router.route_submission(
+        template_name,
+        inputs,
+        aspect_ratio,
+        lifecycle_manager=manager,
+    )
 
 
 # check_job is deprecated in favour of check_next_job — code lives in slop_studio/backends/local.py.

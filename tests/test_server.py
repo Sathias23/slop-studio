@@ -237,8 +237,12 @@ async def test_queue_prompt_calls_ensure_ready(default_url):
     mock_ctx = MagicMock()
     mock_ctx.lifespan_context = {"comfyui_manager": mock_manager}
 
-    # Mock comfyui.queue_prompt
-    with mock_patch("slop_studio.comfyui.queue_prompt", new_callable=AsyncMock, return_value={"prompt_id": "abc123"}):
+    # Mock comfyui.queue_prompt (shim forwards this to backends.local.queue_prompt)
+    with mock_patch(
+        "slop_studio.comfyui.queue_prompt",
+        new_callable=AsyncMock,
+        return_value={"status": "success", "prompt_id": "abc123"},
+    ):
         # Import and call the tool function directly (unwrapped)
         import slop_studio.server
 
@@ -250,7 +254,8 @@ async def test_queue_prompt_calls_ensure_ready(default_url):
         )
 
     mock_manager.ensure_ready.assert_awaited_once()
-    assert result == {"prompt_id": "abc123"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "local:abc123"
 
 
 @pytest.mark.anyio
