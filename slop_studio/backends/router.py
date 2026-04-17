@@ -78,9 +78,10 @@ from slop_studio.errors import terminal_error, transient_error
 
 logger = logging.getLogger(__name__)
 
-# Module-level singleton registry. Callers of ``get_backend("local")`` always
-# receive the same instance; CloudBackend joins the registry only when
-# ``COMFY_CLOUD_API_KEY`` is set at import time.
+# Module-level singleton registry. ``local`` is registered eagerly; ``cloud``
+# is resolved lazily via ``_resolve_cloud_backend`` so a running MCP server
+# picks up a newly-added ``COMFY_CLOUD_API_KEY`` / credentials.json entry
+# without a process restart.
 _BACKENDS: dict[str, Backend] = {"local": LocalBackend()}
 
 # Absent-prefix resolution target (backwards-compat for pre-6.3 callers holding
@@ -95,20 +96,40 @@ _CLOUD_MAX_POLL_DURATION = 45  # cap the total wait per call
 _CLOUD_MAX_FAILURE_RETRIES = 3
 
 
-# Cloud backend registration (Story 6.5). The key getter follows the
-# env → credentials.json → "" precedence chain; the URL flows through
-# config's env → config.toml → default resolver. Cloud stays unregistered
-# when no key is configured.
-_cloud_key = get_comfy_cloud_api_key()
-if _cloud_key:
+def _resolve_cloud_backend() -> Backend | None:
+    """Return a ``CloudBackend`` instance reflecting the current config, or ``None``.
+
+    Called on every cloud-path lookup so a newly-configured key takes effect
+    without a process restart. Cached in ``_BACKENDS["cloud"]`` keyed by the
+    masked key prefix so we don't construct a fresh backend (and its httpx
+    pool) on every call — but the cache invalidates automatically when the
+    user rotates the key.
+    """
+    key = get_comfy_cloud_api_key()
+    if not key:
+        _BACKENDS.pop("cloud", None)
+        return None
+    cached = _BACKENDS.get("cloud")
+    if cached is not None and getattr(cached, "_api_key", None) == key:
+        return cached
     from slop_studio.backends.cloud import CloudBackend
 
-    _BACKENDS["cloud"] = CloudBackend(api_key=_cloud_key, base_url=COMFY_CLOUD_URL)
-del _cloud_key
+    backend = CloudBackend(api_key=key, base_url=COMFY_CLOUD_URL)
+    _BACKENDS["cloud"] = backend
+    return backend
 
 
 def get_backend(name: str) -> Backend:
-    """Return the registered backend by name; raise ValueError on unknown names."""
+    """Return the registered backend by name; raise ValueError on unknown names.
+
+    For ``cloud``, re-resolves from current config on every call so runtime
+    credential changes are picked up without a process restart.
+    """
+    if name == "cloud":
+        backend = _resolve_cloud_backend()
+        if backend is None:
+            raise ValueError("Unknown backend 'cloud'")
+        return backend
     try:
         return _BACKENDS[name]
     except KeyError as exc:
@@ -171,10 +192,20 @@ def route_for_prompt_id(prompt_id: str) -> tuple[Backend, str]:
     """
     if ":" in prompt_id:
         prefix, native = prompt_id.split(":", 1)
+        if prefix == "cloud":
+            backend = _resolve_cloud_backend()
+            if backend is None:
+                raise ValueError(f"Unknown backend prefix '{prefix}' in prompt_id '{prompt_id}'")
+            return backend, native
         backend = _BACKENDS.get(prefix)
         if backend is None:
             raise ValueError(f"Unknown backend prefix '{prefix}' in prompt_id '{prompt_id}'")
         return backend, native
+    if DEFAULT_BACKEND_NAME == "cloud":
+        backend = _resolve_cloud_backend()
+        if backend is None:
+            raise ValueError(f"Default backend '{DEFAULT_BACKEND_NAME}' is not registered")
+        return backend, prompt_id
     backend = _BACKENDS.get(DEFAULT_BACKEND_NAME)
     if backend is None:
         raise ValueError(f"Default backend '{DEFAULT_BACKEND_NAME}' is not registered")
@@ -330,9 +361,9 @@ async def route_submission(
             chosen_name = DEFAULT_BACKEND_NAME
         else:
             chosen_name = DEFAULT_BACKEND_NAME
-    backend = _BACKENDS.get(chosen_name)
-    if backend is None:
-        if chosen_name == "cloud":
+    if chosen_name == "cloud":
+        backend = _resolve_cloud_backend()
+        if backend is None:
             return _cloud_err(
                 "auth_failed",
                 "Comfy Cloud API key is not configured. Set COMFY_CLOUD_API_KEY in "
@@ -340,7 +371,10 @@ async def route_submission(
                 "~/.config/slop-studio/credentials.json. Call open_comfy_cloud_portal "
                 "or visit https://platform.comfy.org/profile/api-keys to get a key.",
             )
-        return terminal_error("invalid_inputs", f"Unknown backend '{chosen_name}'")
+    else:
+        backend = _BACKENDS.get(chosen_name)
+        if backend is None:
+            return terminal_error("invalid_inputs", f"Unknown backend '{chosen_name}'")
 
     if backend.name == "local" and lifecycle_manager is not None:
         error = await lifecycle_manager.ensure_ready()

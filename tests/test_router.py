@@ -27,6 +27,19 @@ import slop_studio.comfyui
 import slop_studio.config
 from slop_studio.backends.local import LocalBackend
 
+
+@pytest.fixture(autouse=True)
+def _isolate_cloud_config(monkeypatch):
+    """Most router tests assume cloud is UNCONFIGURED. The lazy resolver now
+    reads the live credentials.json on every lookup, so isolate the developer's
+    real key from these tests by default. Tests that need cloud configured
+    override ``get_comfy_cloud_api_key`` themselves via respx / monkeypatch."""
+    monkeypatch.setattr("slop_studio.backends.router.get_comfy_cloud_api_key", lambda: "")
+    router._BACKENDS.pop("cloud", None)
+    yield
+    router._BACKENDS.pop("cloud", None)
+
+
 # ---------------------------------------------------------------------------
 # Story 6.2 regression tests (unchanged bodies — names adjusted where the
 # behavior they describe has evolved in 6.3).
@@ -539,11 +552,90 @@ def cloud_registered(monkeypatch):
 
     monkeypatch.setenv("COMFY_CLOUD_API_KEY", CLOUD_TEST_KEY)
     monkeypatch.setenv("COMFY_CLOUD_URL", CLOUD_BASE_URL)
+    # Shadow the autouse _isolate_cloud_config patch: tests using this fixture
+    # opt into a configured cloud, so the lazy resolver must see the test key.
+    monkeypatch.setattr("slop_studio.backends.router.get_comfy_cloud_api_key", lambda: CLOUD_TEST_KEY)
     router._BACKENDS["cloud"] = CloudBackend(api_key=CLOUD_TEST_KEY, base_url=CLOUD_BASE_URL)
     try:
         yield router
     finally:
         router._BACKENDS.pop("cloud", None)
+
+
+class TestLazyCloudResolver:
+    """Cloud backend registration is lazy — runtime credential changes must
+    be picked up without a process restart. The autouse _isolate_cloud_config
+    fixture starts each test with an empty key; tests then mutate the
+    key-getter and assert the registry reflects the change on next lookup."""
+
+    def test_empty_key_returns_none_and_no_registration(self):
+        assert router._resolve_cloud_backend() is None
+        assert "cloud" not in router._BACKENDS
+
+    def test_key_added_after_import_registers_cloud(self, monkeypatch):
+        # Start unconfigured (autouse fixture).
+        assert "cloud" not in router._BACKENDS
+        # User runs `slop-studio auth --comfy-cloud`: credentials.json now
+        # returns a key. The next lookup must register cloud.
+        monkeypatch.setattr("slop_studio.backends.router.get_comfy_cloud_api_key", lambda: CLOUD_TEST_KEY)
+        backend = router.get_backend("cloud")
+        assert backend is not None
+        assert backend.name == "cloud"
+        assert router._BACKENDS["cloud"] is backend
+
+    def test_second_lookup_reuses_cached_instance_when_key_unchanged(self, monkeypatch):
+        monkeypatch.setattr("slop_studio.backends.router.get_comfy_cloud_api_key", lambda: CLOUD_TEST_KEY)
+        first = router.get_backend("cloud")
+        second = router.get_backend("cloud")
+        assert first is second
+
+    def test_key_rotation_rebuilds_backend(self, monkeypatch):
+        monkeypatch.setattr("slop_studio.backends.router.get_comfy_cloud_api_key", lambda: CLOUD_TEST_KEY)
+        first = router.get_backend("cloud")
+        # User re-runs `auth` with a different key.
+        monkeypatch.setattr("slop_studio.backends.router.get_comfy_cloud_api_key", lambda: "comfyui-NEWKEY-rotated")
+        second = router.get_backend("cloud")
+        assert first is not second
+        assert second._api_key == "comfyui-NEWKEY-rotated"
+
+    def test_key_removed_unregisters_cloud(self, monkeypatch):
+        monkeypatch.setattr("slop_studio.backends.router.get_comfy_cloud_api_key", lambda: CLOUD_TEST_KEY)
+        router.get_backend("cloud")
+        assert "cloud" in router._BACKENDS
+        # User deletes the credentials.json block AND unsets the env var.
+        monkeypatch.setattr("slop_studio.backends.router.get_comfy_cloud_api_key", lambda: "")
+        assert router._resolve_cloud_backend() is None
+        assert "cloud" not in router._BACKENDS
+
+    @pytest.mark.anyio
+    async def test_route_submission_auth_failed_flips_to_success_after_key_add(self, monkeypatch, tmp_path):
+        """Regression against the original bug: `route_submission` returned
+        `auth_failed` on a cloud template when the key wasn't configured at
+        import time, and stayed that way even after the user ran `auth`. The
+        lazy resolver fixes this — the same call must succeed once the key
+        is configured."""
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        _write_template(templates_dir, "cloud_tmpl", backend="cloud")
+        monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+        # Step 1: no key → auth_failed (no HTTP call issued).
+        result = await router.route_submission("cloud_tmpl", {"prompt": "hi"})
+        assert result["status"] == "error"
+        assert result["error_type"] == "auth_failed"
+
+        # Step 2: user adds the key mid-session. The next call's chosen
+        # backend path is `cloud`, and `_resolve_cloud_backend` picks up the
+        # new key — we stop at the backend resolution and assert it's no
+        # longer the `auth_failed` early-return branch.
+        monkeypatch.setattr("slop_studio.backends.router.get_comfy_cloud_api_key", lambda: CLOUD_TEST_KEY)
+
+        async def fake_prepare(_backend, _tmpl, _inputs, _aspect):
+            return {"status": "success", "prompt_id": "nid-ok"}
+
+        monkeypatch.setattr(router, "_prepare_and_submit", fake_prepare)
+        result = await router.route_submission("cloud_tmpl", {"prompt": "hi"})
+        assert result == {"status": "success", "prompt_id": "cloud:nid-ok"}
 
 
 def test_cloud_registered_when_env_flag_set(monkeypatch):
@@ -556,8 +648,10 @@ def test_cloud_registered_when_env_flag_set(monkeypatch):
     try:
         importlib.reload(slop_studio.config)
         importlib.reload(router)
+        # Lazy resolver populates _BACKENDS on first lookup.
+        cloud_backend = router.get_backend("cloud")
+        assert cloud_backend.name == "cloud"
         assert "cloud" in router._BACKENDS
-        assert router._BACKENDS["cloud"].name == "cloud"
     finally:
         monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
         monkeypatch.delenv("COMFY_CLOUD_URL", raising=False)
@@ -840,8 +934,10 @@ def test_cloud_registered_from_credentials_json(monkeypatch, tmp_path):
     _write_credentials_json(tmp_path, {"comfy_cloud": {"api_key": CLOUD_TEST_KEY}})
     snapshot = _reload_router_with(monkeypatch, tmp_path)
     try:
+        # Lazy resolver populates _BACKENDS on first lookup.
+        cloud_backend = router.get_backend("cloud")
+        assert cloud_backend.name == "cloud"
         assert "cloud" in router._BACKENDS
-        assert router._BACKENDS["cloud"].name == "cloud"
     finally:
         _restore_router(snapshot)
 
@@ -856,7 +952,8 @@ async def test_route_submission_default_backend_cloud_routes_to_cloud(monkeypatc
     snapshot = _reload_router_with(monkeypatch, tmp_path)
     try:
         assert router.DEFAULT_BACKEND_NAME == "cloud"
-        cloud_backend = router._BACKENDS["cloud"]
+        # Lazy resolver populates _BACKENDS on first lookup.
+        cloud_backend = router.get_backend("cloud")
 
         async def fake_prepare(backend, _tmpl, _inputs, _aspect):
             return await backend.submit({})
@@ -941,7 +1038,7 @@ async def test_no_raw_api_key_in_router_logs_or_error_dicts(monkeypatch, tmp_pat
     try:
         with caplog.at_level(logging.DEBUG):
             # Force an auth-failed path too by nuking the key and re-reloading.
-            cloud_backend = router._BACKENDS["cloud"]
+            cloud_backend = router.get_backend("cloud")
             assert cloud_backend is not None
 
             async def fake_prepare(backend, _tmpl, _inputs, _aspect):
@@ -1074,7 +1171,7 @@ async def test_route_submission_template_backend_either_uses_default_cloud(monke
         _write_template(templates_dir, "tpl_either_cloud", backend="either")
         monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
 
-        cloud_backend = router._BACKENDS["cloud"]
+        cloud_backend = router.get_backend("cloud")
 
         async def fake_prepare(backend, _tmpl, _inputs, _aspect):
             return await backend.submit({})
