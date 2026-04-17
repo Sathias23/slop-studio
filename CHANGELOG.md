@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-04-17
+
+### Added
+
+- `config.COMFY_CLOUD_URL`, `config.DEFAULT_BACKEND`, and `config.get_comfy_cloud_api_key()` — Comfy Cloud API key, base URL, and default backend now resolve through the same `env → credentials.json → config.toml → default` chain used by Bluesky credentials. `~/.config/slop-studio/credentials.json` accepts a `comfy_cloud.api_key` entry alongside the existing `bluesky` block (Story 6.5)
+- `auth_failed` terminal error reason at the cloud-not-registered branch, with guidance naming both credential surfaces (env var + `credentials.json`). Story 6.7 will add the remaining new reason codes (Story 6.5)
+
+### Changed
+
+- `slop_studio.backends.router` reads cloud config via the new `slop_studio.config` getters instead of raw `os.environ` reads. `DEFAULT_BACKEND_NAME` is now sourced from `config.DEFAULT_BACKEND`, so `SLOP_STUDIO_DEFAULT_BACKEND=cloud` routes default submissions to cloud when a key is configured (Story 6.5)
+
 ## [0.3.3] - 2026-04-17
 
 ### Added
