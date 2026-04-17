@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Cloud backend registration is now **lazy**: the MCP server picks up a newly-configured `COMFY_CLOUD_API_KEY` / `credentials.json` entry on the next tool call, without requiring a process restart. Previously, `slop_studio/backends/router.py` captured the key at module import time, so running `slop-studio auth --comfy-cloud` mid-session produced persistent `auth_failed` errors until the user fully quit and reopened Claude Code / Desktop. Key rotation also takes effect on the next call — the old `CloudBackend` instance is replaced in-place
+- `check_next_job` and `get_image` on the cloud path now map 401/402/403/429 through the Story 6.7 error taxonomy (`auth_failed`, `no_credits`, `account_issue`, `rate_limited`) instead of blanket-wrapping every HTTP error as `transient_error("unreachable")`. Previously an auth failure mid-polling read like "cloud is down — retry" and Claude would usefully retry several times before giving up. The submit path has always mapped correctly; this brings the other two router-level cloud calls into line via a new public `CloudBackend.http_error_to_dict` helper. 5xx responses still correctly surface as transient `unreachable`
 
 ## [0.4.1] - 2026-04-18
 

@@ -1405,3 +1405,97 @@ async def test_route_submission_cloud_without_key_tags_backend_cloud(tmp_path, m
     result = await router.route_submission("cloud-only", {"prompt": "hi"})
     assert result["error_type"] == "auth_failed"
     assert result["backend"] == "cloud"
+
+
+# ---------------------------------------------------------------------------
+# Regression: pre-fix, _check_next_job_cloud and _get_image_cloud mapped every
+# HTTPStatusError (401/402/403/429/5xx) to transient_error("unreachable"),
+# hiding auth/credit/quota failures behind a misleading "retry" hint. The
+# router now delegates to CloudBackend.http_error_to_dict so the full Story
+# 6.7 taxonomy applies on non-submit paths too.
+# ---------------------------------------------------------------------------
+
+
+class TestCloudNonSubmitErrorTaxonomy:
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_check_next_job_401_maps_to_auth_failed(self, cloud_registered):
+        respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(
+            return_value=httpx.Response(401, json={"error": "bad key"})
+        )
+        result = await router._check_next_job_cloud(router._BACKENDS["cloud"], ["abc"], 0)
+        assert result["status"] == "error"
+        assert result["error_type"] == "auth_failed"
+        assert result["backend"] == "cloud"
+        assert result["retry_suggested"] is False
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_check_next_job_402_maps_to_no_credits(self, cloud_registered):
+        respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(
+            return_value=httpx.Response(402, json={"error": "no credits"})
+        )
+        result = await router._check_next_job_cloud(router._BACKENDS["cloud"], ["abc"], 0)
+        assert result["error_type"] == "no_credits"
+        assert result["retry_suggested"] is False
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_check_next_job_403_maps_to_account_issue(self, cloud_registered):
+        respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(
+            return_value=httpx.Response(403, json={"error": "subscription expired"})
+        )
+        result = await router._check_next_job_cloud(router._BACKENDS["cloud"], ["abc"], 0)
+        assert result["error_type"] == "account_issue"
+        assert result["retry_suggested"] is False
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_check_next_job_429_maps_to_rate_limited(self, cloud_registered):
+        respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(
+            return_value=httpx.Response(429, json={"error": "slow down"})
+        )
+        result = await router._check_next_job_cloud(router._BACKENDS["cloud"], ["abc"], 0)
+        assert result["error_type"] == "rate_limited"
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_check_next_job_5xx_still_transient(self, cloud_registered):
+        # 5xx stays transient per the existing contract.
+        respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(
+            return_value=httpx.Response(503, json={"error": "maintenance"})
+        )
+        result = await router._check_next_job_cloud(router._BACKENDS["cloud"], ["abc"], 0)
+        assert result["error_type"] == "unreachable"
+        assert result["retry_suggested"] is True
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_get_image_401_on_view_maps_to_auth_failed(self, cloud_registered, tmp_path, monkeypatch):
+        # Status succeeds → proceeds to fetch image → /api/view returns 401.
+        monkeypatch.setattr(router, "OUTPUT_DIR", str(tmp_path))
+        respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(
+            return_value=httpx.Response(
+                200,
+                json={"status": "success", "outputs": {"9": {"images": [{"filename": "out.png", "type": "output"}]}}},
+            )
+        )
+        respx.get(f"{CLOUD_BASE_URL}/api/history/abc").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "history": [
+                        {
+                            "prompt_id": "abc",
+                            "outputs": {"9": {"images": [{"filename": "out.png", "type": "output"}]}},
+                        }
+                    ]
+                },
+            )
+        )
+        respx.get(f"{CLOUD_BASE_URL}/api/view").mock(return_value=httpx.Response(401, json={"error": "bad key"}))
+
+        result = await router._get_image_cloud(router._BACKENDS["cloud"], "abc", include_base64=False)
+        assert result["error_type"] == "auth_failed"
+        assert result["backend"] == "cloud"
+        assert result["retry_suggested"] is False

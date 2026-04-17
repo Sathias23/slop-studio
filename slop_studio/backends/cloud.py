@@ -224,8 +224,13 @@ class CloudBackend(Backend):
 
         return {"status": "success", "prompt_id": prompt_id}
 
-    def _submit_error_to_dict(self, exc: httpx.HTTPStatusError) -> dict:
-        """Map a submit-time HTTPStatusError to a terminal/transient error dict.
+    def http_error_to_dict(self, exc: httpx.HTTPStatusError) -> dict:
+        """Map a cloud HTTPStatusError to a terminal/transient error dict.
+
+        Used by ``submit()`` AND by the router's ``_check_next_job_cloud`` /
+        ``_get_image_cloud`` paths so a 401 from any cloud call surfaces as
+        ``auth_failed`` terminal (not a misleading ``transient_error`` that
+        asks the user to retry an auth-broken setup).
 
         Story 6.7 taxonomy (see ``slop_studio.errors`` for reason codes):
 
@@ -262,7 +267,7 @@ class CloudBackend(Backend):
             return _err(
                 "no_credits",
                 (
-                    "Comfy Cloud submission rejected: insufficient credits. "
+                    "Comfy Cloud rejected the request: insufficient credits. "
                     "Call open_comfy_cloud_portal to top up, or visit "
                     f"https://platform.comfy.org/ directly. {preview[:200]}"
                 ),
@@ -304,6 +309,10 @@ class CloudBackend(Backend):
                 f"Cloud returned {status} at {self._base_url}",
             )
         return _err("invalid_workflow", f"Cloud returned HTTP {status}: {preview[:200]}")
+
+    # Back-compat alias — existing callers and tests reference the
+    # private name.
+    _submit_error_to_dict = http_error_to_dict
 
     async def status(self, prompt_id: str) -> dict:
         """GET /api/job/{prompt_id}/status. Returns unified state dict.

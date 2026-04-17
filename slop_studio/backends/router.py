@@ -420,10 +420,10 @@ async def _check_next_job_cloud(
             try:
                 result = await backend.status(nid)
             except httpx.HTTPStatusError as exc:
-                return _cloud_trans(
-                    "unreachable",
-                    f"Cloud returned HTTP {exc.response.status_code}",
-                )
+                # Map 401/402/403/429 through the cloud error taxonomy so
+                # auth/credit/quota failures surface as terminal errors
+                # instead of misleading "unreachable" transient retries.
+                return backend.http_error_to_dict(exc)
             except httpx.TransportError:
                 return _cloud_trans("unreachable", "Cannot connect to cloud")
             state = result.get("state")
@@ -581,10 +581,9 @@ async def _get_image_cloud(
     try:
         image_bytes = await backend.view(safe_filename, file_type="output")
     except httpx.HTTPStatusError as exc:
-        return _cloud_trans(
-            "unreachable",
-            f"Cloud returned HTTP {exc.response.status_code} fetching image",
-        )
+        # Route through the cloud error taxonomy — 401 here means the key
+        # is dead, not that the cloud is unreachable.
+        return backend.http_error_to_dict(exc)
     except httpx.TransportError:
         return _cloud_trans("unreachable", "Cannot connect to cloud")
     except ValueError as exc:
