@@ -31,7 +31,6 @@ sections A.6-A.8):
 import asyncio
 import json
 import logging
-import os
 from pathlib import Path
 
 import httpx
@@ -349,7 +348,8 @@ class CloudBackend(Backend):
         Raises ``ValueError`` for missing/invalid files; propagates httpx
         errors on upload failure.
         """
-        if not os.path.isfile(file_path):
+        path = Path(file_path)
+        if not path.is_file():
             raise ValueError(f"Image file not found: {file_path}")
 
         try:
@@ -357,7 +357,7 @@ class CloudBackend(Backend):
         except Exception as exc:
             raise ValueError(f"File is not a valid image: {file_path}") from exc
 
-        ext = os.path.splitext(file_path)[1].lower() or ".png"
+        ext = path.suffix.lower() or ".png"
         mime_types = {
             ".png": "image/png",
             ".jpg": "image/jpeg",
@@ -367,9 +367,9 @@ class CloudBackend(Backend):
             ".bmp": "image/bmp",
         }
         mime_type = mime_types.get(ext, "application/octet-stream")
-        basename = os.path.basename(file_path)
+        basename = path.name
 
-        image_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
+        image_bytes = await asyncio.to_thread(path.read_bytes)
 
         async with self._client() as client:
             response = await client.post(
