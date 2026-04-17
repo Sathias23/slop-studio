@@ -6,14 +6,14 @@ explicit routing, and moves the ``ensure_ready`` lifecycle gate into the
 local-path branch (cloud submissions no longer spawn local ComfyUI).
 
 - ``route_submission`` emits ``"<backend>:<native>"`` prompt_ids on success.
-  Without ``backend_override`` it routes to local (Story 6.6 adds meta-driven
-  resolution). With ``backend_override="cloud"`` and the cloud backend
-  registered, it routes to cloud; if cloud isn't registered the call
-  returns a ``terminal_error("invalid_inputs", ...)`` explaining how to
-  enable it.
+  Without ``backend_override`` it routes to ``config.DEFAULT_BACKEND``
+  (Story 6.5; Story 6.6 adds meta-driven resolution). With
+  ``backend_override="cloud"`` and the cloud backend registered, it routes
+  to cloud; if cloud isn't registered the call returns a
+  ``terminal_error("auth_failed", ...)`` explaining how to enable it.
 - ``route_for_prompt_id`` strips a known prefix, resolves absent prefixes
-  to the default backend (``"local"``), raises ``ValueError`` for unknown
-  prefixes. Now round-trips ``"cloud:<id>"`` when the flag is set.
+  to ``config.DEFAULT_BACKEND``, raises ``ValueError`` for unknown
+  prefixes. Round-trips ``"cloud:<id>"`` when cloud is registered.
 - ``check_next_job`` partitions the resolved list by backend. Single-backend
   batches (all-local or all-cloud) route to their respective implementations.
   Mixed-backend batches return a ``terminal_error`` asking the caller to
@@ -24,8 +24,8 @@ local-path branch (cloud submissions no longer spawn local ComfyUI).
 
 Subsequent stories:
 
-- Story 6.5: full env → credentials.json → config.toml resolution for the
-  api key / base url. This module reads env vars directly today.
+- Story 6.5: the api key, base URL, and default backend are resolved via
+  ``slop_studio.config`` rather than raw env reads.
 - Story 6.6: meta-driven ``backend`` resolution. ``backend_override`` is
   the seam 6.6 will compute from template metadata before calling here.
 - Story 6.7: refined error-reason taxonomy (new codes + ``backend`` tag).
@@ -40,7 +40,6 @@ import asyncio
 import copy
 import json
 import logging
-import os
 import time
 from datetime import date
 from pathlib import Path
@@ -56,7 +55,13 @@ from slop_studio.backends.local import (
     _randomize_seeds,
     generate_thumbnail,
 )
-from slop_studio.config import OUTPUT_DIR, TEMPLATES_DIR
+from slop_studio.config import (
+    COMFY_CLOUD_URL,
+    DEFAULT_BACKEND,
+    OUTPUT_DIR,
+    TEMPLATES_DIR,
+    get_comfy_cloud_api_key,
+)
 from slop_studio.errors import terminal_error, transient_error
 
 logger = logging.getLogger(__name__)
@@ -67,10 +72,9 @@ logger = logging.getLogger(__name__)
 _BACKENDS: dict[str, Backend] = {"local": LocalBackend()}
 
 # Absent-prefix resolution target (backwards-compat for pre-6.3 callers holding
-# bare native ids). Story 6.5 widens this to env-driven ``DEFAULT_BACKEND``;
-# for 6.4 the default stays ``"local"`` — the "cloud" choice is per-submission,
-# encoded in the prefix or requested via ``backend_override``.
-DEFAULT_BACKEND_NAME = "local"
+# bare native ids). Story 6.5 sourced this from ``config.DEFAULT_BACKEND``,
+# which resolves env → config.toml → "local".
+DEFAULT_BACKEND_NAME = DEFAULT_BACKEND
 
 # Story 6.4 cloud-fan-out constants. Mirror the local orchestrator's values so
 # the two code paths behave identically from the caller's perspective.
@@ -79,18 +83,15 @@ _CLOUD_MAX_POLL_DURATION = 45  # cap the total wait per call
 _CLOUD_MAX_FAILURE_RETRIES = 3
 
 
-# Env-flag registration (Story 6.4). The import is lazy so test runs that
-# never set the env var don't pay the CloudBackend import cost. Story 6.5
-# replaces this block with a call into ``config.get_comfy_cloud_api_key()``.
-_cloud_key = os.environ.get("COMFY_CLOUD_API_KEY", "").strip()
+# Cloud backend registration (Story 6.5). The key getter follows the
+# env → credentials.json → "" precedence chain; the URL flows through
+# config's env → config.toml → default resolver. Cloud stays unregistered
+# when no key is configured.
+_cloud_key = get_comfy_cloud_api_key()
 if _cloud_key:
     from slop_studio.backends.cloud import CloudBackend
 
-    _cloud_url = os.environ.get("COMFY_CLOUD_URL", "https://cloud.comfy.org").strip()
-    _BACKENDS["cloud"] = CloudBackend(
-        api_key=_cloud_key,
-        base_url=_cloud_url or "https://cloud.comfy.org",
-    )
+    _BACKENDS["cloud"] = CloudBackend(api_key=_cloud_key, base_url=COMFY_CLOUD_URL)
 
 
 def get_backend(name: str) -> Backend:
@@ -123,7 +124,10 @@ def route_for_prompt_id(prompt_id: str) -> tuple[Backend, str]:
         if backend is None:
             raise ValueError(f"Unknown backend prefix '{prefix}' in prompt_id '{prompt_id}'")
         return backend, native
-    return _BACKENDS[DEFAULT_BACKEND_NAME], prompt_id
+    backend = _BACKENDS.get(DEFAULT_BACKEND_NAME)
+    if backend is None:
+        raise ValueError(f"Default backend '{DEFAULT_BACKEND_NAME}' is not registered")
+    return backend, prompt_id
 
 
 async def _inject_inputs_via_backend(
@@ -260,8 +264,11 @@ async def route_submission(
     if backend is None:
         if chosen_name == "cloud":
             return terminal_error(
-                "invalid_inputs",
-                "Cloud backend is not configured. Set COMFY_CLOUD_API_KEY to enable it.",
+                "auth_failed",
+                "Comfy Cloud API key is not configured. Set COMFY_CLOUD_API_KEY in "
+                "the environment or add a 'comfy_cloud': {'api_key': '...'} entry to "
+                "~/.config/slop-studio/credentials.json. Get a key at "
+                "https://platform.comfy.org/profile/api-keys.",
             )
         return terminal_error("invalid_inputs", f"Unknown backend '{chosen_name}'")
 
