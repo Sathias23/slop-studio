@@ -1,4 +1,6 @@
 import importlib
+import json
+import logging
 import os
 from pathlib import Path
 
@@ -254,3 +256,177 @@ def test_comfyui_start_cmd_defaults_to_empty(monkeypatch, tmp_path):
     monkeypatch.delenv("COMFYUI_START_CMD", raising=False)
     importlib.reload(config_module)
     assert config_module.COMFYUI_START_CMD == ""
+
+
+# ---------------------------------------------------------------------------
+# Story 6.5 — Comfy Cloud config surfaces.
+# ---------------------------------------------------------------------------
+
+
+def _setup_credentials_json(monkeypatch, tmp_path, data):
+    """Write credentials.json in a tmp-path-rooted fake home dir.
+
+    Idempotent on ``Path.home`` — callers can invoke _setup_config_toml
+    first; this helper re-applies the same patch safely.
+    """
+    config_dir = tmp_path / ".config" / "slop-studio"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    if data is not None:
+        (config_dir / "credentials.json").write_text(json.dumps(data))
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+
+def _reset_cloud_env(monkeypatch):
+    """Clear all Comfy Cloud env vars so tests start from a known state."""
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("COMFY_CLOUD_URL", raising=False)
+    monkeypatch.delenv("SLOP_STUDIO_DEFAULT_BACKEND", raising=False)
+
+
+def test_default_comfy_cloud_url(monkeypatch, tmp_path):
+    _setup_config_toml(monkeypatch, tmp_path)
+    (tmp_path / ".config" / "slop-studio" / "config.toml").unlink(missing_ok=True)
+    _reset_cloud_env(monkeypatch)
+    importlib.reload(config_module)
+    assert config_module.COMFY_CLOUD_URL == "https://cloud.comfy.org"
+
+
+def test_env_override_comfy_cloud_url(monkeypatch):
+    monkeypatch.setenv("COMFY_CLOUD_URL", "https://staging.example.com/")
+    importlib.reload(config_module)
+    assert config_module.COMFY_CLOUD_URL == "https://staging.example.com"
+
+
+def test_config_toml_comfy_cloud_url(monkeypatch, tmp_path):
+    _setup_config_toml(monkeypatch, tmp_path, 'comfy_cloud_url = "https://toml.example.com"\n')
+    _reset_cloud_env(monkeypatch)
+    importlib.reload(config_module)
+    assert config_module.COMFY_CLOUD_URL == "https://toml.example.com"
+
+
+def test_default_default_backend(monkeypatch, tmp_path):
+    _setup_config_toml(monkeypatch, tmp_path)
+    (tmp_path / ".config" / "slop-studio" / "config.toml").unlink(missing_ok=True)
+    _reset_cloud_env(monkeypatch)
+    importlib.reload(config_module)
+    assert config_module.DEFAULT_BACKEND == "local"
+
+
+def test_env_override_default_backend(monkeypatch):
+    monkeypatch.setenv("SLOP_STUDIO_DEFAULT_BACKEND", "cloud")
+    importlib.reload(config_module)
+    assert config_module.DEFAULT_BACKEND == "cloud"
+
+
+def test_invalid_default_backend_falls_back_with_warning(monkeypatch, caplog):
+    monkeypatch.setenv("SLOP_STUDIO_DEFAULT_BACKEND", "remote")
+    with caplog.at_level(logging.WARNING, logger="slop_studio.config"):
+        importlib.reload(config_module)
+    assert config_module.DEFAULT_BACKEND == "local"
+    assert any("must be 'local' or 'cloud'" in msg for msg in caplog.messages)
+
+
+def test_get_comfy_cloud_api_key_credentials_json(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"comfy_cloud": {"api_key": "from-file"}})
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == "from-file"
+
+
+def test_get_comfy_cloud_api_key_both_env_wins(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"comfy_cloud": {"api_key": "from-file"}})
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", "from-env")
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == "from-env"
+
+
+def test_get_comfy_cloud_api_key_missing_returns_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == ""
+
+
+def test_get_comfy_cloud_api_key_invalid_json(monkeypatch, tmp_path):
+    config_dir = tmp_path / ".config" / "slop-studio"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "credentials.json").write_text("this is not json {{{{")
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == ""
+
+
+def test_get_comfy_cloud_api_key_missing_comfy_cloud_key(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"bluesky": {"handle": "x", "app_password": "y"}})
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == ""
+
+
+def test_get_comfy_cloud_api_key_missing_api_key_field(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"comfy_cloud": {}})
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == ""
+
+
+def test_get_comfy_cloud_api_key_non_string_value(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"comfy_cloud": {"api_key": 42}})
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == ""
+
+
+def test_get_comfy_cloud_api_key_whitespace_value(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"comfy_cloud": {"api_key": "   "}})
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == ""
+
+
+def test_get_comfy_cloud_api_key_unresolved_placeholder_env(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"comfy_cloud": {"api_key": "from-file"}})
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", "${DEFINITELY_UNDEFINED_XYZ}")
+    monkeypatch.delenv("DEFINITELY_UNDEFINED_XYZ", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == "from-file"
+
+
+def test_get_comfy_cloud_api_key_coexists_with_bluesky(monkeypatch, tmp_path):
+    _setup_credentials_json(
+        monkeypatch,
+        tmp_path,
+        {
+            "bluesky": {"handle": "alice.bsky.social", "app_password": "pw"},
+            "comfy_cloud": {"api_key": "cloud-key"},
+        },
+    )
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("BSKY_HANDLE", raising=False)
+    monkeypatch.delenv("BSKY_APP_PASSWORD", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == "cloud-key"
+    assert config_module.get_bsky_credentials() == ("alice.bsky.social", "pw")
+
+
+def test_no_raw_api_key_in_logs_or_errors(monkeypatch, tmp_path, caplog):
+    """NFR-C3 canary: raw key MUST NOT appear in any log or error message."""
+    unique_key = "comfyui-DONOTLEAK-abcdef0123456789"
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", unique_key)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    importlib.reload(config_module)
+    with caplog.at_level(logging.DEBUG):
+        returned = config_module.get_comfy_cloud_api_key()
+    assert returned == unique_key
+    for record in caplog.records:
+        assert unique_key not in record.getMessage()
+    assert unique_key not in caplog.text
+
+
+def test_get_comfy_cloud_api_key_strips_whitespace(monkeypatch, tmp_path):
+    """Env-var key with surrounding whitespace is stripped."""
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", "  real-key  ")
+    importlib.reload(config_module)
+    assert config_module.get_comfy_cloud_api_key() == "real-key"

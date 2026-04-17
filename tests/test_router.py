@@ -12,7 +12,9 @@ use respx) live further down in this file.
 
 import importlib
 import json
+import logging
 import os
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import httpx
@@ -546,14 +548,13 @@ def cloud_registered(monkeypatch):
 
 def test_cloud_registered_when_env_flag_set(monkeypatch):
     # AC #8 — env-flag-driven registration happens at router import time.
-    # This test reloads the router to exercise the real init code path.
-    # It captures the CURRENT LocalBackend class before the reload so its
-    # teardown can restore the _BACKENDS["local"] instance to something
-    # compatible with later tests' isinstance checks.
+    # Story 6.5: router reads config.COMFY_CLOUD_URL / DEFAULT_BACKEND at
+    # import time, so config must reload BEFORE router.
     snapshot_local = router._BACKENDS["local"]
     monkeypatch.setenv("COMFY_CLOUD_API_KEY", CLOUD_TEST_KEY)
     monkeypatch.setenv("COMFY_CLOUD_URL", CLOUD_BASE_URL)
     try:
+        importlib.reload(slop_studio.config)
         importlib.reload(router)
         assert "cloud" in router._BACKENDS
         assert router._BACKENDS["cloud"].name == "cloud"
@@ -580,11 +581,13 @@ def test_route_for_prompt_id_round_trips_cloud_when_registered(cloud_registered)
 
 @pytest.mark.anyio
 async def test_route_submission_cloud_without_env_flag_returns_terminal_error():
-    # AC #10 — override="cloud" with no registration → clear error message.
+    # Story 6.5 AC #6 — override="cloud" with no registration → auth_failed
+    # with guidance naming both credential surfaces.
     result = await router.route_submission("tmpl", {}, backend_override="cloud")
     assert result["status"] == "error"
-    assert result["error_type"] == "invalid_inputs"
+    assert result["error_type"] == "auth_failed"
     assert "COMFY_CLOUD_API_KEY" in result["error"]
+    assert "credentials.json" in result["error"]
 
 
 @pytest.mark.anyio
@@ -802,3 +805,154 @@ async def test_no_auto_fallback_on_cloud_submit_5xx(cloud_registered, monkeypatc
     assert result["status"] == "error"
     assert result["error_type"] == "unreachable"
     mock_local_qp.assert_not_awaited()
+
+
+# ===========================================================================
+# Story 6.5 — Full config resolution: env → credentials.json → config.toml.
+# ===========================================================================
+
+
+def _write_credentials_json(tmp_path, data):
+    config_dir = tmp_path / ".config" / "slop-studio"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "credentials.json").write_text(json.dumps(data))
+
+
+def _reload_router_with(monkeypatch, tmp_path):
+    """Reload config then router with Path.home()→tmp_path. Returns snapshot
+    of the pre-reload LocalBackend so the caller can restore on teardown."""
+    snapshot_local = router._BACKENDS["local"]
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    importlib.reload(slop_studio.config)
+    importlib.reload(router)
+    return snapshot_local
+
+
+def _restore_router(snapshot_local):
+    router._BACKENDS.clear()
+    router._BACKENDS["local"] = snapshot_local
+    router.DEFAULT_BACKEND_NAME = "local"
+
+
+def test_cloud_registered_from_credentials_json(monkeypatch, tmp_path):
+    # Story 6.5 AC #3, #5 — credentials.json fallback registers cloud.
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    _write_credentials_json(tmp_path, {"comfy_cloud": {"api_key": CLOUD_TEST_KEY}})
+    snapshot = _reload_router_with(monkeypatch, tmp_path)
+    try:
+        assert "cloud" in router._BACKENDS
+        assert router._BACKENDS["cloud"].name == "cloud"
+    finally:
+        _restore_router(snapshot)
+
+
+@pytest.mark.anyio
+async def test_route_submission_default_backend_cloud_routes_to_cloud(monkeypatch, tmp_path):
+    # Story 6.5 AC #9 — DEFAULT_BACKEND=cloud + valid key → unprefixed
+    # submissions dispatch to cloud.
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", CLOUD_TEST_KEY)
+    monkeypatch.setenv("COMFY_CLOUD_URL", CLOUD_BASE_URL)
+    monkeypatch.setenv("SLOP_STUDIO_DEFAULT_BACKEND", "cloud")
+    snapshot = _reload_router_with(monkeypatch, tmp_path)
+    try:
+        assert router.DEFAULT_BACKEND_NAME == "cloud"
+        cloud_backend = router._BACKENDS["cloud"]
+
+        async def fake_prepare(backend, _tmpl, _inputs, _aspect):
+            return await backend.submit({})
+
+        monkeypatch.setattr(router, "_prepare_and_submit", fake_prepare)
+        mock_submit = AsyncMock(return_value={"status": "success", "prompt_id": "nid-1"})
+        monkeypatch.setattr(cloud_backend, "submit", mock_submit)
+
+        result = await router.route_submission("tmpl", {})
+        assert result == {"status": "success", "prompt_id": "cloud:nid-1"}
+    finally:
+        _restore_router(snapshot)
+
+
+@pytest.mark.anyio
+async def test_route_submission_default_backend_cloud_without_key_returns_auth_failed(monkeypatch, tmp_path):
+    # Story 6.5 AC #10 — DEFAULT_BACKEND=cloud but NO key → auth_failed, same
+    # message as the explicit-override path.
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    monkeypatch.setenv("SLOP_STUDIO_DEFAULT_BACKEND", "cloud")
+    snapshot = _reload_router_with(monkeypatch, tmp_path)
+    try:
+        assert router.DEFAULT_BACKEND_NAME == "cloud"
+        assert "cloud" not in router._BACKENDS
+        result = await router.route_submission("tmpl", {})
+        assert result["status"] == "error"
+        assert result["error_type"] == "auth_failed"
+        assert "COMFY_CLOUD_API_KEY" in result["error"]
+        assert "credentials.json" in result["error"]
+    finally:
+        _restore_router(snapshot)
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_cloud_backend_uses_config_cloud_url(monkeypatch, tmp_path):
+    # Story 6.5 AC #8 — COMFY_CLOUD_URL flows into CloudBackend.base_url.
+    staging_url = "https://staging.example.com"
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", CLOUD_TEST_KEY)
+    monkeypatch.setenv("COMFY_CLOUD_URL", staging_url)
+    snapshot = _reload_router_with(monkeypatch, tmp_path)
+    try:
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        (templates_dir / "staging_tmpl.json").write_text(
+            json.dumps({"6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}}}),
+            encoding="utf-8",
+        )
+        (templates_dir / "staging_tmpl.meta.json").write_text(
+            json.dumps(
+                {
+                    "name": "staging_tmpl",
+                    "inputs": {"prompt": {"node_id": "6", "field": "text", "type": "required"}},
+                    "aspect_ratios": {},
+                    "resolution_nodes": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+        respx.post(f"{staging_url}/api/prompt").mock(
+            return_value=httpx.Response(200, json={"prompt_id": "staging-xyz", "node_errors": {}})
+        )
+
+        result = await router.route_submission("staging_tmpl", {"prompt": "hi"}, backend_override="cloud")
+        assert result == {"status": "success", "prompt_id": "cloud:staging-xyz"}
+    finally:
+        _restore_router(snapshot)
+
+
+@pytest.mark.anyio
+async def test_no_raw_api_key_in_router_logs_or_error_dicts(monkeypatch, tmp_path, caplog):
+    # Story 6.5 AC #7 (NFR-C3) — raw key MUST NOT appear in router-level logs
+    # or in any returned error dict along the cloud path.
+    unique_key = "comfyui-DONOTLEAK-router-0123456789"
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", unique_key)
+    monkeypatch.setenv("COMFY_CLOUD_URL", CLOUD_BASE_URL)
+    snapshot = _reload_router_with(monkeypatch, tmp_path)
+    try:
+        with caplog.at_level(logging.DEBUG):
+            # Force an auth-failed path too by nuking the key and re-reloading.
+            cloud_backend = router._BACKENDS["cloud"]
+            assert cloud_backend is not None
+
+            async def fake_prepare(backend, _tmpl, _inputs, _aspect):
+                return await backend.submit({})
+
+            monkeypatch.setattr(router, "_prepare_and_submit", fake_prepare)
+            mock_submit = AsyncMock(return_value={"status": "success", "prompt_id": "leak-test"})
+            monkeypatch.setattr(cloud_backend, "submit", mock_submit)
+
+            result = await router.route_submission("tmpl", {}, backend_override="cloud")
+        assert result == {"status": "success", "prompt_id": "cloud:leak-test"}
+        assert unique_key not in caplog.text
+        for value in result.values():
+            assert unique_key not in str(value)
+    finally:
+        _restore_router(snapshot)

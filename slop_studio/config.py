@@ -115,6 +115,23 @@ if COMFYUI_IDLE_TIMEOUT < 0:
 TEMPLATES_DIR = _resolve("SLOP_STUDIO_TEMPLATES_DIR", "templates_dir", str(_PACKAGE_DIR.parent / "templates"))
 OUTPUT_DIR = _resolve("SLOP_STUDIO_OUTPUT_DIR", "output_dir", str(Path.home() / "slop-studio" / "output"))
 
+# Comfy Cloud backend config (Story 6.5 / FR-C5). API key has its own
+# getter because secrets belong in credentials.json, not config.toml.
+COMFY_CLOUD_URL = _resolve("COMFY_CLOUD_URL", "comfy_cloud_url", "https://cloud.comfy.org").rstrip("/")
+
+if not COMFY_CLOUD_URL.startswith(("http://", "https://")):
+    raise ValueError(f"COMFY_CLOUD_URL must start with http:// or https://, got: {COMFY_CLOUD_URL!r}")
+
+_DEFAULT_BACKEND_RAW = _resolve("SLOP_STUDIO_DEFAULT_BACKEND", "default_backend", "local").strip().lower()
+if _DEFAULT_BACKEND_RAW in ("local", "cloud"):
+    DEFAULT_BACKEND = _DEFAULT_BACKEND_RAW
+else:
+    logger.warning(
+        "SLOP_STUDIO_DEFAULT_BACKEND must be 'local' or 'cloud', got %r — using 'local'",
+        _DEFAULT_BACKEND_RAW,
+    )
+    DEFAULT_BACKEND = "local"
+
 
 def get_bsky_credentials() -> tuple[str, str]:
     """Return (handle, app_password) using 3-tier fallback.
@@ -142,3 +159,43 @@ def get_bsky_credentials() -> tuple[str, str]:
             pass
 
     return handle, app_password
+
+
+def get_comfy_cloud_api_key() -> str:
+    """Return the Comfy Cloud API key with env → credentials.json → "" precedence.
+
+    Mirrors ``get_bsky_credentials``'s pattern. Never logs the key itself —
+    only the source it was loaded from, at DEBUG level (NFR-C3).
+    """
+    env_key = os.environ.get("COMFY_CLOUD_API_KEY", "").strip()
+    if env_key:
+        env_key = _expand_env_placeholders(env_key).strip()
+        if not _has_unresolved_placeholder(env_key):
+            logger.debug("comfy cloud key loaded from: env")
+            return env_key
+
+    import json
+
+    creds_file = Path.home() / ".config" / "slop-studio" / "credentials.json"
+    if creds_file.is_file():
+        try:
+            data = json.loads(creds_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            logger.debug("comfy cloud key loaded from: none (credentials.json unreadable)")
+            return ""
+        if not isinstance(data, dict):
+            logger.debug("comfy cloud key loaded from: none (credentials.json is not a JSON object)")
+            return ""
+        comfy_cloud = data.get("comfy_cloud")
+        if isinstance(comfy_cloud, dict):
+            file_key = comfy_cloud.get("api_key", "")
+            if isinstance(file_key, str):
+                file_key = file_key.strip()
+                if file_key:
+                    file_key = _expand_env_placeholders(file_key).strip()
+                    if not _has_unresolved_placeholder(file_key):
+                        logger.debug("comfy cloud key loaded from: credentials.json")
+                        return file_key
+
+    logger.debug("comfy cloud key loaded from: none")
+    return ""
