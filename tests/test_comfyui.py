@@ -1184,3 +1184,40 @@ async def test_local_backend_view_strips_path_components():
     assert "filename=passwd" in sent_url
     assert ".." not in sent_url
     assert "etc" not in sent_url
+
+
+# ===========================================================================
+# Story 6.7 — Local backend tags its error dicts with backend="local".
+# ===========================================================================
+
+
+@pytest.mark.anyio
+async def test_local_queue_prompt_template_not_found_tags_backend_local(templates_dir):
+    # AC #24 — terminal_error paths in local.queue_prompt emit backend="local".
+    import slop_studio.backends.local as _local
+
+    result = await _local.queue_prompt("nonexistent-template-xyz", {})
+    assert result["status"] == "error"
+    assert result["backend"] == "local"
+
+
+@pytest.mark.anyio
+async def test_local_check_next_job_empty_list_tags_backend_local():
+    # AC #24 — empty-list terminal_error emits backend="local".
+    import slop_studio.backends.local as _local
+
+    result = await _local.check_next_job([], 0)
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert result["backend"] == "local"
+
+
+@pytest.mark.anyio
+async def test_local_get_image_malformed_prompt_id_tags_backend_local(templates_dir):
+    # AC #24 — get_image with a prompt_id that has no completed job triggers
+    # a terminal_error path; asserts backend="local" is tagged.
+    import slop_studio.backends.local as _local
+
+    result = await _local.get_image("local:nonexistent-prompt-xyz")
+    assert result["status"] == "error"
+    assert result["backend"] == "local"

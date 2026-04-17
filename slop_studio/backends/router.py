@@ -32,7 +32,15 @@ Subsequent stories:
   an absent field also falls through to preserve Story 6.5's user-default
   seam. Absent/unreadable meta is not fatal — downstream dispatchers
   surface the real error.
-- Story 6.7: refined error-reason taxonomy (new codes + ``backend`` tag).
+- Story 6.7: refined error-reason taxonomy. New terminal codes
+  (``auth_failed``, ``no_credits``, ``account_issue``, ``rate_limited``)
+  are emitted by CloudBackend + router cloud paths. Every cloud-path
+  error dict is tagged ``backend="cloud"``; local-path errors are
+  tagged ``backend="local"`` by ``backends.local``. Caller-input errors
+  (unknown prompt_id prefix, empty list, mixed-backend batch) stay
+  untagged — they precede backend resolution. NFR-C5 preserved: 429
+  maps to terminal ``rate_limited`` (or ``account_issue`` on body
+  disambiguation), never transient.
 
 The router deliberately calls the module-level orchestrators in
 ``slop_studio.backends.local`` via attribute access (``_local.queue_prompt(...)``)
@@ -110,6 +118,16 @@ def get_backend(name: str) -> Backend:
 def _prefix(backend_name: str, native_id: str) -> str:
     """Format a router-visible prompt_id as ``"<backend>:<native>"``."""
     return f"{backend_name}:{native_id}"
+
+
+def _cloud_err(reason: str, message: str) -> dict:
+    """Router cloud-path terminal error — tags with ``backend="cloud"``."""
+    return terminal_error(reason, message, backend="cloud")
+
+
+def _cloud_trans(reason: str, message: str) -> dict:
+    """Router cloud-path transient error — tags with ``backend="cloud"``."""
+    return transient_error(reason, message, backend="cloud")
 
 
 def _read_template_backend(template_name: str) -> str | None:
@@ -221,7 +239,7 @@ async def _prepare_and_submit(
     meta_path = Path(TEMPLATES_DIR) / f"{template_name}.meta.json"
 
     if not workflow_path.is_file() or not meta_path.is_file():
-        return terminal_error("invalid_inputs", f"Template '{template_name}' not found")
+        return terminal_error("invalid_inputs", f"Template '{template_name}' not found", backend=backend.name)
 
     try:
         workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
@@ -230,12 +248,14 @@ async def _prepare_and_submit(
         return terminal_error(
             "invalid_inputs",
             f"Failed to read template '{template_name}': {exc}",
+            backend=backend.name,
         )
 
     if not isinstance(workflow, dict):
         return terminal_error(
             "invalid_inputs",
             f"Template '{template_name}' workflow is not a JSON object",
+            backend=backend.name,
         )
 
     meta_inputs = meta.get("inputs", {})
@@ -244,6 +264,7 @@ async def _prepare_and_submit(
             return terminal_error(
                 "invalid_inputs",
                 f"Missing required input '{input_name}': {input_def.get('description', '')}",
+                backend=backend.name,
             )
 
     if aspect_ratio is not None and aspect_ratio not in meta.get("aspect_ratios", {}):
@@ -251,22 +272,25 @@ async def _prepare_and_submit(
         return terminal_error(
             "invalid_inputs",
             f"Unsupported aspect ratio '{aspect_ratio}'. Supported: {supported}",
+            backend=backend.name,
         )
 
     prepared = copy.deepcopy(workflow)
     try:
         await _inject_inputs_via_backend(prepared, meta_inputs, inputs, backend)
     except ValueError as exc:
-        return terminal_error("validation", str(exc))
+        return terminal_error("validation", str(exc), backend=backend.name)
     except httpx.TransportError:
         return transient_error(
             "unreachable",
             f"Cannot upload asset to {backend.name} backend",
+            backend=backend.name,
         )
     except httpx.HTTPStatusError as exc:
         return transient_error(
             "unreachable",
             f"{backend.name} asset upload returned HTTP {exc.response.status_code}",
+            backend=backend.name,
         )
 
     _randomize_seeds(prepared)
@@ -309,12 +333,12 @@ async def route_submission(
     backend = _BACKENDS.get(chosen_name)
     if backend is None:
         if chosen_name == "cloud":
-            return terminal_error(
+            return _cloud_err(
                 "auth_failed",
                 "Comfy Cloud API key is not configured. Set COMFY_CLOUD_API_KEY in "
                 "the environment or add a 'comfy_cloud': {'api_key': '...'} entry to "
-                "~/.config/slop-studio/credentials.json. Get a key at "
-                "https://platform.comfy.org/profile/api-keys.",
+                "~/.config/slop-studio/credentials.json. Call open_comfy_cloud_portal "
+                "or visit https://platform.comfy.org/profile/api-keys to get a key.",
             )
         return terminal_error("invalid_inputs", f"Unknown backend '{chosen_name}'")
 
@@ -362,12 +386,12 @@ async def _check_next_job_cloud(
             try:
                 result = await backend.status(nid)
             except httpx.HTTPStatusError as exc:
-                return transient_error(
+                return _cloud_trans(
                     "unreachable",
                     f"Cloud returned HTTP {exc.response.status_code}",
                 )
             except httpx.TransportError:
-                return transient_error("unreachable", "Cannot connect to cloud")
+                return _cloud_trans("unreachable", "Cannot connect to cloud")
             state = result.get("state")
             if state == "completed":
                 completed.append({"prompt_id": nid, "outputs": result.get("outputs", {})})
@@ -481,21 +505,21 @@ async def _get_image_cloud(
     try:
         status_result = await backend.status(native_id)
     except httpx.HTTPStatusError as exc:
-        return transient_error("unreachable", f"Cloud returned HTTP {exc.response.status_code}")
+        return _cloud_trans("unreachable", f"Cloud returned HTTP {exc.response.status_code}")
     except httpx.TransportError:
-        return transient_error("unreachable", "Cannot connect to cloud")
+        return _cloud_trans("unreachable", "Cannot connect to cloud")
 
     state = status_result.get("state")
     if state == "pending":
-        return terminal_error("invalid_inputs", f"Job {native_id} is still pending (queued, not started)")
+        return _cloud_err("invalid_inputs", f"Job {native_id} is still pending (queued, not started)")
     if state == "running":
-        return terminal_error(
+        return _cloud_err(
             "invalid_inputs",
             f"Job {native_id} is still running. Call check_next_job with wait to poll first.",
         )
     if state == "failed":
         error_msg = status_result.get("error", "Cloud job failed")
-        return terminal_error("generation_failed", error_msg)
+        return _cloud_err("generation_failed", error_msg)
 
     outputs = status_result.get("outputs", {})
     filename = None
@@ -511,26 +535,26 @@ async def _get_image_cloud(
                 break
 
     if not filename:
-        return terminal_error(
+        return _cloud_err(
             "completed_no_output",
             f"Job {native_id} completed but produced no output images",
         )
 
     safe_filename = Path(filename).name
     if not safe_filename or safe_filename in (".", ".."):
-        return terminal_error("completed_no_output", f"Job {native_id} produced an invalid filename")
+        return _cloud_err("completed_no_output", f"Job {native_id} produced an invalid filename")
 
     try:
         image_bytes = await backend.view(safe_filename, file_type="output")
     except httpx.HTTPStatusError as exc:
-        return transient_error(
+        return _cloud_trans(
             "unreachable",
             f"Cloud returned HTTP {exc.response.status_code} fetching image",
         )
     except httpx.TransportError:
-        return transient_error("unreachable", "Cannot connect to cloud")
+        return _cloud_trans("unreachable", "Cannot connect to cloud")
     except ValueError as exc:
-        return terminal_error("completed_no_output", str(exc))
+        return _cloud_err("completed_no_output", str(exc))
 
     date_str = date.today().isoformat()
     date_dir = Path(OUTPUT_DIR) / date_str
@@ -538,7 +562,7 @@ async def _get_image_cloud(
     try:
         date_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        return transient_error("storage_error", f"Cannot create output directory '{date_dir}': {exc}")
+        return _cloud_trans("storage_error", f"Cannot create output directory '{date_dir}': {exc}")
 
     output_path = date_dir / safe_filename
     if output_path.exists():
@@ -553,7 +577,7 @@ async def _get_image_cloud(
     try:
         await asyncio.to_thread(output_path.write_bytes, image_bytes)
     except OSError as exc:
-        return transient_error("storage_error", f"Cannot write image to '{output_path}': {exc}")
+        return _cloud_trans("storage_error", f"Cannot write image to '{output_path}': {exc}")
 
     abs_path = str(output_path.resolve())
     logger.info("Cloud image saved: %s", abs_path)

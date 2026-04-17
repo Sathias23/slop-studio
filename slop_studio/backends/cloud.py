@@ -57,6 +57,19 @@ def _mask_key(key: str) -> str:
     return f"{key[:7]}***"
 
 
+def _mask_key_in_text(text: str, api_key: str) -> str:
+    """Replace every occurrence of ``api_key`` in ``text`` with its masked form.
+
+    Defensive scrubbing for error bodies that echo the key — cloud's 403
+    responses have historically surfaced snippets of identifying info.
+    Applied to the ``preview`` string before it enters the user-visible
+    error message in ``_submit_error_to_dict``.
+    """
+    if not api_key or not text:
+        return text
+    return text.replace(api_key, _mask_key(api_key))
+
+
 def _parse_json_safe(response: httpx.Response) -> dict | None:
     """Parse ``response.json()`` defensively.
 
@@ -89,8 +102,38 @@ def _parse_error_body(body: dict | None) -> tuple[str, str]:
         err = body["error"]
         return err.get("type", "UNKNOWN"), err.get("message", "")
     if "code" in body:
-        return body["code"], body.get("message", "")
+        return str(body["code"]), body.get("message", "")
     return "UNKNOWN", body.get("message", "Unknown error")
+
+
+_ACCOUNT_ISSUE_SUBSTRINGS = ("payment", "billing", "account", "subscription")
+
+
+def _is_account_issue_code(code_or_type: str) -> bool:
+    """Heuristic: does a 429 ``code`` / ``error.type`` field signal a payment/account issue?
+
+    Per research doc §A.3 and probe-spike §A.6.3, 429 can mean either
+    rate-limiting or payment-method-lapsed depending on cloud's internal
+    classifier. We distinguish by case-insensitive substring match on the
+    parsed ``code`` field — any occurrence of ``payment`` / ``billing`` /
+    ``account`` / ``subscription`` → ``account_issue``; otherwise →
+    ``rate_limited``. Absence of a ``code`` field falls through to
+    ``rate_limited`` (probe-spike fallthrough contract).
+    """
+    if not code_or_type or code_or_type == "UNKNOWN":
+        return False
+    lowered = code_or_type.lower()
+    return any(substr in lowered for substr in _ACCOUNT_ISSUE_SUBSTRINGS)
+
+
+def _err(reason: str, message: str) -> dict:
+    """Cloud-backend terminal error — tags with ``backend="cloud"``."""
+    return terminal_error(reason, message, backend="cloud")
+
+
+def _trans(reason: str, message: str) -> dict:
+    """Cloud-backend transient error — tags with ``backend="cloud"``."""
+    return transient_error(reason, message, backend="cloud")
 
 
 class CloudBackend(Backend):
@@ -124,14 +167,22 @@ class CloudBackend(Backend):
     async def submit(self, workflow: dict) -> dict:
         """POST /api/prompt. Returns success dict or terminal/transient error.
 
-        Error mapping (Story 6.7 refines with new reason codes):
+        Error mapping (Story 6.7 taxonomy — see ``_submit_error_to_dict``
+        for the full table):
 
-        - 400/422 → ``invalid_workflow``
-        - 401/403/413/415 → ``invalid_inputs`` (masks the api key on 401)
-        - 402/429 → ``generation_failed`` / ``transient_error("unreachable")``
-        - 5xx / TransportError → ``transient_error("unreachable")``
+        - 400/422 → ``invalid_workflow`` (terminal)
+        - 401 → ``auth_failed`` (terminal; masks the api key)
+        - 402 → ``no_credits`` (terminal; points to ``open_comfy_cloud_portal``)
+        - 403 → ``account_issue`` (terminal; points to the platform portal)
+        - 413/415 → ``invalid_inputs`` (terminal)
+        - 429 → ``rate_limited`` OR ``account_issue`` (terminal; body
+          ``code`` field disambiguates per ``_is_account_issue_code``)
+        - 5xx / TransportError → ``unreachable`` (transient)
 
-        Never raises — per the ABC contract for ``submit``.
+        All error dicts carry ``backend="cloud"`` via the module-level
+        ``_err`` / ``_trans`` wrappers. No auto-fallback to local at any
+        status code (NFR-C5). Never raises — per the ABC contract for
+        ``submit``.
         """
         try:
             async with self._client() as client:
@@ -143,30 +194,30 @@ class CloudBackend(Backend):
         except httpx.HTTPStatusError as exc:
             return self._submit_error_to_dict(exc)
         except httpx.TransportError:
-            return transient_error(
+            return _trans(
                 "unreachable",
                 f"Cannot connect to cloud at {self._base_url}",
             )
         except httpx.InvalidURL:
-            return terminal_error(
+            return _err(
                 "invalid_inputs",
                 "Invalid cloud base URL configured; check COMFY_CLOUD_URL",
             )
 
         body = _parse_json_safe(response)
         if body is None:
-            return terminal_error("invalid_workflow", "Cloud returned a non-JSON response")
+            return _err("invalid_workflow", "Cloud returned a non-JSON response")
 
         prompt_id = body.get("prompt_id")
         if not isinstance(prompt_id, str) or not prompt_id:
-            return terminal_error(
+            return _err(
                 "invalid_workflow",
                 f"Cloud response missing prompt_id: {str(body)[:200]}",
             )
 
         node_errors = body.get("node_errors")
         if node_errors:
-            return terminal_error(
+            return _err(
                 "invalid_workflow",
                 f"Cloud workflow validation errors: {node_errors}",
             )
@@ -176,46 +227,83 @@ class CloudBackend(Backend):
     def _submit_error_to_dict(self, exc: httpx.HTTPStatusError) -> dict:
         """Map a submit-time HTTPStatusError to a terminal/transient error dict.
 
-        Uses the existing reason-code taxonomy — Story 6.7 adds the four
-        new reasons (``auth_failed`` / ``no_credits`` / ``account_issue``
-        / ``rate_limited``) and refines this mapping.
+        Story 6.7 taxonomy (see ``slop_studio.errors`` for reason codes):
+
+        - 400 → ``invalid_workflow``
+        - 401 → ``auth_failed`` (masks the api key in the message)
+        - 402 → ``no_credits`` (points to ``open_comfy_cloud_portal``)
+        - 403 → ``account_issue`` (points to the platform portal)
+        - 413, 415 → ``invalid_inputs``
+        - 422 → ``invalid_workflow``
+        - 429 → ``rate_limited`` OR ``account_issue`` (per body ``code`` disambiguation)
+        - 5xx → ``transient_error("unreachable")``
+
+        No auto-fallback to local at any status code (NFR-C5). All dicts
+        are tagged ``backend="cloud"`` via the ``_err`` / ``_trans``
+        wrappers.
         """
         status = exc.response.status_code
         body = _parse_json_safe(exc.response)
-        _code, message = _parse_error_body(body)
-        preview = message or exc.response.text[:500]
+        code_or_type, message = _parse_error_body(body)
+        preview_raw = message or exc.response.text[:500]
+        preview = _mask_key_in_text(preview_raw, self._api_key)
 
         if status == 401:
-            return terminal_error(
-                "invalid_inputs",
-                f"Cloud authentication failed: {_mask_key(self._api_key)}",
+            return _err(
+                "auth_failed",
+                (
+                    f"Comfy Cloud authentication failed for key {_mask_key(self._api_key)}. "
+                    "Verify COMFY_CLOUD_API_KEY or the credentials.json entry at "
+                    "~/.config/slop-studio/credentials.json. Regenerate at "
+                    "https://platform.comfy.org/profile/api-keys."
+                ),
             )
         if status == 402:
-            return terminal_error(
-                "generation_failed",
-                f"Cloud submission rejected: insufficient credits. {preview}",
+            return _err(
+                "no_credits",
+                (
+                    "Comfy Cloud submission rejected: insufficient credits. "
+                    "Call open_comfy_cloud_portal to top up, or visit "
+                    f"https://platform.comfy.org/ directly. {preview[:200]}"
+                ),
             )
         if status == 403:
-            return terminal_error("invalid_inputs", f"Cloud account issue: {preview}")
+            return _err(
+                "account_issue",
+                (
+                    f"Comfy Cloud account issue: {preview[:200]}. "
+                    "Visit https://platform.comfy.org/ to check account status "
+                    "or call open_comfy_cloud_portal."
+                ),
+            )
         if status == 413:
-            return terminal_error("invalid_inputs", "Payload too large")
+            return _err("invalid_inputs", "Payload too large")
         if status == 415:
-            return terminal_error("invalid_inputs", "Unsupported media type")
+            return _err("invalid_inputs", "Unsupported media type")
         if status == 422:
-            return terminal_error("invalid_workflow", preview or "Cloud validation failed")
+            return _err("invalid_workflow", preview[:200] or "Cloud validation failed")
         if status == 429:
-            return transient_error(
-                "unreachable",
-                "Cloud rate-limited or payment issue; retry later",
+            if _is_account_issue_code(code_or_type):
+                return _err(
+                    "account_issue",
+                    (
+                        f"Comfy Cloud account issue: {preview[:200]}. "
+                        "Visit https://platform.comfy.org/ to check account status "
+                        "or call open_comfy_cloud_portal."
+                    ),
+                )
+            return _err(
+                "rate_limited",
+                f"Comfy Cloud rate-limited: {preview[:200]}. Retry after the cloud's cooldown period.",
             )
         if status == 400:
-            return terminal_error("invalid_workflow", preview or "Cloud rejected the workflow")
+            return _err("invalid_workflow", preview[:200] or "Cloud rejected the workflow")
         if status >= 500:
-            return transient_error(
+            return _trans(
                 "unreachable",
                 f"Cloud returned {status} at {self._base_url}",
             )
-        return terminal_error("invalid_workflow", f"Cloud returned HTTP {status}: {preview[:200]}")
+        return _err("invalid_workflow", f"Cloud returned HTTP {status}: {preview[:200]}")
 
     async def status(self, prompt_id: str) -> dict:
         """GET /api/job/{prompt_id}/status. Returns unified state dict.

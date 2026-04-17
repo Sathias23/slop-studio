@@ -20,6 +20,17 @@ from slop_studio.errors import terminal_error, transient_error
 
 logger = logging.getLogger(__name__)
 
+
+def _err(reason: str, message: str) -> dict:
+    """Local-backend terminal error — tags with ``backend="local"``."""
+    return terminal_error(reason, message, backend="local")
+
+
+def _trans(reason: str, message: str) -> dict:
+    """Local-backend transient error — tags with ``backend="local"``."""
+    return transient_error(reason, message, backend="local")
+
+
 DEFAULT_POLL_INTERVAL = 3  # seconds between polls (FR16)
 MAX_POLL_DURATION = 45  # maximum total polling time in seconds (FR16)
 MAX_FAILURE_RETRIES = 3  # retry failed jobs this many times before reporting
@@ -179,16 +190,16 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
     meta_path = Path(TEMPLATES_DIR) / f"{template_name}.meta.json"
 
     if not workflow_path.is_file() or not meta_path.is_file():
-        return terminal_error("invalid_inputs", f"Template '{template_name}' not found")
+        return _err("invalid_inputs", f"Template '{template_name}' not found")
 
     try:
         workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        return terminal_error("invalid_inputs", f"Failed to read template '{template_name}': {exc}")
+        return _err("invalid_inputs", f"Failed to read template '{template_name}': {exc}")
 
     if not isinstance(workflow, dict):
-        return terminal_error(
+        return _err(
             "invalid_inputs",
             f"Template '{template_name}' workflow is not a JSON object",
         )
@@ -197,7 +208,7 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
     meta_inputs = meta.get("inputs", {})
     for input_name, input_def in meta_inputs.items():
         if input_def.get("type") == "required" and input_name not in inputs:
-            return terminal_error(
+            return _err(
                 "invalid_inputs",
                 f"Missing required input '{input_name}': {input_def.get('description', '')}",
             )
@@ -205,7 +216,7 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
     # Validate aspect ratio
     if aspect_ratio is not None and aspect_ratio not in meta.get("aspect_ratios", {}):
         supported = list(meta.get("aspect_ratios", {}).keys())
-        return terminal_error(
+        return _err(
             "invalid_inputs",
             f"Unsupported aspect ratio '{aspect_ratio}'. Supported: {supported}",
         )
@@ -215,14 +226,14 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
     try:
         await _inject_inputs(prepared, meta_inputs, inputs)
     except ValueError as exc:
-        return terminal_error("validation", str(exc))
+        return _err("validation", str(exc))
     except httpx.TransportError:
-        return transient_error(
+        return _trans(
             "unreachable",
             f"Cannot upload image to ComfyUI at {COMFYUI_URL}",
         )
     except httpx.HTTPStatusError as exc:
-        return transient_error(
+        return _trans(
             "unreachable",
             f"ComfyUI image upload returned HTTP {exc.response.status_code}",
         )
@@ -239,26 +250,26 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
             response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code >= 500:
-            return transient_error(
+            return _trans(
                 "unreachable",
                 f"ComfyUI returned {exc.response.status_code} at {COMFYUI_URL}",
             )
         error_body = exc.response.text
-        return terminal_error(
+        return _err(
             "invalid_workflow",
             f"ComfyUI rejected the workflow: {error_body[:500]}",
         )
     except httpx.TransportError:
-        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+        return _trans("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
     try:
         data = response.json()
     except (json.JSONDecodeError, ValueError):
-        return terminal_error("invalid_workflow", "ComfyUI returned a non-JSON response")
+        return _err("invalid_workflow", "ComfyUI returned a non-JSON response")
 
     prompt_id = data.get("prompt_id")
     if prompt_id is None:
-        return terminal_error(
+        return _err(
             "invalid_workflow",
             f"ComfyUI response missing prompt_id: {str(data)[:200]}",
         )
@@ -321,7 +332,7 @@ def _format_result(prompt_id: str, result: dict) -> dict:
 
     if state == "failed":
         error_msg = result.get("error", "Job failed in ComfyUI")
-        return terminal_error("generation_failed", error_msg)
+        return _err("generation_failed", error_msg)
 
     # pending or running
     return {"status": state, "prompt_id": prompt_id}
@@ -334,9 +345,9 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
     try:
         result = await _fetch_job_status(prompt_id)
     except httpx.HTTPStatusError as exc:
-        return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
+        return _trans("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
     except httpx.TransportError:
-        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+        return _trans("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
     # Non-blocking check or terminal state
     if effective_wait <= 0 or result["state"] in ("completed", "failed"):
@@ -351,9 +362,9 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
         try:
             result = await _fetch_job_status(prompt_id)
         except httpx.HTTPStatusError as exc:
-            return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
+            return _trans("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
         except httpx.TransportError:
-            return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+            return _trans("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
         if result["state"] in ("completed", "failed"):
             return _format_result(prompt_id, result)
@@ -365,7 +376,7 @@ async def check_job(prompt_id: str, wait: int = 0) -> dict:
 async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
     """Poll multiple jobs, return all that complete/fail within the wait window."""
     if not prompt_ids:
-        return terminal_error("invalid_inputs", "prompt_ids list is empty")
+        return _err("invalid_inputs", "prompt_ids list is empty")
 
     effective_wait = min(wait, MAX_POLL_DURATION)
     remaining = list(dict.fromkeys(prompt_ids))  # deduplicate, preserve order
@@ -381,10 +392,10 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
                 result = await _fetch_job_status(pid)
             except httpx.HTTPStatusError as exc:
                 still_remaining.append(pid)
-                return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
+                return _trans("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
             except httpx.TransportError:
                 still_remaining.append(pid)
-                return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+                return _trans("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
             if result["state"] == "completed":
                 completed.append(
@@ -455,22 +466,22 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
     try:
         result = await _fetch_job_status(prompt_id)
     except httpx.HTTPStatusError as exc:
-        return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
+        return _trans("unreachable", f"ComfyUI returned HTTP {exc.response.status_code}")
     except httpx.TransportError:
-        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+        return _trans("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
     state = result["state"]
 
     if state == "pending":
-        return terminal_error("invalid_inputs", f"Job {prompt_id} is still pending (queued, not started)")
+        return _err("invalid_inputs", f"Job {prompt_id} is still pending (queued, not started)")
     if state == "running":
-        return terminal_error(
+        return _err(
             "invalid_inputs",
             f"Job {prompt_id} is still running. Call check_job with wait to poll for completion first.",
         )
     if state == "failed":
         error_msg = result.get("error", "Job failed in ComfyUI")
-        return terminal_error("generation_failed", error_msg)
+        return _err("generation_failed", error_msg)
 
     # state == "completed"
     outputs = result.get("outputs", {})
@@ -486,12 +497,12 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
             break
 
     if not filename:
-        return terminal_error("completed_no_output", f"Job {prompt_id} completed but produced no output images")
+        return _err("completed_no_output", f"Job {prompt_id} completed but produced no output images")
 
     # 3. Sanitize filename (FR21)
     safe_filename = os.path.basename(filename)
     if not safe_filename or safe_filename in (".", ".."):
-        return terminal_error("completed_no_output", f"Job {prompt_id} produced an invalid filename")
+        return _err("completed_no_output", f"Job {prompt_id} produced an invalid filename")
 
     # 4. Fetch image bytes from ComfyUI
     params = {"filename": filename, "type": "output"}
@@ -503,9 +514,9 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
             response = await client.get(f"{COMFYUI_URL}/view", params=params)
             response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        return transient_error("unreachable", f"ComfyUI returned HTTP {exc.response.status_code} fetching image")
+        return _trans("unreachable", f"ComfyUI returned HTTP {exc.response.status_code} fetching image")
     except httpx.TransportError:
-        return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+        return _trans("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
     image_bytes = response.content
 
@@ -516,7 +527,7 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
     try:
         os.makedirs(date_dir, exist_ok=True)
     except OSError as exc:
-        return transient_error("storage_error", f"Cannot create output directory '{date_dir}': {exc}")
+        return _trans("storage_error", f"Cannot create output directory '{date_dir}': {exc}")
 
     output_path = os.path.join(date_dir, safe_filename)
     if os.path.exists(output_path):
@@ -529,7 +540,7 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
     try:
         await asyncio.to_thread(Path(output_path).write_bytes, image_bytes)
     except OSError as exc:
-        return transient_error("storage_error", f"Cannot write image to '{output_path}': {exc}")
+        return _trans("storage_error", f"Cannot write image to '{output_path}': {exc}")
 
     abs_path = os.path.abspath(output_path)
     logger.info("Image saved: %s", abs_path)
@@ -570,26 +581,26 @@ class LocalBackend(Backend):
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code >= 500:
-                return transient_error(
+                return _trans(
                     "unreachable",
                     f"ComfyUI returned {exc.response.status_code} at {COMFYUI_URL}",
                 )
             error_body = exc.response.text
-            return terminal_error(
+            return _err(
                 "invalid_workflow",
                 f"ComfyUI rejected the workflow: {error_body[:500]}",
             )
         except httpx.TransportError:
-            return transient_error("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
+            return _trans("unreachable", f"Cannot connect to ComfyUI at {COMFYUI_URL}")
 
         try:
             data = response.json()
         except (json.JSONDecodeError, ValueError):
-            return terminal_error("invalid_workflow", "ComfyUI returned a non-JSON response")
+            return _err("invalid_workflow", "ComfyUI returned a non-JSON response")
 
         prompt_id = data.get("prompt_id")
         if prompt_id is None:
-            return terminal_error(
+            return _err(
                 "invalid_workflow",
                 f"ComfyUI response missing prompt_id: {str(data)[:200]}",
             )

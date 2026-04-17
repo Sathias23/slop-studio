@@ -937,3 +937,24 @@ async def test_open_gallery_popen_failure(tmp_path):
         result = await open_gallery(str(img))
     assert result["status"] == "error"
     assert "no viewer" in result["error"]
+
+
+# ===========================================================================
+# Story 6.7 — safe_tool's internal_error path deliberately stays untagged.
+# ===========================================================================
+
+
+@pytest.mark.anyio
+async def test_safe_tool_internal_error_not_tagged():
+    # AC #25 — safe_tool catches any unhandled exception and returns
+    # ``internal_error``. The originating layer could be any module, so
+    # we don't tag with a backend. Locks AC #9 scope boundary.
+    @safe_tool
+    async def raising_tool():
+        raise RuntimeError("boom")
+
+    result = await raising_tool()
+    assert result["status"] == "error"
+    assert result["error_type"] == "internal_error"
+    assert result["retry_suggested"] is True  # transient_error default
+    assert "backend" not in result

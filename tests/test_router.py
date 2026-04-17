@@ -886,6 +886,8 @@ async def test_route_submission_default_backend_cloud_without_key_returns_auth_f
         assert result["error_type"] == "auth_failed"
         assert "COMFY_CLOUD_API_KEY" in result["error"]
         assert "credentials.json" in result["error"]
+        # Story 6.7: message now points to open_comfy_cloud_portal too.
+        assert "open_comfy_cloud_portal" in result["error"]
     finally:
         _restore_router(snapshot)
 
@@ -1246,3 +1248,63 @@ def test_read_template_backend_returns_valid_values(monkeypatch, tmp_path):
     assert router._read_template_backend("tpl_local") == "local"
     assert router._read_template_backend("tpl_cloud") == "cloud"
     assert router._read_template_backend("tpl_either") == "either"
+
+
+# ===========================================================================
+# Story 6.7 — Refined error codes + backend tagging on error dicts.
+# ===========================================================================
+
+
+@pytest.mark.anyio
+async def test_prepare_and_submit_template_not_found_tags_backend_cloud(tmp_path, monkeypatch, cloud_registered):
+    # AC #22 — cloud-path template error carries backend="cloud".
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(tmp_path))
+    result = await router._prepare_and_submit(router._BACKENDS["cloud"], "nonexistent-template", {}, None)
+    assert result["status"] == "error"
+    assert result["backend"] == "cloud"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_check_next_job_cloud_transport_error_tags_backend_cloud(cloud_registered):
+    # AC #22 — transport error in cloud polling tags backend="cloud".
+    respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(side_effect=httpx.ConnectError("boom"))
+    result = await router._check_next_job_cloud(router._BACKENDS["cloud"], ["abc"], 0)
+    assert result["status"] == "error"
+    assert result["backend"] == "cloud"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_cloud_pending_state_tags_backend_cloud(cloud_registered):
+    # AC #22 — pending state from cloud tags backend="cloud".
+    respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(return_value=httpx.Response(200, json={"status": "pending"}))
+    result = await router._get_image_cloud(router._BACKENDS["cloud"], "abc", include_base64=False)
+    assert result["error_type"] == "invalid_inputs"
+    assert result["backend"] == "cloud"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_cloud_failed_state_tags_backend_cloud(cloud_registered):
+    # AC #22 — failed state maps to generation_failed AND tags backend="cloud".
+    respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(
+        return_value=httpx.Response(200, json={"status": "error", "error_message": "node crashed"})
+    )
+    result = await router._get_image_cloud(router._BACKENDS["cloud"], "abc", include_base64=False)
+    assert result["error_type"] == "generation_failed"
+    assert result["backend"] == "cloud"
+
+
+@pytest.mark.anyio
+async def test_route_submission_cloud_without_key_tags_backend_cloud(tmp_path, monkeypatch):
+    # AC #23 — template declares cloud, but no key configured → auth_failed
+    # with backend="cloud" tag (route_submission unregistered-cloud branch).
+    # No cloud_registered fixture → cloud not in _BACKENDS.
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    _write_template(templates_dir, "cloud-only", backend="cloud")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+    result = await router.route_submission("cloud-only", {"prompt": "hi"})
+    assert result["error_type"] == "auth_failed"
+    assert result["backend"] == "cloud"
