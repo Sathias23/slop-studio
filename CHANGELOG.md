@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-04-17
+
+### Added
+
+- Four new terminal error reason codes for Comfy Cloud failures: `auth_failed` (401), `no_credits` (402), `account_issue` (403), and `rate_limited` (429). The messages for `no_credits` / `account_issue` / router `auth_failed` name `open_comfy_cloud_portal` so Claude can call it directly once Story 6.8 ships the tool (Story 6.7)
+- Optional `backend` kwarg on `terminal_error` / `transient_error` helpers. When set, the returned dict gains a `"backend"` key (`"local"` / `"cloud"`) giving Claude single-glance provenance when a tool fails mid-batch. Absent kwarg preserves the original four-key shape, so all existing callsites stay compatible (Story 6.7)
+- 429 disambiguation via the response body `code` field — `payment`, `billing`, `account`, or `subscription` substrings surface as `account_issue` (user must top up / fix billing); everything else stays `rate_limited` (wait and retry) (Story 6.7)
+- Defensive API-key scrubbing on cloud 403 body previews — any raw key echoed in the response body is replaced with its masked form before entering the user-visible error message (NFR-C3) (Story 6.7)
+
+### Changed
+
+- Cloud 429 is now terminal (`rate_limited` / `account_issue`) instead of the Story 6.4 placeholder `transient_error("unreachable")`. Per NFR-C5 there is no auto-retry or backend fallback at the tool-handler layer; Claude decides whether to re-submit (Story 6.7)
+- Cloud 401 maps to `auth_failed` instead of the Story 6.4 placeholder `invalid_inputs`, with a masked key in the message and a link to the platform portal (Story 6.7)
+- `safe_tool`'s `internal_error` and router caller-input errors (unknown backend, empty batch, mixed-backend batch, unknown prompt_id prefix) deliberately stay untagged. Their layer has no single-backend provenance, so a `"backend"` key would mislead. A canary test locks this scope boundary (Story 6.7)
+
+### Fixed
+
+- `_parse_error_body` now coerces `body["code"]` to `str` so numeric codes don't crash `_is_account_issue_code`'s `.lower()` call (Story 6.7 code review)
+- Cloud error previews on the 400 and 422 paths are now sliced to `[:200]`, matching the 402/403/429 handling — stops a multi-kilobyte cloud response from inflating the error dict (Story 6.7 code review)
+- Router `_prepare_and_submit` now tags errors with `backend=backend.name` instead of the hardcoded cloud helpers, so a future non-cloud backend routed through this function won't be mislabelled as `"cloud"` (Story 6.7 code review)
+- `manifest.json` re-synced to match `pyproject.toml` after the Story 6.6 release missed it — unblocks the `build-mcpb` test suite (Story 6.7 code review)
+
 ## [0.3.5] - 2026-04-17
 
 ### Added
