@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-04-17
+
+### Added
+
+- Optional `.meta.json` fields: `backend` (`"local" | "cloud" | "either"`), `output_keys` (`list[str]`), and `cloud_estimate_credits` (non-negative number). `add_template` / `update_template` validate each on write; absent-by-default keeps existing templates working unchanged (Story 6.6)
+- `list_templates` entries now include a `backend` field, defaulting to `"local"` when absent; `get_template` normalizes the same default in its response (Story 6.6)
+
+### Changed
+
+- `route_submission` consults the template's declared `backend` when no `backend_override` is passed: `"local"` / `"cloud"` lock the submission to that backend, `"either"` and absent/unreadable meta fall through to `DEFAULT_BACKEND_NAME`. `backend_override` still wins over the template's declaration (Story 6.6)
+- Shipped starter templates (`flux2_klein`, `flux2_klein_ultrawide`, `flux2_klein_edit`) now declare `"backend": "local"` — `UnetLoaderGGUF` is rejected by Comfy Cloud, so explicit tagging prevents silent regressions for users running with `SLOP_STUDIO_DEFAULT_BACKEND=cloud` (Story 6.6)
+
 ## [0.3.4] - 2026-04-17
 
 ### Added
