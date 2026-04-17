@@ -8,12 +8,13 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 CONFIG_DIR = Path.home() / ".config" / "slop-studio"
 CREDENTIALS_FILE = CONFIG_DIR / "credentials.json"
 
 
-def _malformed_json_error(detail: str) -> None:
+def _malformed_json_error(detail: str) -> NoReturn:
     print(f"Error: {CREDENTIALS_FILE} is not valid JSON ({detail}).", file=sys.stderr)
     print("  Fix it by hand or delete the file and re-run `slop-studio auth`.", file=sys.stderr)
     sys.exit(1)
@@ -56,8 +57,8 @@ def _write_credentials(credentials: dict) -> None:
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(credentials, f, indent=2)
-        os.replace(tmp_path, CREDENTIALS_FILE)
-        os.chmod(str(CREDENTIALS_FILE), 0o600)
+        tmp_path.replace(CREDENTIALS_FILE)
+        CREDENTIALS_FILE.chmod(0o600)
     except Exception:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
