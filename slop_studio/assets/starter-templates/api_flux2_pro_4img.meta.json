@@ -1,0 +1,55 @@
+{
+  "name": "api_flux2_pro_4img",
+  "model": "flux-2-pro",
+  "description": "Flux.2 [pro] API — four-reference composition. Batches four LoadImage inputs through BatchImagesNode and feeds them, along with a text prompt, to the Flux2ProImageNode. Best suited for composite portraits, character group shots, and reference-driven scenes. Runs via a Comfy Cloud API node (requires a configured API key).",
+  "backend": "cloud",
+  "expected_duration": "45 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "11",
+      "field": "prompt",
+      "type": "required",
+      "description": "Text prompt describing the composite scene to generate from the four reference images."
+    },
+    "image1": {
+      "node_id": "15",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "First reference image (slot 0 in the batch)."
+    },
+    "image2": {
+      "node_id": "19",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Second reference image (slot 1 in the batch)."
+    },
+    "image3": {
+      "node_id": "16",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Third reference image (slot 2 in the batch)."
+    },
+    "image4": {
+      "node_id": "18",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Fourth reference image (slot 3 in the batch)."
+    }
+  },
+  "aspect_ratios": {
+    "1:1":   {"width": 1424, "height": 1424},
+    "4:3":   {"width": 1632, "height": 1224},
+    "3:4":   {"width": 1224, "height": 1632},
+    "3:2":   {"width": 1920, "height": 1280},
+    "2:3":   {"width": 1280, "height": 1920},
+    "16:9":  {"width": 1888, "height": 1064},
+    "9:16":  {"width": 1064, "height": 1888}
+  },
+  "resolution_nodes": [
+    {"node_id": "11", "width_field": "width", "height_field": "height"}
+  ]
+}
