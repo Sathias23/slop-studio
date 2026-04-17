@@ -191,7 +191,7 @@ async def test_submit_transport_error_returns_transient(cloud_backend):
         (413, False),
         (415, False),
         (422, False),
-        (429, True),
+        (429, False),  # Story 6.7: 429 is terminal (rate_limited), never transient.
         (500, True),
         (503, True),
     ],
@@ -203,6 +203,8 @@ async def test_submit_error_codes_return_appropriate_dict(cloud_backend, status_
     result = await cloud_backend.submit({})
     assert result["status"] == "error"
     assert result["retry_suggested"] is expected_retry
+    # Story 6.7: every cloud error dict carries the backend tag.
+    assert result["backend"] == "cloud"
 
 
 @pytest.mark.anyio
@@ -212,6 +214,11 @@ async def test_submit_401_message_masks_api_key(cloud_backend):
     result = await cloud_backend.submit({})
     assert TEST_API_KEY not in result["error"]
     assert "comfyui***" in result["error"]
+    # Story 6.7: 401 now maps to auth_failed (was invalid_inputs in Story 6.4).
+    assert result["error_type"] == "auth_failed"
+    assert result["backend"] == "cloud"
+    # AC #11c: regeneration URL must appear in the message.
+    assert "https://platform.comfy.org/profile/api-keys" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -466,16 +473,140 @@ async def test_upload_asset_propagates_http_error(cloud_backend, image_file):
 @pytest.mark.anyio
 @respx.mock
 async def test_api_key_never_leaks_in_error_dicts_or_logs(cloud_backend, caplog):
-    """Grep all returned error messages AND caplog output for the raw key."""
+    """Grep all returned error messages AND caplog output for the raw key.
+
+    Story 6.7 extends coverage to the new 402/403/429 paths including a
+    defensive case where the 403 body itself echoes the raw key — the
+    ``_mask_key_in_text`` preview-scrubber must scrub it before the
+    preview enters the user-visible message.
+    """
     caplog.set_level(logging.DEBUG, logger="slop_studio.backends.cloud")
 
-    # Exercise every error-emitting code path we can reach from tests.
-    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(return_value=httpx.Response(401, json={"message": "unauthorized"}))
-    r1 = await cloud_backend.submit({})
+    results = []
+    for status, body in [
+        (401, {"message": "unauthorized"}),
+        (402, {"message": "insufficient"}),
+        (403, {"message": f"Auth failed for {TEST_API_KEY}"}),  # defensive: body echoes key
+        (429, {"code": "RATE_LIMIT_EXCEEDED", "message": "slow down"}),
+        (429, {"code": "PAYMENT_LAPSED", "message": "update card"}),
+        (500, None),
+    ]:
+        kwargs = {"json": body} if body is not None else {"content": b"boom"}
+        respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(return_value=httpx.Response(status, **kwargs))
+        results.append(await cloud_backend.submit({}))
 
-    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(return_value=httpx.Response(500, content=b"boom"))
-    r2 = await cloud_backend.submit({})
-
-    for result in (r1, r2):
+    for result in results:
         assert TEST_API_KEY not in result.get("error", "")
     assert TEST_API_KEY not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Story 6.7 — 429 disambiguation + new reason codes.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_submit_429_rate_limit_code_maps_to_rate_limited(cloud_backend):
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(429, json={"code": "RATE_LIMIT_EXCEEDED", "message": "slow down"})
+    )
+    result = await cloud_backend.submit({})
+    assert result["error_type"] == "rate_limited"
+    assert result["retry_suggested"] is False
+    assert result["backend"] == "cloud"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_submit_429_payment_code_maps_to_account_issue(cloud_backend):
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(429, json={"code": "PAYMENT_LAPSED", "message": "update card"})
+    )
+    result = await cloud_backend.submit({})
+    assert result["error_type"] == "account_issue"
+    assert result["retry_suggested"] is False
+    assert result["backend"] == "cloud"
+    assert "platform.comfy.org" in result["error"]
+    assert "open_comfy_cloud_portal" in result["error"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_submit_429_bare_message_maps_to_rate_limited(cloud_backend):
+    # No ``code`` field → fallthrough to rate_limited per AC #5.
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(429, json={"message": "too many requests"})
+    )
+    result = await cloud_backend.submit({})
+    assert result["error_type"] == "rate_limited"
+
+
+@pytest.mark.anyio
+@respx.mock
+@pytest.mark.parametrize(
+    "code",
+    ["PAYMENT_FAILED", "BILLING_ISSUE", "account_locked", "subscription_expired"],
+)
+async def test_submit_429_account_substrings_map_to_account_issue(cloud_backend, code):
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(429, json={"code": code, "message": "x"})
+    )
+    result = await cloud_backend.submit({})
+    assert result["error_type"] == "account_issue"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_submit_402_maps_to_no_credits(cloud_backend):
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(402, json={"message": "You have 0 credits remaining"})
+    )
+    result = await cloud_backend.submit({})
+    assert result["error_type"] == "no_credits"
+    assert result["retry_suggested"] is False
+    assert result["backend"] == "cloud"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_submit_402_message_mentions_open_comfy_cloud_portal(cloud_backend):
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(return_value=httpx.Response(402, json={"message": "insufficient"}))
+    result = await cloud_backend.submit({})
+    assert "open_comfy_cloud_portal" in result["error"]
+    assert "https://platform.comfy.org/" in result["error"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_submit_402_message_includes_body_preview(cloud_backend):
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(402, json={"message": "You have 0 credits remaining"})
+    )
+    result = await cloud_backend.submit({})
+    assert "0 credits remaining" in result["error"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_submit_403_maps_to_account_issue(cloud_backend):
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(403, json={"message": "account suspended"})
+    )
+    result = await cloud_backend.submit({})
+    assert result["error_type"] == "account_issue"
+    assert result["retry_suggested"] is False
+    assert result["backend"] == "cloud"
+    assert "platform.comfy.org" in result["error"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_submit_403_body_containing_api_key_masks_it(cloud_backend):
+    # Defensive: cloud 403 bodies historically echo snippets of identifying info.
+    # The ``_mask_key_in_text`` preview-scrubber MUST scrub the raw key before
+    # it enters the user-visible error message.
+    leaked_body = f"Auth failed for {TEST_API_KEY} — account suspended"
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(return_value=httpx.Response(403, json={"message": leaked_body}))
+    result = await cloud_backend.submit({})
+    assert TEST_API_KEY not in result["error"]
