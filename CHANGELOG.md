@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-04-18
+
 ### Fixed
 
 - Cloud backend registration is now **lazy**: the MCP server picks up a newly-configured `COMFY_CLOUD_API_KEY` / `credentials.json` entry on the next tool call, without requiring a process restart. Previously, `slop_studio/backends/router.py` captured the key at module import time, so running `slop-studio auth --comfy-cloud` mid-session produced persistent `auth_failed` errors until the user fully quit and reopened Claude Code / Desktop. Key rotation also takes effect on the next call — the old `CloudBackend` instance is replaced in-place
@@ -167,7 +169,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Output and templates resolve to the art project dir, not the package dir
 
-[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/sathias/slop-studio/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/sathias/slop-studio/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sathias/slop-studio/compare/v0.3.6...v0.4.0
 [0.3.1]: https://github.com/sathias/slop-studio/compare/v0.3.0...v0.3.1
