@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-04-18
+
 ### Added
 
 - `api_nano_banana_pro_text_to_image` starter template — pure text-to-image variant of the Nano Banana Pro (Gemini 3 Pro Image) workflow with no reference image input. Uses the same `GeminiImage2Node` as the 1img / 2img variants but omits the `images` field (the API-node schema marks it optional). Tagged `backend: "cloud"`. Shipped as a starter so new projects scaffolded via `slop-studio init` pick it up alongside the other cloud templates
@@ -173,7 +175,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Output and templates resolve to the art project dir, not the package dir
 
-[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/sathias/slop-studio/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/sathias/slop-studio/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/sathias/slop-studio/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sathias/slop-studio/compare/v0.3.6...v0.4.0
