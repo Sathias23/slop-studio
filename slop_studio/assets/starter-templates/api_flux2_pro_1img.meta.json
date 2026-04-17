@@ -1,7 +1,7 @@
 {
   "name": "api_flux2_pro_1img",
   "model": "flux-2-pro",
-  "description": "Flux.2 [pro] API — single-reference composition. Feeds one LoadImage plus a text prompt directly to Flux2ProImageNode (no batching step). Best for single-subject portrait edits and reference-driven scene generation from one image. Runs via a Comfy Cloud API node (requires a configured API key).",
+  "description": "Flux.2 [pro] API — single-reference composition. Routes one LoadImage through a single-slot BatchImagesNode before feeding it, along with a text prompt, to Flux2ProImageNode. Best for single-subject portrait edits and reference-driven scene generation from one image. Runs via a Comfy Cloud API node (requires a configured API key).",
   "backend": "cloud",
   "expected_duration": "30 seconds",
   "inputs": {

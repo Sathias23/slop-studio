@@ -31,7 +31,7 @@
   },
   "15": {
     "inputs": {
-      "image": "api_flux2_input_image_1.png"
+      "image": "api_flux2_pro_4img_input_image_1.png"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -40,7 +40,7 @@
   },
   "16": {
     "inputs": {
-      "image": "api_flux2_input_image_4.png"
+      "image": "api_flux2_pro_4img_input_image_3.png"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -49,7 +49,7 @@
   },
   "18": {
     "inputs": {
-      "image": "api_flux2_input_image_3.png"
+      "image": "api_flux2_pro_4img_input_image_4.png"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -58,7 +58,7 @@
   },
   "19": {
     "inputs": {
-      "image": "api_flux2_input_image_2.png"
+      "image": "api_flux2_pro_4img_input_image_2.png"
     },
     "class_type": "LoadImage",
     "_meta": {
