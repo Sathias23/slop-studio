@@ -239,9 +239,7 @@ async def _prepare_and_submit(
     meta_path = Path(TEMPLATES_DIR) / f"{template_name}.meta.json"
 
     if not workflow_path.is_file() or not meta_path.is_file():
-        return terminal_error(
-            "invalid_inputs", f"Template '{template_name}' not found", backend=backend.name
-        )
+        return terminal_error("invalid_inputs", f"Template '{template_name}' not found", backend=backend.name)
 
     try:
         workflow = json.loads(workflow_path.read_text(encoding="utf-8"))

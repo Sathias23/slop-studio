@@ -102,7 +102,7 @@ def _parse_error_body(body: dict | None) -> tuple[str, str]:
         err = body["error"]
         return err.get("type", "UNKNOWN"), err.get("message", "")
     if "code" in body:
-        return body["code"], body.get("message", "")
+        return str(body["code"]), body.get("message", "")
     return "UNKNOWN", body.get("message", "Unknown error")
 
 
