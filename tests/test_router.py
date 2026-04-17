@@ -507,3 +507,298 @@ async def test_end_to_end_roundtrip_legacy_bare_id(e2e_env):
 
     for call in respx.calls:
         assert "local:" not in str(call.request.url), f"HTTP call leaked the prefix into the URL: {call.request.url}"
+
+
+# ===========================================================================
+# Story 6.4 — CloudBackend registration + routing.
+# ===========================================================================
+
+
+CLOUD_BASE_URL = "https://cloud.comfy.org"
+CLOUD_TEST_KEY = "comfyui-test1234567"
+
+
+@pytest.fixture
+def cloud_registered(monkeypatch):
+    """Register CloudBackend in the router for the duration of a test.
+
+    Inserts a ``CloudBackend`` directly into ``_BACKENDS`` rather than
+    reloading the module — reloading the router re-imports
+    ``LocalBackend`` from ``backends.local``, which conftest cycles on
+    every teardown. A reload-on-teardown here would leave the router
+    holding a stale ``LocalBackend`` class and break subsequent
+    ``isinstance(..., LocalBackend)`` checks in Story 6.3 tests.
+
+    Also sets the env vars so code paths that re-read them see the same
+    configuration; tests that specifically exercise the env-flag
+    registration reload the router themselves.
+    """
+    from slop_studio.backends.cloud import CloudBackend
+
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", CLOUD_TEST_KEY)
+    monkeypatch.setenv("COMFY_CLOUD_URL", CLOUD_BASE_URL)
+    router._BACKENDS["cloud"] = CloudBackend(api_key=CLOUD_TEST_KEY, base_url=CLOUD_BASE_URL)
+    try:
+        yield router
+    finally:
+        router._BACKENDS.pop("cloud", None)
+
+
+def test_cloud_registered_when_env_flag_set(monkeypatch):
+    # AC #8 — env-flag-driven registration happens at router import time.
+    # This test reloads the router to exercise the real init code path.
+    # It captures the CURRENT LocalBackend class before the reload so its
+    # teardown can restore the _BACKENDS["local"] instance to something
+    # compatible with later tests' isinstance checks.
+    snapshot_local = router._BACKENDS["local"]
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", CLOUD_TEST_KEY)
+    monkeypatch.setenv("COMFY_CLOUD_URL", CLOUD_BASE_URL)
+    try:
+        importlib.reload(router)
+        assert "cloud" in router._BACKENDS
+        assert router._BACKENDS["cloud"].name == "cloud"
+    finally:
+        monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+        monkeypatch.delenv("COMFY_CLOUD_URL", raising=False)
+        # Restore the pre-reload LocalBackend instance so subsequent tests
+        # that use isinstance(LocalBackend) continue to work.
+        router._BACKENDS.clear()
+        router._BACKENDS["local"] = snapshot_local
+
+
+def test_cloud_not_registered_without_env_flag():
+    # AC #8 — without the env var, the registry stays local-only.
+    assert "cloud" not in router._BACKENDS
+
+
+def test_route_for_prompt_id_round_trips_cloud_when_registered(cloud_registered):
+    # AC #9 — "cloud:<id>" resolves without ValueError once registered.
+    backend, native = cloud_registered.route_for_prompt_id("cloud:abc-123")
+    assert backend.name == "cloud"
+    assert native == "abc-123"
+
+
+@pytest.mark.anyio
+async def test_route_submission_cloud_without_env_flag_returns_terminal_error():
+    # AC #10 — override="cloud" with no registration → clear error message.
+    result = await router.route_submission("tmpl", {}, backend_override="cloud")
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "COMFY_CLOUD_API_KEY" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_route_submission_unknown_backend_override_returns_terminal_error():
+    result = await router.route_submission("tmpl", {}, backend_override="martian")
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "martian" in result["error"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_route_submission_emits_cloud_prefix_with_override(cloud_registered, tmp_path, monkeypatch):
+    # AC #10, #12 — cloud-routed submission emits "cloud:<native>" on success.
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "cloud_tmpl.json").write_text(
+        json.dumps({"6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}}}),
+        encoding="utf-8",
+    )
+    (templates_dir / "cloud_tmpl.meta.json").write_text(
+        json.dumps(
+            {
+                "name": "cloud_tmpl",
+                "inputs": {
+                    "prompt": {
+                        "node_id": "6",
+                        "field": "text",
+                        "type": "required",
+                    }
+                },
+                "aspect_ratios": {},
+                "resolution_nodes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cloud_registered, "TEMPLATES_DIR", str(templates_dir))
+
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "cloud-uuid-xyz", "node_errors": {}})
+    )
+
+    result = await cloud_registered.route_submission("cloud_tmpl", {"prompt": "hi"}, backend_override="cloud")
+
+    assert result == {"status": "success", "prompt_id": "cloud:cloud-uuid-xyz"}
+
+
+@pytest.mark.anyio
+async def test_cloud_submission_does_not_invoke_ensure_ready(cloud_registered, monkeypatch):
+    # AC #11, NFR-C6 canary — cloud path MUST NOT await ensure_ready.
+    lifecycle_manager = AsyncMock()
+
+    cloud_backend = cloud_registered._BACKENDS["cloud"]
+    mock_submit = AsyncMock(return_value={"status": "success", "prompt_id": "xyz"})
+    monkeypatch.setattr(cloud_backend, "submit", mock_submit)
+
+    # Avoid touching the template loader — short-circuit via _prepare_and_submit.
+    async def fake_prepare(_backend, _tmpl, _inputs, _aspect):
+        return await _backend.submit({})
+
+    monkeypatch.setattr(cloud_registered, "_prepare_and_submit", fake_prepare)
+
+    result = await cloud_registered.route_submission(
+        "tmpl",
+        {},
+        backend_override="cloud",
+        lifecycle_manager=lifecycle_manager,
+    )
+
+    assert result == {"status": "success", "prompt_id": "cloud:xyz"}
+    assert lifecycle_manager.ensure_ready.await_count == 0
+
+
+@pytest.mark.anyio
+async def test_local_submission_calls_ensure_ready(monkeypatch):
+    # AC #11 — router now owns the ensure_ready gate on the local path.
+    mock_qp = AsyncMock(return_value={"status": "success", "prompt_id": "local-123"})
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", mock_qp)
+
+    lifecycle_manager = AsyncMock()
+    lifecycle_manager.ensure_ready = AsyncMock(return_value=None)
+
+    result = await router.route_submission("tmpl", {}, lifecycle_manager=lifecycle_manager)
+
+    assert result["prompt_id"] == "local:local-123"
+    lifecycle_manager.ensure_ready.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_local_submission_short_circuits_on_ensure_ready_error(monkeypatch):
+    # AC #11 — ensure_ready error short-circuits before queue_prompt is called.
+    mock_qp = AsyncMock()
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", mock_qp)
+
+    lifecycle_error = {"status": "error", "error_type": "unreachable", "error": "not ready", "retry_suggested": True}
+    lifecycle_manager = AsyncMock()
+    lifecycle_manager.ensure_ready = AsyncMock(return_value=lifecycle_error)
+
+    result = await router.route_submission("tmpl", {}, lifecycle_manager=lifecycle_manager)
+
+    assert result == lifecycle_error
+    mock_qp.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_local_submission_without_lifecycle_manager_still_works(monkeypatch):
+    # Regression — the kwarg is optional; legacy callers continue to work.
+    mock_qp = AsyncMock(return_value={"status": "success", "prompt_id": "x"})
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", mock_qp)
+
+    result = await router.route_submission("tmpl", {})
+    assert result["prompt_id"] == "local:x"
+
+
+@pytest.mark.anyio
+async def test_check_next_job_mixed_backend_batch_rejected(cloud_registered):
+    # AC #13 scope caveat — mixed batches surface a clear error.
+    result = await cloud_registered.check_next_job(["local:a", "cloud:b"])
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "Mixed-backend" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_check_next_job_reprefixes_cloud_ids(cloud_registered, monkeypatch):
+    # AC #13, #14 — all-cloud batch routes to cloud fan-out, re-prefixes cloud:.
+    cloud_backend = cloud_registered._BACKENDS["cloud"]
+
+    async def fake_status(nid):
+        return {"state": "completed", "outputs": {"9": {"images": [{"filename": "x.png"}]}}}
+
+    monkeypatch.setattr(cloud_backend, "status", fake_status)
+
+    result = await cloud_registered.check_next_job(["cloud:abc"], wait=0)
+
+    assert result["status"] == "completed"
+    assert result["completed"][0]["prompt_id"] == "cloud:abc"
+    assert result["completed"][0]["outputs"] == {"9": {"images": [{"filename": "x.png"}]}}
+
+
+@pytest.mark.anyio
+async def test_check_next_job_cloud_timeout_reprefixes_remaining(cloud_registered, monkeypatch):
+    # Remaining list also re-prefixes cloud:, not hardcoded local:.
+    cloud_backend = cloud_registered._BACKENDS["cloud"]
+
+    async def pending_status(nid):
+        return {"state": "pending"}
+
+    monkeypatch.setattr(cloud_backend, "status", pending_status)
+
+    result = await cloud_registered.check_next_job(["cloud:abc"], wait=0)
+
+    assert result["status"] == "completed"  # empty batch counts as "done polling"
+    assert result["remaining"] == ["cloud:abc"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_routes_to_cloud_backend(cloud_registered, tmp_path, monkeypatch):
+    # AC #15 — prefixed cloud id resolves to CloudBackend, writes to OUTPUT_DIR.
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    monkeypatch.setattr(cloud_registered, "OUTPUT_DIR", str(output_dir))
+
+    respx.get(f"{CLOUD_BASE_URL}/api/job/xyz/status").mock(return_value=httpx.Response(200, json={"status": "success"}))
+    respx.get(f"{CLOUD_BASE_URL}/api/history/xyz").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "history": [
+                    {
+                        "prompt_id": "xyz",
+                        "outputs": {"9": {"images": [{"filename": "cloud_out.png"}]}},
+                    }
+                ]
+            },
+        )
+    )
+    # /api/view returns direct bytes (no redirect) — simpler for this test.
+    respx.get(f"{CLOUD_BASE_URL}/api/view").mock(return_value=httpx.Response(200, content=b"\x89PNGfake-bytes"))
+
+    result = await cloud_registered.get_image("cloud:xyz")
+
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "cloud:xyz"
+    assert os.path.isabs(result["file_path"])
+    assert os.path.exists(result["file_path"])
+
+
+@pytest.mark.anyio
+async def test_no_auto_fallback_on_cloud_submit_5xx(cloud_registered, monkeypatch):
+    # AC #18, NFR-C5 — cloud failure surfaces verbatim; router never retries local.
+    mock_local_qp = AsyncMock(return_value={"status": "success", "prompt_id": "should-not-happen"})
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", mock_local_qp)
+
+    cloud_backend = cloud_registered._BACKENDS["cloud"]
+    mock_submit = AsyncMock(
+        return_value={
+            "status": "error",
+            "error_type": "unreachable",
+            "error": "Cloud returned 500 at https://cloud.comfy.org",
+            "retry_suggested": True,
+        }
+    )
+    monkeypatch.setattr(cloud_backend, "submit", mock_submit)
+
+    async def fake_prepare(backend, _tmpl, _inputs, _aspect):
+        return await backend.submit({})
+
+    monkeypatch.setattr(cloud_registered, "_prepare_and_submit", fake_prepare)
+
+    result = await cloud_registered.route_submission("tmpl", {}, backend_override="cloud")
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "unreachable"
+    mock_local_qp.assert_not_awaited()
