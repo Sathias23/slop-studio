@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-04-17
+
+### Added
+
+- `CloudBackend` (Comfy Cloud REST API) registered behind the `COMFY_CLOUD_API_KEY` env flag. `check_next_job` and `get_image` round-trip the `"cloud:<id>"` prefix; submissions still default to local (Story 6.4)
+- `image_flux2` cloud template and `scripts/probe_cloud.py` probe-real script for validating the cloud API contract (Story 6.4)
+
 ## [0.3.2] - 2026-04-16
 
 ### Changed
