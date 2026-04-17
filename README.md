@@ -11,6 +11,7 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 - Conversational image generation through Claude Code and Claude Desktop
 - Support for text-to-image and image-to-image models, currently Flux.2 Klein (more to come)
 - Workflow template system with browsing, customization, and aspect ratios
+- Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
 - Automatic ComfyUI spawning and lifecycle management
 - Job queuing and automatic polling
 - Bluesky posting built in
@@ -179,10 +180,87 @@ slop-studio build-mcpb      Build .mcpb Desktop Extension package
 | `check_next_job` | Poll multiple jobs for completion |
 | `get_image` | Retrieve the output image path with inline thumbnail |
 | `open_gallery` | Open image(s) — single opens in OS viewer, multiple opens HTML gallery |
+| `open_comfy_cloud_portal` | Open the Comfy Cloud billing/account portal in the default browser |
 | `post_to_bluesky` | Post image(s) to Bluesky with text and hashtags |
 | `add_template` | Register a new ComfyUI workflow |
 | `update_template` | Update an existing template |
 | `delete_template` | Remove a template |
+
+## Comfy Cloud
+
+slop-studio can route generation to [Comfy Cloud](https://www.comfy.org/cloud) instead of a local ComfyUI. Cloud submissions use the same workflow JSON, the same template files, and the same MCP tools — only routing differs.
+
+### Get an API key
+
+Visit [platform.comfy.org/profile/api-keys](https://platform.comfy.org/profile/api-keys) and generate a key. Keys are shown **once** — copy it immediately. An active paid subscription is required to run workflows.
+
+### Configure the key
+
+**Option A — environment variable (recommended):**
+
+Add to your project's `.env` (for Claude Code) or to the `env` block of `claude_desktop_config.json` (for Claude Desktop):
+
+```
+COMFY_CLOUD_API_KEY=comfy_xxxxxxxxxxxx
+```
+
+**Option B — central credentials file:**
+
+Add a `comfy_cloud` entry to `~/.config/slop-studio/credentials.json`:
+
+```json
+{
+  "bluesky": { "handle": "...", "app_password": "..." },
+  "comfy_cloud": { "api_key": "comfy_xxxxxxxxxxxx" }
+}
+```
+
+> **Note:** `slop-studio auth` currently rewrites the file and can wipe a manually-added `comfy_cloud` entry. If you use Option B, re-add the cloud entry after running `auth`. Option A (env var) sidesteps this entirely.
+
+When both are set, the env var wins.
+
+### Route submissions to cloud
+
+Two levers, evaluated in order:
+
+1. **Per-template:** set `"backend": "cloud"` in a template's `.meta.json`. That template always routes to cloud. Tag with `"backend": "local"` to lock to local, or `"backend": "either"` to defer to the default.
+2. **Global default:** set `SLOP_STUDIO_DEFAULT_BACKEND=cloud` to route every `"either"`-tagged or unlabelled template through cloud.
+
+### Worked example
+
+Use the shipped `image_flux2` template (`templates/image_flux2.meta.json`), which is cloud-compatible. Tag it and submit:
+
+```bash
+# In your project's .env
+echo "COMFY_CLOUD_API_KEY=comfy_xxxxxxxxxxxx" >> .env
+
+# One-time: tag the template as cloud-only
+jq '. + {"backend": "cloud"}' templates/image_flux2.meta.json > templates/image_flux2.meta.json.tmp \
+  && mv templates/image_flux2.meta.json.tmp templates/image_flux2.meta.json
+```
+
+Then, from Claude Code:
+
+```
+/generate edit this photo to add a pale yellow knitted beanie with a white patch reading FLUX.2 COMFY
+```
+
+Claude picks `image_flux2`, calls `queue_prompt`, and the router forwards to Comfy Cloud because of the template's `backend` field.
+
+### When things go wrong
+
+Four cloud-specific error codes may come back from `queue_prompt`:
+
+| Error | What it means | What to do |
+|-------|---------------|------------|
+| `auth_failed` | API key missing, invalid, or unregistered | Check `COMFY_CLOUD_API_KEY`; regenerate at the portal |
+| `no_credits` | Account has 0 credits for this run | Call `open_comfy_cloud_portal` to top up |
+| `account_issue` | Billing, subscription, or account problem | Call `open_comfy_cloud_portal` to resolve |
+| `rate_limited` | Exceeded the plan tier's concurrent-job cap | Wait and retry; plan tiers: Standard=1, Creator=3, Pro=5 |
+
+The `open_comfy_cloud_portal` MCP tool opens `https://platform.comfy.org/` in your default browser — no auth, no config, just a shortcut so Claude can offer "click here to fix" in the conversation.
+
+See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the architectural overview.
 
 ## Templates
 
@@ -203,6 +281,9 @@ The default templates run on 16GB of VRAM. More coming soon! Add your own by exp
 | `COMFYUI_START_TIMEOUT` | `120` | Seconds to wait for ComfyUI to become ready after launch |
 | `SLOP_STUDIO_TEMPLATES_DIR` | `./templates` | Template directory |
 | `SLOP_STUDIO_OUTPUT_DIR` | `~/slop-studio/output` | Output directory |
+| `COMFY_CLOUD_API_KEY` | — | Comfy Cloud API key. Overrides `credentials.json`. Get one at [platform.comfy.org/profile/api-keys](https://platform.comfy.org/profile/api-keys). |
+| `COMFY_CLOUD_URL` | `https://cloud.comfy.org` | Comfy Cloud API base URL. Only override for testing or a self-hosted mirror. |
+| `SLOP_STUDIO_DEFAULT_BACKEND` | `local` | Routes `queue_prompt` submissions when a template doesn't declare its own `backend`. `"local"` or `"cloud"`. |
 | `BSKY_HANDLE` | — | Bluesky handle (overrides central config) |
 | `BSKY_APP_PASSWORD` | — | Bluesky app password (overrides central config) |
 
