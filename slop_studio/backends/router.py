@@ -239,52 +239,60 @@ async def _prepare_and_submit(
     meta_path = Path(TEMPLATES_DIR) / f"{template_name}.meta.json"
 
     if not workflow_path.is_file() or not meta_path.is_file():
-        return _cloud_err("invalid_inputs", f"Template '{template_name}' not found")
+        return terminal_error(
+            "invalid_inputs", f"Template '{template_name}' not found", backend=backend.name
+        )
 
     try:
         workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        return _cloud_err(
+        return terminal_error(
             "invalid_inputs",
             f"Failed to read template '{template_name}': {exc}",
+            backend=backend.name,
         )
 
     if not isinstance(workflow, dict):
-        return _cloud_err(
+        return terminal_error(
             "invalid_inputs",
             f"Template '{template_name}' workflow is not a JSON object",
+            backend=backend.name,
         )
 
     meta_inputs = meta.get("inputs", {})
     for input_name, input_def in meta_inputs.items():
         if input_def.get("type") == "required" and input_name not in inputs:
-            return _cloud_err(
+            return terminal_error(
                 "invalid_inputs",
                 f"Missing required input '{input_name}': {input_def.get('description', '')}",
+                backend=backend.name,
             )
 
     if aspect_ratio is not None and aspect_ratio not in meta.get("aspect_ratios", {}):
         supported = list(meta.get("aspect_ratios", {}).keys())
-        return _cloud_err(
+        return terminal_error(
             "invalid_inputs",
             f"Unsupported aspect ratio '{aspect_ratio}'. Supported: {supported}",
+            backend=backend.name,
         )
 
     prepared = copy.deepcopy(workflow)
     try:
         await _inject_inputs_via_backend(prepared, meta_inputs, inputs, backend)
     except ValueError as exc:
-        return _cloud_err("validation", str(exc))
+        return terminal_error("validation", str(exc), backend=backend.name)
     except httpx.TransportError:
-        return _cloud_trans(
+        return transient_error(
             "unreachable",
             f"Cannot upload asset to {backend.name} backend",
+            backend=backend.name,
         )
     except httpx.HTTPStatusError as exc:
-        return _cloud_trans(
+        return transient_error(
             "unreachable",
             f"{backend.name} asset upload returned HTTP {exc.response.status_code}",
+            backend=backend.name,
         )
 
     _randomize_seeds(prepared)

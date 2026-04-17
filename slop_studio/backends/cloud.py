@@ -281,7 +281,7 @@ class CloudBackend(Backend):
         if status == 415:
             return _err("invalid_inputs", "Unsupported media type")
         if status == 422:
-            return _err("invalid_workflow", preview or "Cloud validation failed")
+            return _err("invalid_workflow", preview[:200] or "Cloud validation failed")
         if status == 429:
             if _is_account_issue_code(code_or_type):
                 return _err(
@@ -297,7 +297,7 @@ class CloudBackend(Backend):
                 f"Comfy Cloud rate-limited: {preview[:200]}. Retry after the cloud's cooldown period.",
             )
         if status == 400:
-            return _err("invalid_workflow", preview or "Cloud rejected the workflow")
+            return _err("invalid_workflow", preview[:200] or "Cloud rejected the workflow")
         if status >= 500:
             return _trans(
                 "unreachable",
