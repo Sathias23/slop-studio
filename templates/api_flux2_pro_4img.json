@@ -1,0 +1,92 @@
+{
+  "11": {
+    "inputs": {
+      "prompt": "Create a photoshoot-style group portrait with four characters, each based on the four provided reference inputs .\nArrange all characters in a top-down, slightly elevated overhead view, similar to a drone or high-platform angle.\nCharacters stand loosely together on an open, clean ground plane, evenly spaced and “tiled” across the frame, all looking upward toward the camera.\nExpressions are natural and relaxed, as if posing for a professional editorial shoot.\nUse bright, soft lighting that casts clean shadows on the ground.\nPreserve each character’s skin tone, clothing style, and proportions from the references.\nOverall aesthetic: modern, crisp, magazine-style group portrait.",
+      "width": 1920,
+      "height": 1280,
+      "seed": 96048955606126,
+      "prompt_upsampling": true,
+      "images": [
+        "22",
+        0
+      ]
+    },
+    "class_type": "Flux2ProImageNode",
+    "_meta": {
+      "title": "Flux.2 [pro] Image"
+    }
+  },
+  "12": {
+    "inputs": {
+      "filename_prefix": "Flux.2[pro]",
+      "images": [
+        "11",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "15": {
+    "inputs": {
+      "image": "api_flux2_input_image_1.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "16": {
+    "inputs": {
+      "image": "api_flux2_input_image_4.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "18": {
+    "inputs": {
+      "image": "api_flux2_input_image_3.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "19": {
+    "inputs": {
+      "image": "api_flux2_input_image_2.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "22": {
+    "inputs": {
+      "images.image0": [
+        "15",
+        0
+      ],
+      "images.image1": [
+        "19",
+        0
+      ],
+      "images.image2": [
+        "16",
+        0
+      ],
+      "images.image3": [
+        "18",
+        0
+      ]
+    },
+    "class_type": "BatchImagesNode",
+    "_meta": {
+      "title": "Batch Images"
+    }
+  }
+}
