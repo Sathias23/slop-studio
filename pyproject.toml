@@ -1,6 +1,6 @@
 [project]
 name = "slop-studio"
-version = "0.4.0"
+version = "0.4.1"
 description = "MCP server for conversational image generation via ComfyUI"
 readme = "README.md"
 license = "MIT"

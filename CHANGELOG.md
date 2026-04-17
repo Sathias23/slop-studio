@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-18
+
 ### Changed
 
 - `slop-studio auth` now configures Bluesky and/or Comfy Cloud credentials with **merge-not-clobber** semantics — configuring one service never wipes the other. Interactive menu by default; `--bluesky`, `--comfy-cloud`, or `--all` flags bypass the menu. Existing non-empty blocks trigger a per-service overwrite confirmation that defaults to **No** (stray Enter keeps the existing entry). Writes are atomic (temp-file + `os.replace`) and reassert `0o600` on replacement. Malformed `credentials.json` — including valid JSON whose top-level or per-service value isn't an object — is surfaced as a terminal error with a manual-fix hint (the file is never auto-deleted). `EOF` on any prompt exits `1` with a clean error instead of a traceback
@@ -159,7 +161,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Output and templates resolve to the art project dir, not the package dir
 
-[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/sathias/slop-studio/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sathias/slop-studio/compare/v0.3.6...v0.4.0
 [0.3.1]: https://github.com/sathias/slop-studio/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sathias/slop-studio/compare/v0.2.0...v0.3.0
