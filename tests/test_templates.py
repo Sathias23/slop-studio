@@ -126,12 +126,14 @@ async def test_list_templates_defaults_backend_to_local_when_absent(templates_di
 
 
 @pytest.mark.anyio
-async def test_starter_templates_all_declare_backend_local(templates_dir):
-    """AC #18 canary — shipped starter templates must tag backend=local.
+async def test_starter_templates_all_declare_explicit_backend(templates_dir):
+    """AC #18 canary — shipped starter templates must declare an explicit backend.
 
-    GGUF templates are rejected by Comfy Cloud (VALIDATION_ERROR); tagging
-    them explicitly prevents silent regression if a user sets
-    SLOP_STUDIO_DEFAULT_BACKEND=cloud.
+    Local GGUF templates are rejected by Comfy Cloud (VALIDATION_ERROR) and
+    cloud API-node templates fail on an unmodified local ComfyUI; tagging
+    every starter explicitly ("local" or "cloud") prevents silent regression
+    whichever way SLOP_STUDIO_DEFAULT_BACKEND is set. "either" or absent
+    means a starter would inherit the user's default — not safe.
     """
     import shutil
     from pathlib import Path
@@ -145,7 +147,10 @@ async def test_starter_templates_all_declare_backend_local(templates_dir):
     assert result["status"] == "success"
     assert len(result["templates"]) >= 3
     for entry in result["templates"]:
-        assert entry["backend"] == "local", f"starter template '{entry['name']}' must declare backend=local"
+        assert entry["backend"] in {"local", "cloud"}, (
+            f"starter template '{entry['name']}' must declare backend=local or backend=cloud "
+            f"(got: {entry['backend']!r})"
+        )
 
 
 @pytest.mark.anyio
