@@ -252,17 +252,10 @@ async def test_status_completed_synthesizes_outputs_via_history(cloud_backend, c
     respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(
         return_value=httpx.Response(200, json={"status": cloud_status})
     )
-    respx.get(f"{CLOUD_BASE_URL}/api/history/abc").mock(
+    respx.get(f"{CLOUD_BASE_URL}/api/history_v2/abc").mock(
         return_value=httpx.Response(
             200,
-            json={
-                "history": [
-                    {
-                        "prompt_id": "abc",
-                        "outputs": {"9": {"images": [{"filename": "out.png"}]}},
-                    }
-                ]
-            },
+            json={"abc": {"outputs": {"9": {"images": [{"filename": "out.png"}]}}, "status": "success"}},
         )
     )
     result = await cloud_backend.status("abc")
@@ -301,10 +294,10 @@ async def test_status_propagates_http_error(cloud_backend):
 @pytest.mark.anyio
 @respx.mock
 async def test_history_returns_entry_outputs(cloud_backend):
-    respx.get(f"{CLOUD_BASE_URL}/api/history/abc").mock(
+    respx.get(f"{CLOUD_BASE_URL}/api/history_v2/abc").mock(
         return_value=httpx.Response(
             200,
-            json={"history": [{"prompt_id": "abc", "outputs": {"5": {"images": [{"filename": "x.png"}]}}}]},
+            json={"abc": {"outputs": {"5": {"images": [{"filename": "x.png"}]}}, "status": "success"}},
         )
     )
     outputs = await cloud_backend.history("abc")
@@ -314,7 +307,7 @@ async def test_history_returns_entry_outputs(cloud_backend):
 @pytest.mark.anyio
 @respx.mock
 async def test_history_returns_empty_when_no_matching_entry(cloud_backend):
-    respx.get(f"{CLOUD_BASE_URL}/api/history/abc").mock(return_value=httpx.Response(200, json={"history": []}))
+    respx.get(f"{CLOUD_BASE_URL}/api/history_v2/abc").mock(return_value=httpx.Response(200, json={}))
     outputs = await cloud_backend.history("abc")
     assert outputs == {}
 
@@ -322,8 +315,8 @@ async def test_history_returns_empty_when_no_matching_entry(cloud_backend):
 @pytest.mark.anyio
 @respx.mock
 async def test_history_returns_empty_when_entry_missing_outputs(cloud_backend):
-    respx.get(f"{CLOUD_BASE_URL}/api/history/abc").mock(
-        return_value=httpx.Response(200, json={"history": [{"prompt_id": "abc"}]})
+    respx.get(f"{CLOUD_BASE_URL}/api/history_v2/abc").mock(
+        return_value=httpx.Response(200, json={"abc": {"status": "success"}})
     )
     outputs = await cloud_backend.history("abc")
     assert outputs == {}

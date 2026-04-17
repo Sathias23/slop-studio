@@ -354,28 +354,28 @@ class CloudBackend(Backend):
         return {"state": "running"}
 
     async def history(self, prompt_id: str) -> dict:
-        """GET /api/history/{prompt_id}. Returns the outputs dict.
+        """GET /api/history_v2/{prompt_id}. Returns the outputs dict.
 
-        Note: the research doc guessed ``/api/history_v2`` but probe §A.7
-        item 4 confirmed ``/api/history/{id}`` is the working path.
+        Probe-spike §A.7 claimed ``/api/history/{id}`` was the working path,
+        but that finding was collected from a session-cookie-authenticated
+        context. With ``X-API-Key`` auth — which is what we actually use —
+        v1 returns ``401 "authentication method not allowed"``. Only
+        ``/api/history_v2/{id}`` accepts the API-key header.
 
-        Response envelope: ``{"history": [{"prompt_id": ..., "outputs": ...}]}``.
+        Response envelope (v2): ``{"<prompt_id>": {"outputs": {...}, "status": ...}}``.
         Returns ``{}`` for in-flight jobs (no matching entry) — matches
         ``LocalBackend.history``'s contract.
         """
         async with self._client() as client:
-            response = await client.get(f"{self._base_url}/api/history/{prompt_id}")
+            response = await client.get(f"{self._base_url}/api/history_v2/{prompt_id}")
             response.raise_for_status()
 
         body = _parse_json_safe(response) or {}
-        entries = body.get("history")
-        if not isinstance(entries, list):
+        entry = body.get(prompt_id)
+        if not isinstance(entry, dict):
             return {}
-        for entry in entries:
-            if isinstance(entry, dict) and entry.get("prompt_id") == prompt_id:
-                outputs = entry.get("outputs", {})
-                return outputs if isinstance(outputs, dict) else {}
-        return {}
+        outputs = entry.get("outputs", {})
+        return outputs if isinstance(outputs, dict) else {}
 
     async def view(self, filename: str, subfolder: str = "", file_type: str = "output") -> bytes:
         """GET /api/view with two-hop fetch — strips auth on the redirect.
