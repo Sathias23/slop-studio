@@ -958,3 +958,126 @@ async def test_safe_tool_internal_error_not_tagged():
     assert result["error_type"] == "internal_error"
     assert result["retry_suggested"] is True  # transient_error default
     assert "backend" not in result
+
+
+# ===========================================================================
+# Story 6.8 — open_comfy_cloud_portal tool (pure URL opener, no auth).
+# ===========================================================================
+
+
+@pytest.mark.anyio
+async def test_open_comfy_cloud_portal_opens_platform_url_on_darwin():
+    from slop_studio.server import open_comfy_cloud_portal
+
+    mock_proc = AsyncMock()
+    with (
+        patch("slop_studio.server.platform.system", return_value="Darwin"),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        result = await open_comfy_cloud_portal()
+
+    assert result["status"] == "success"
+    assert result["url"] == "https://platform.comfy.org/"
+    mock_exec.assert_called_once_with(
+        "open",
+        "https://platform.comfy.org/",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+
+
+@pytest.mark.anyio
+async def test_open_comfy_cloud_portal_opens_platform_url_on_linux():
+    from slop_studio.server import open_comfy_cloud_portal
+
+    mock_proc = AsyncMock()
+    with (
+        patch("slop_studio.server.platform.system", return_value="Linux"),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        result = await open_comfy_cloud_portal()
+
+    assert result["status"] == "success"
+    assert result["url"] == "https://platform.comfy.org/"
+    mock_exec.assert_called_once_with(
+        "xdg-open",
+        "https://platform.comfy.org/",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+
+
+@pytest.mark.anyio
+async def test_open_comfy_cloud_portal_opens_platform_url_on_windows():
+    from slop_studio.server import open_comfy_cloud_portal
+
+    mock_to_thread = AsyncMock(return_value=None)
+    # os.startfile only exists on Windows Python builds, so stub it
+    # with create=True so argument evaluation doesn't crash on Darwin/Linux CI.
+    with (
+        patch("slop_studio.server.platform.system", return_value="Windows"),
+        patch("slop_studio.server.os.startfile", create=True) as mock_startfile,
+        patch("asyncio.to_thread", mock_to_thread),
+    ):
+        result = await open_comfy_cloud_portal()
+
+    assert result["status"] == "success"
+    assert result["url"] == "https://platform.comfy.org/"
+    mock_to_thread.assert_called_once()
+    assert mock_to_thread.call_args.args[0] is mock_startfile
+    assert mock_to_thread.call_args.args[1] == "https://platform.comfy.org/"
+
+
+@pytest.mark.anyio
+async def test_open_comfy_cloud_portal_unsupported_platform():
+    from slop_studio.server import open_comfy_cloud_portal
+
+    with patch("slop_studio.server.platform.system", return_value="FreeBSD"):
+        result = await open_comfy_cloud_portal()
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "Unsupported platform" in result["error"]
+    assert result["retry_suggested"] is False
+    assert "backend" not in result
+
+
+@pytest.mark.anyio
+async def test_open_comfy_cloud_portal_subprocess_failure():
+    from slop_studio.server import open_comfy_cloud_portal
+
+    with (
+        patch("slop_studio.server.platform.system", return_value="Darwin"),
+        patch("asyncio.create_subprocess_exec", side_effect=OSError("no browser")),
+    ):
+        result = await open_comfy_cloud_portal()
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "open_failed"
+    assert "no browser" in result["error"]
+    assert "Failed to open" in result["error"]
+    assert result["retry_suggested"] is True
+    assert "backend" not in result
+
+
+@pytest.mark.anyio
+async def test_open_comfy_cloud_portal_requires_no_auth_or_config(tmp_path, monkeypatch):
+    # AC #6 — tool must work with NO cloud configuration at all (env vars
+    # unset, no credentials.json). Users call this tool PRECISELY when
+    # they haven't configured cloud yet, so it must not depend on config.
+    from slop_studio.server import open_comfy_cloud_portal
+
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("SLOP_STUDIO_DEFAULT_BACKEND", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_proc = AsyncMock()
+    with (
+        patch("slop_studio.server.platform.system", return_value="Darwin"),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        result = await open_comfy_cloud_portal()
+
+    assert result["status"] == "success"
+    assert result["url"] == "https://platform.comfy.org/"
+    mock_exec.assert_called_once()

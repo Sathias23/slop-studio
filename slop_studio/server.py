@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
 
+_COMFY_CLOUD_PORTAL_URL = "https://platform.comfy.org/"
+
 
 def safe_tool(func):
     """Wrap MCP tool handler with defensive error catching.
@@ -613,6 +615,45 @@ async def open_gallery(file_paths: str | list[str]) -> dict:
     if len(validated_paths) == 1:
         return {"status": "success", "file_path": validated_paths[0]}
     return {"status": "success", "gallery_path": target, "image_count": len(validated_paths)}
+
+
+@mcp.tool()
+@safe_tool
+async def open_comfy_cloud_portal() -> dict:
+    """Open the Comfy Cloud billing/account portal in the default browser.
+
+    Opens https://platform.comfy.org/ so users can top up credits, manage
+    API keys, or resolve account issues. Requires no authentication and
+    no API key — this is a pure URL opener.
+
+    Call this in response to ``no_credits``, ``auth_failed``, or
+    ``account_issue`` errors from cloud jobs. The relevant error messages
+    already name this tool by name as the recommended next step.
+    """
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            await asyncio.create_subprocess_exec(
+                "open",
+                _COMFY_CLOUD_PORTAL_URL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        elif system == "Linux":
+            await asyncio.create_subprocess_exec(
+                "xdg-open",
+                _COMFY_CLOUD_PORTAL_URL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        elif system == "Windows":
+            await asyncio.to_thread(os.startfile, _COMFY_CLOUD_PORTAL_URL)
+        else:
+            return terminal_error("invalid_inputs", f"Unsupported platform: {system}")
+    except OSError as exc:
+        return transient_error("open_failed", f"Failed to open: {exc}")
+
+    return {"status": "success", "url": _COMFY_CLOUD_PORTAL_URL}
 
 
 @mcp.tool()

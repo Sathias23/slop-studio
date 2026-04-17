@@ -14,6 +14,7 @@ Use `/generate <description>` to create an image. Example: `/generate a sunset o
 - `check_next_job` — poll multiple jobs for completion (use `wait: 30`)
 - `get_image` — retrieve the output image path and base64 thumbnail preview
 - `open_gallery` — open image(s) for viewing (single opens in OS viewer, multiple opens HTML gallery)
+- `open_comfy_cloud_portal` — open the Comfy Cloud billing/account portal in the default browser
 - `post_to_bluesky` — post image(s) to Bluesky with text and hashtags
 - `add_template` — register a new ComfyUI workflow as a template
 - `update_template` — update an existing template's workflow or metadata
@@ -23,6 +24,12 @@ Use `/generate <description>` to create an image. Example: `/generate a sunset o
 
 Workflow templates are stored in `templates/`. Each template is a `.json` + `.meta.json` pair.
 Add new templates by exporting a workflow from ComfyUI's browser UI and calling `add_template`.
+
+## Backends
+
+Templates may declare a `backend` field in their `.meta.json`: `"local"`, `"cloud"`, or `"either"`.
+`SLOP_STUDIO_DEFAULT_BACKEND` (`"local"` or `"cloud"`) controls the fallback when the field is absent or set to `"either"`.
+When `queue_prompt` reports `no_credits`, `auth_failed`, or `account_issue`, call `open_comfy_cloud_portal` to let the user resolve it in the browser.
 
 ## Output
 

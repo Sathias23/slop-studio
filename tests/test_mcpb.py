@@ -85,6 +85,7 @@ class TestManifest:
             "check_next_job",
             "get_image",
             "open_gallery",
+            "open_comfy_cloud_portal",
             "post_to_bluesky",
             "add_template",
             "update_template",
