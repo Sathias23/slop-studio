@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-18
+
 ### Added
 
 - `open_comfy_cloud_portal` MCP tool opens `https://platform.comfy.org/` in the default browser — the realization of the pointer already referenced in Story 6.7's `no_credits` / `account_issue` / `auth_failed` error messages. Pure URL opener: no authentication, no API key, no cloud config required (Story 6.8)
 - **Comfy Cloud backend support** (Epic 6): pluggable execution backend behind a per-template `backend` routing field, configured via `COMFY_CLOUD_API_KEY` env var or `credentials.json`. Adds the `open_comfy_cloud_portal` MCP tool, cloud-specific error codes (`auth_failed`, `no_credits`, `account_issue`, `rate_limited`), and three optional `.meta.json` fields (`backend`, `output_keys`, `cloud_estimate_credits`). See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the architectural overview and design rationale (Story 6.9)
+- Seven new cloud starter templates scaffolded into every new project by `slop-studio init`: three Flux.2 [pro] API variants (`api_flux2_pro_1img` / `_2img` / `_4img`), two Google Gemini 3 Pro Image (Nano Banana Pro) variants (`api_nano_banana_pro_1img` / `_2img`), a Flux.2 Dev FP8-mixed text-to-image workflow (`image_flux2_text_to_image`), and a promotion of `image_flux2` to a starter template. All tagged `"backend": "cloud"`. The canary test that used to require every starter be `backend=local` has been widened to require any explicit backend (`local` or `cloud`) — preventing starters from silently inheriting `SLOP_STUDIO_DEFAULT_BACKEND`
+
+### Fixed
+
+- Cloud starter-template input filenames namespaced to avoid collision across templates in a shared ComfyUI input dir (`api_flux2_pro_4img`); description of `api_flux2_pro_1img` corrected to reflect the single-slot `BatchImagesNode` routing (Greptile review)
 
 ## [0.3.6] - 2026-04-17
 
@@ -148,7 +155,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Output and templates resolve to the art project dir, not the package dir
 
-[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/sathias/slop-studio/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/sathias/slop-studio/compare/v0.3.6...v0.4.0
 [0.3.1]: https://github.com/sathias/slop-studio/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sathias/slop-studio/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sathias/slop-studio/compare/v0.1.0...v0.2.0
