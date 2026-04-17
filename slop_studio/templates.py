@@ -22,7 +22,25 @@ def _validate_template_name(name: str) -> str | None:
 
 
 def _validate_metadata(metadata: dict) -> str | None:
-    """Validate meta structure. Returns error message or None."""
+    """Validate meta structure. Returns error message or None.
+
+    Required fields: ``name``, ``model``, ``description`` (non-empty strings).
+
+    Optional structural fields: ``inputs`` (dict of input-definition dicts),
+    ``aspect_ratios`` (dict of ``{label: {width, height}}`` with integer dims;
+    ``bool`` is rejected), ``resolution_nodes`` (list of node-mapping dicts).
+
+    Optional Story 6.6 fields (validated only when present):
+
+    - ``backend``: string equal to ``"local"``, ``"cloud"``, or ``"either"``.
+      Declares the template's intended backend; consumed by the router.
+    - ``output_keys``: non-empty list of non-empty strings. Names the
+      output node-keys for future multi-modal support (e.g. ``["images",
+      "audio"]``). Not consumed yet — validated at write-time only.
+    - ``cloud_estimate_credits``: non-negative ``int`` or ``float``.
+      ``bool`` is rejected (mirrors the aspect_ratio pattern since
+      ``isinstance(True, int)`` is truthy).
+    """
     missing = [f for f in ("name", "model", "description") if not isinstance(metadata.get(f), str) or not metadata[f]]
     if missing:
         return f"Missing required metadata fields: {', '.join(missing)}"
@@ -65,11 +83,36 @@ def _validate_metadata(metadata: dict) -> str | None:
                 if not isinstance(node.get(field), str) or not node[field]:
                     return f"resolution_nodes[{i}] missing required '{field}' (string)"
 
+    backend = metadata.get("backend")
+    if backend is not None and (not isinstance(backend, str) or backend not in ("local", "cloud", "either")):
+        return f"backend must be one of: 'local', 'cloud', 'either'; got {backend!r}"
+
+    output_keys = metadata.get("output_keys")
+    if output_keys is not None:
+        if not isinstance(output_keys, list) or not output_keys:
+            return "output_keys must be a non-empty JSON array of strings"
+        for i, key in enumerate(output_keys):
+            if not isinstance(key, str) or not key:
+                return f"output_keys[{i}] must be a non-empty string"
+
+    credits = metadata.get("cloud_estimate_credits")
+    if credits is not None:
+        if isinstance(credits, bool) or not isinstance(credits, (int, float)):
+            return f"cloud_estimate_credits must be a non-negative number; got {credits!r}"
+        if credits < 0:
+            return f"cloud_estimate_credits must be non-negative; got {credits}"
+
     return None
 
 
 async def list_templates() -> dict:
-    """List all available templates with summary metadata."""
+    """List all available templates with summary metadata.
+
+    Each entry exposes ``name``, ``model``, ``description``, ``aspect_ratios``
+    (list of labels), ``expected_duration``, and ``backend`` (``"local"``
+    when absent — Story 6.6 default). Invalid meta values are surfaced
+    verbatim rather than normalized — validation happens at write-time.
+    """
     templates_path = Path(TEMPLATES_DIR)
     if not templates_path.is_dir():
         return {"status": "success", "templates": []}
@@ -85,6 +128,7 @@ async def list_templates() -> dict:
                     "description": meta["description"],
                     "aspect_ratios": list(meta.get("aspect_ratios", {}).keys()),
                     "expected_duration": meta.get("expected_duration", "unknown"),
+                    "backend": meta.get("backend", "local"),
                 }
             )
         except (json.JSONDecodeError, KeyError, OSError) as exc:
@@ -93,7 +137,13 @@ async def list_templates() -> dict:
 
 
 async def get_template(template_name: str) -> dict:
-    """Get full metadata for a specific template."""
+    """Get full metadata for a specific template.
+
+    Spreads the on-disk meta into the response and injects ``"backend":
+    "local"`` when the field is absent (Story 6.6 default, mirroring
+    ``list_templates``). ``output_keys`` and ``cloud_estimate_credits`` are
+    NOT normalized — absent means absent in the response.
+    """
     name_err = _validate_template_name(template_name)
     if name_err:
         return terminal_error("invalid_inputs", name_err)
@@ -105,7 +155,7 @@ async def get_template(template_name: str) -> dict:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         return terminal_error("read_error", f"Failed to read template '{template_name}': {exc}")
-    return {**meta, "status": "success"}
+    return {**meta, "backend": meta.get("backend", "local"), "status": "success"}
 
 
 async def add_template(name: str, workflow_json: dict, metadata: dict) -> dict:

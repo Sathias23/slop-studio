@@ -55,7 +55,7 @@ async def test_list_templates_returns_all(templates_dir):
     assert "alpha" in names
     assert "beta" in names
     for t in result["templates"]:
-        assert set(t.keys()) == {"name", "model", "description", "aspect_ratios", "expected_duration"}
+        assert set(t.keys()) == {"name", "model", "description", "aspect_ratios", "expected_duration", "backend"}
         assert isinstance(t["aspect_ratios"], list)
 
 
@@ -103,6 +103,52 @@ async def test_list_templates_skips_missing_required_key(templates_dir):
 
 
 @pytest.mark.anyio
+async def test_list_templates_includes_backend_field_from_meta(templates_dir):
+    _write_meta(templates_dir, "cloudy", backend="cloud")
+
+    result = await slop_studio.templates.list_templates()
+
+    assert result["status"] == "success"
+    entry = next(t for t in result["templates"] if t["name"] == "cloudy")
+    assert entry["backend"] == "cloud"
+
+
+@pytest.mark.anyio
+async def test_list_templates_defaults_backend_to_local_when_absent(templates_dir):
+    # _write_meta does not set backend unless overridden — absent by default.
+    _write_meta(templates_dir, "legacy")
+
+    result = await slop_studio.templates.list_templates()
+
+    assert result["status"] == "success"
+    entry = next(t for t in result["templates"] if t["name"] == "legacy")
+    assert entry["backend"] == "local"
+
+
+@pytest.mark.anyio
+async def test_starter_templates_all_declare_backend_local(templates_dir):
+    """AC #18 canary — shipped starter templates must tag backend=local.
+
+    GGUF templates are rejected by Comfy Cloud (VALIDATION_ERROR); tagging
+    them explicitly prevents silent regression if a user sets
+    SLOP_STUDIO_DEFAULT_BACKEND=cloud.
+    """
+    import shutil
+    from pathlib import Path
+
+    starter_dir = Path(__file__).resolve().parent.parent / "slop_studio" / "assets" / "starter-templates"
+    for meta_file in starter_dir.glob("*.meta.json"):
+        shutil.copy(meta_file, templates_dir / meta_file.name)
+
+    result = await slop_studio.templates.list_templates()
+
+    assert result["status"] == "success"
+    assert len(result["templates"]) >= 3
+    for entry in result["templates"]:
+        assert entry["backend"] == "local", f"starter template '{entry['name']}' must declare backend=local"
+
+
+@pytest.mark.anyio
 async def test_get_template_returns_full_metadata(templates_dir):
     meta = _write_meta(templates_dir, "mytemplate")
 
@@ -114,6 +160,58 @@ async def test_get_template_returns_full_metadata(templates_dir):
     assert result["inputs"] == meta["inputs"]
     assert result["aspect_ratios"] == meta["aspect_ratios"]
     assert result["resolution_nodes"] == meta["resolution_nodes"]
+
+
+@pytest.mark.anyio
+async def test_get_template_surfaces_backend_when_present(templates_dir):
+    _write_meta(templates_dir, "flex", backend="either")
+
+    result = await slop_studio.templates.get_template("flex")
+
+    assert result["status"] == "success"
+    assert result["backend"] == "either"
+
+
+@pytest.mark.anyio
+async def test_get_template_surfaces_output_keys_when_present(templates_dir):
+    _write_meta(templates_dir, "multi", output_keys=["images", "audio"])
+
+    result = await slop_studio.templates.get_template("multi")
+
+    assert result["status"] == "success"
+    assert result["output_keys"] == ["images", "audio"]
+
+
+@pytest.mark.anyio
+async def test_get_template_surfaces_cloud_estimate_credits_when_present(templates_dir):
+    _write_meta(templates_dir, "pricey", cloud_estimate_credits=12)
+
+    result = await slop_studio.templates.get_template("pricey")
+
+    assert result["status"] == "success"
+    assert result["cloud_estimate_credits"] == 12
+    assert isinstance(result["cloud_estimate_credits"], int)
+
+
+@pytest.mark.anyio
+async def test_get_template_defaults_backend_to_local_when_absent(templates_dir):
+    _write_meta(templates_dir, "legacy")
+
+    result = await slop_studio.templates.get_template("legacy")
+
+    assert result["status"] == "success"
+    assert result["backend"] == "local"
+
+
+@pytest.mark.anyio
+async def test_get_template_does_not_normalize_output_keys_when_absent(templates_dir):
+    _write_meta(templates_dir, "legacy")
+
+    result = await slop_studio.templates.get_template("legacy")
+
+    assert result["status"] == "success"
+    assert "output_keys" not in result
+    assert "cloud_estimate_credits" not in result
 
 
 @pytest.mark.anyio
@@ -266,6 +364,173 @@ async def test_add_template_rejects_invalid_aspect_ratios(templates_dir):
     assert "integer" in result["error"].lower()
 
 
+# ── Story 6.6: backend / output_keys / cloud_estimate_credits validation ──
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("backend_value", ["local", "cloud", "either"])
+async def test_add_template_accepts_valid_backend(templates_dir, backend_value):
+    meta = _sample_meta(backend=backend_value)
+
+    result = await slop_studio.templates.add_template(f"bk_{backend_value}", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"
+    on_disk = json.loads((templates_dir / f"bk_{backend_value}.meta.json").read_text())
+    assert on_disk["backend"] == backend_value
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_invalid_backend(templates_dir):
+    meta = _sample_meta(backend="kloud")
+
+    result = await slop_studio.templates.add_template("bad_backend", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "backend" in result["error"]
+    assert "local" in result["error"] and "cloud" in result["error"] and "either" in result["error"]
+    assert not (templates_dir / "bad_backend.json").exists()
+    assert not (templates_dir / "bad_backend.meta.json").exists()
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_non_string_backend(templates_dir):
+    meta = _sample_meta(backend=42)
+
+    result = await slop_studio.templates.add_template("num_backend", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "backend" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_output_keys(templates_dir):
+    meta = _sample_meta(output_keys=["images"])
+
+    result = await slop_studio.templates.add_template("ok_single", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"
+    on_disk = json.loads((templates_dir / "ok_single.meta.json").read_text())
+    assert on_disk["output_keys"] == ["images"]
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_output_keys_multiple(templates_dir):
+    meta = _sample_meta(output_keys=["images", "audio"])
+
+    result = await slop_studio.templates.add_template("ok_multi", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"
+    on_disk = json.loads((templates_dir / "ok_multi.meta.json").read_text())
+    assert on_disk["output_keys"] == ["images", "audio"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_empty_output_keys(templates_dir):
+    meta = _sample_meta(output_keys=[])
+
+    result = await slop_studio.templates.add_template("ok_empty", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "output_keys" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_output_keys_non_list(templates_dir):
+    meta = _sample_meta(output_keys="images")
+
+    result = await slop_studio.templates.add_template("ok_str", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "output_keys" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_output_keys_non_string_entry(templates_dir):
+    meta = _sample_meta(output_keys=[42])
+
+    result = await slop_studio.templates.add_template("ok_int_entry", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "output_keys" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_output_keys_empty_string_entry(templates_dir):
+    meta = _sample_meta(output_keys=[""])
+
+    result = await slop_studio.templates.add_template("ok_blank_entry", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "output_keys" in result["error"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("credits_value", [12, 12.5, 0])
+async def test_add_template_accepts_valid_cloud_estimate_credits(templates_dir, credits_value):
+    meta = _sample_meta(cloud_estimate_credits=credits_value)
+
+    result = await slop_studio.templates.add_template(f"cr_{type(credits_value).__name__}", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"
+    on_disk = json.loads((templates_dir / f"cr_{type(credits_value).__name__}.meta.json").read_text())
+    assert on_disk["cloud_estimate_credits"] == credits_value
+    assert type(on_disk["cloud_estimate_credits"]) is type(credits_value)
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_negative_cloud_estimate_credits(templates_dir):
+    meta = _sample_meta(cloud_estimate_credits=-1)
+
+    result = await slop_studio.templates.add_template("cr_neg", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "cloud_estimate_credits" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_cloud_estimate_credits_bool(templates_dir):
+    # bool is a subclass of int in Python — the aspect_ratio pattern
+    # explicitly excludes bool, and so must this validator.
+    meta = _sample_meta(cloud_estimate_credits=True)
+
+    result = await slop_studio.templates.add_template("cr_bool", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "cloud_estimate_credits" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_cloud_estimate_credits_string(templates_dir):
+    meta = _sample_meta(cloud_estimate_credits="12")
+
+    result = await slop_studio.templates.add_template("cr_str", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "cloud_estimate_credits" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_invalid_metadata_writes_no_file(templates_dir):
+    """AC #11 canary — rejected add_template leaves the filesystem untouched."""
+    meta = _sample_meta(backend="banana")
+
+    result = await slop_studio.templates.add_template("ghost", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert not (templates_dir / "ghost.json").exists()
+    assert not (templates_dir / "ghost.meta.json").exists()
+
+
 @pytest.mark.anyio
 async def test_add_template_rejects_non_dict_workflow(templates_dir):
     result = await slop_studio.templates.add_template("bad_wf", "not a dict", _sample_meta())
@@ -383,6 +648,25 @@ async def test_update_template_requires_at_least_one(templates_dir):
     assert result["status"] == "error"
     assert result["error_type"] == "invalid_inputs"
     assert "At least one" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_update_template_rejects_invalid_new_field_without_mutating_disk(templates_dir):
+    """AC #12 — invalid update must reject cleanly without mutating on-disk meta."""
+    _write_meta(templates_dir, "existing")
+    original_meta = json.loads((templates_dir / "existing.meta.json").read_text())
+
+    result = await slop_studio.templates.update_template(
+        "existing",
+        metadata=_sample_meta(backend="kloud"),
+    )
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "backend" in result["error"]
+    on_disk = json.loads((templates_dir / "existing.meta.json").read_text())
+    assert "backend" not in on_disk
+    assert on_disk == original_meta
 
 
 @pytest.mark.anyio

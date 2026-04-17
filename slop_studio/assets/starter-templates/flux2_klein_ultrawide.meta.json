@@ -2,6 +2,7 @@
   "name": "flux2_klein_ultrawide",
   "model": "flux-2-klein-9b-gguf",
   "description": "Flux 2 Klein 9B ultrawide pipeline for 3440x1440 monitor wallpapers. Generates at 43:18 native, upscales 4x with UltraSharp, then scales to 3440x1440.",
+  "backend": "local",
   "expected_duration": "60 seconds",
   "inputs": {
     "prompt": {
