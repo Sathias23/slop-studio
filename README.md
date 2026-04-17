@@ -198,10 +198,24 @@ Visit [platform.comfy.org/profile/api-keys](https://platform.comfy.org/profile/a
 
 **Option A — environment variable (recommended):**
 
-Add to your project's `.env` (for Claude Code) or to the `env` block of `claude_desktop_config.json` (for Claude Desktop):
+For **Claude Code**, add to your project's `.env`:
 
 ```
 COMFY_CLOUD_API_KEY=comfy_xxxxxxxxxxxx
+```
+
+For **Claude Desktop**, add to the `env` block in `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "slop-studio": {
+      "env": {
+        "COMFY_CLOUD_API_KEY": "comfy_xxxxxxxxxxxx"
+      }
+    }
+  }
+}
 ```
 
 **Option B — central credentials file:**
@@ -256,7 +270,7 @@ Four cloud-specific error codes may come back from `queue_prompt`:
 | `auth_failed` | API key missing, invalid, or unregistered | Check `COMFY_CLOUD_API_KEY`; regenerate at the portal |
 | `no_credits` | Account has 0 credits for this run | Call `open_comfy_cloud_portal` to top up |
 | `account_issue` | Billing, subscription, or account problem | Call `open_comfy_cloud_portal` to resolve |
-| `rate_limited` | Exceeded the plan tier's concurrent-job cap | Wait and retry; plan tiers: Standard=1, Creator=3, Pro=5 |
+| `rate_limited` | Exceeded the plan tier's concurrent-job cap | Wait and retry; plan tiers: Free/Standard=1, Creator=3, Pro=5 |
 
 The `open_comfy_cloud_portal` MCP tool opens `https://platform.comfy.org/` in your default browser — no auth, no config, just a shortcut so Claude can offer "click here to fix" in the conversation.
 
