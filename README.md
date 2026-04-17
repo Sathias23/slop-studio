@@ -148,22 +148,26 @@ Replace `/path/to/slop-studio` with the output of `which slop-studio`. Replace t
 
 **Images saved to wrong location:** Set `SLOP_STUDIO_OUTPUT_DIR` to an absolute path (e.g., `/Users/you/slop-studio/output`). Desktop doesn't have a project directory, so relative paths won't work.
 
-## Bluesky Posting
+## Credentials
 
-To post generated images to Bluesky, configure your credentials once:
+`slop-studio auth` configures Bluesky and/or Comfy Cloud credentials and stores them in `~/.config/slop-studio/credentials.json` (mode 0600). The MCP server picks them up automatically — no per-project configuration needed.
 
 ```bash
-slop-studio auth
+slop-studio auth                 # interactive: prompts [b]luesky / [c]omfy-cloud / [a]ll
+slop-studio auth --bluesky       # just Bluesky
+slop-studio auth --comfy-cloud   # just Comfy Cloud
+slop-studio auth --all           # both
 ```
 
-This stores your handle and app password in `~/.config/slop-studio/credentials.json` (mode 0600). The MCP server picks them up automatically — no per-project configuration needed.
+Running `auth` **merges** into the existing file — configuring one service never clobbers the other. Existing entries for the selected service prompt a per-service overwrite confirmation.
 
-Create an app password at [bsky.app](https://bsky.app) > Settings > App Passwords.
+- Create a Bluesky app password at [bsky.app](https://bsky.app) > Settings > App Passwords.
+- Create a Comfy Cloud API key at [platform.comfy.org/profile/api-keys](https://platform.comfy.org/profile/api-keys) (shown once — copy it immediately).
 
 ## CLI
 
 ```
-slop-studio auth            Configure Bluesky credentials
+slop-studio auth            Configure Bluesky and/or Comfy Cloud credentials
 slop-studio init            Scaffold an art project directory
 slop-studio serve           Launch the MCP server (used by .mcp.json)
 slop-studio desktop-config  Generate Claude Desktop config snippet
@@ -220,7 +224,7 @@ For **Claude Desktop**, add to the `env` block in `claude_desktop_config.json`:
 
 **Option B — central credentials file:**
 
-Add a `comfy_cloud` entry to `~/.config/slop-studio/credentials.json`:
+Run `slop-studio auth --comfy-cloud` (or `--all` to configure Bluesky at the same time) and paste the key when prompted. The value lands in `~/.config/slop-studio/credentials.json`:
 
 ```json
 {
@@ -229,9 +233,9 @@ Add a `comfy_cloud` entry to `~/.config/slop-studio/credentials.json`:
 }
 ```
 
-> **Note:** `slop-studio auth` currently rewrites the file and can wipe a manually-added `comfy_cloud` entry. If you use Option B, re-add the cloud entry after running `auth`. Option A (env var) sidesteps this entirely.
+`auth` merges into the file, so configuring Comfy Cloud never overwrites your Bluesky block (and vice-versa).
 
-When both are set, the env var wins.
+When both the env var and `credentials.json` are set, the env var wins.
 
 ### Route submissions to cloud
 

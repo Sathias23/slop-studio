@@ -13,14 +13,69 @@ CONFIG_DIR = Path.home() / ".config" / "slop-studio"
 CREDENTIALS_FILE = CONFIG_DIR / "credentials.json"
 
 
-def _auth(args: argparse.Namespace) -> None:
-    """Prompt for Bluesky credentials and save to central config."""
-    if CREDENTIALS_FILE.exists():
-        answer = input("Existing credentials found. Overwrite? [Y/n] ").strip().lower()
-        if answer not in ("", "y", "yes"):
-            print("Aborted.")
-            return
+def _malformed_json_error(detail: str) -> None:
+    print(f"Error: {CREDENTIALS_FILE} is not valid JSON ({detail}).", file=sys.stderr)
+    print("  Fix it by hand or delete the file and re-run `slop-studio auth`.", file=sys.stderr)
+    sys.exit(1)
 
+
+def _load_existing_credentials() -> dict:
+    """Read credentials.json into a dict, or return empty dict if absent.
+
+    Malformed JSON (parse failure or a top-level value that isn't an object)
+    is a terminal error — we don't auto-delete the file because it may contain
+    values the user still wants to recover manually. Per-service blocks that
+    aren't dicts are also rejected.
+    """
+    if not CREDENTIALS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(CREDENTIALS_FILE.read_text())
+    except json.JSONDecodeError as e:
+        _malformed_json_error(str(e))
+    if not isinstance(data, dict):
+        _malformed_json_error(f"top-level value must be an object, got {type(data).__name__}")
+    for key in ("bluesky", "comfy_cloud"):
+        if key in data and not isinstance(data[key], dict):
+            _malformed_json_error(f"'{key}' must be an object, got {type(data[key]).__name__}")
+    return data
+
+
+def _write_credentials(credentials: dict) -> None:
+    """Write the credentials dict atomically with mode 0600.
+
+    Strategy: write to a sibling `.tmp` file at mode 0600, then `os.replace`
+    onto the final path. `os.replace` is atomic on POSIX, so a crash between
+    steps leaves either the old or the new file — never a truncated one. The
+    final `chmod` reasserts 0600 even when replacing a pre-existing file that
+    had permissive modes.
+    """
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path = CREDENTIALS_FILE.with_suffix(CREDENTIALS_FILE.suffix + ".tmp")
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(credentials, f, indent=2)
+        os.replace(tmp_path, CREDENTIALS_FILE)
+        os.chmod(str(CREDENTIALS_FILE), 0o600)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _confirm_overwrite(service_label: str) -> bool:
+    """Ask the user whether to replace an existing non-empty credential block.
+
+    Default is **No** — only "y" or "yes" proceeds. Stray Enter keeps the
+    existing block, matching the industry convention for destructive prompts.
+    """
+    answer = input(f"Existing {service_label} credentials found. Overwrite? [y/N] ").strip().lower()
+    return answer in ("y", "yes")
+
+
+def _prompt_bluesky() -> dict:
+    """Prompt for Bluesky credentials. Exits with code 1 on empty input."""
     handle = input("Bluesky handle (e.g. you.bsky.social): ").strip()
     if not handle:
         print("Error: handle cannot be empty.", file=sys.stderr)
@@ -31,14 +86,88 @@ def _auth(args: argparse.Namespace) -> None:
         print("Error: app password cannot be empty.", file=sys.stderr)
         sys.exit(1)
 
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    return {"handle": handle, "app_password": app_password}
 
-    credentials = {"bluesky": {"handle": handle, "app_password": app_password}}
-    fd = os.open(str(CREDENTIALS_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(credentials, f, indent=2)
 
-    print(f"✓ Bluesky credentials saved to {CREDENTIALS_FILE}")
+def _prompt_comfy_cloud() -> dict:
+    """Prompt for Comfy Cloud API key. Exits with code 1 on empty input."""
+    print("  Get a key at https://platform.comfy.org/profile/api-keys (shown once — copy it).")
+    api_key = getpass.getpass("Comfy Cloud API key: ").strip()
+    if not api_key:
+        print("Error: API key cannot be empty.", file=sys.stderr)
+        sys.exit(1)
+
+    return {"api_key": api_key}
+
+
+def _pick_services_interactive() -> set[str]:
+    """Show the menu and return the set of services to configure.
+
+    Requires an explicit choice — empty input re-prompts rather than defaulting
+    to a destructive "all" path.
+    """
+    while True:
+        choice = input("Configure [b]luesky, [c]omfy-cloud, or [a]ll? ").strip().lower()
+        if choice in ("b", "bluesky"):
+            return {"bluesky"}
+        if choice in ("c", "comfy", "comfy-cloud"):
+            return {"comfy_cloud"}
+        if choice in ("a", "all"):
+            return {"bluesky", "comfy_cloud"}
+        print("  Please enter 'b', 'c', or 'a'.", file=sys.stderr)
+
+
+def _auth(args: argparse.Namespace) -> None:
+    """Configure Bluesky and/or Comfy Cloud credentials with merge semantics.
+
+    Reads the existing credentials.json first, updates only the selected
+    service(s), and writes back atomically — unrelated blocks (existing or
+    future) are preserved. EOF on any prompt exits 1 cleanly instead of
+    surfacing a Python traceback.
+    """
+    try:
+        _run_auth(args)
+    except EOFError:
+        print("\nError: no input available (stdin closed).", file=sys.stderr)
+        sys.exit(1)
+
+
+def _run_auth(args: argparse.Namespace) -> None:
+    # Resolve which services to configure from flags or an interactive menu.
+    services: set[str] = set()
+    if getattr(args, "all", False):
+        services = {"bluesky", "comfy_cloud"}
+    else:
+        if getattr(args, "bluesky", False):
+            services.add("bluesky")
+        if getattr(args, "comfy_cloud", False):
+            services.add("comfy_cloud")
+    if not services:
+        services = _pick_services_interactive()
+
+    credentials = _load_existing_credentials()
+    changed: list[str] = []
+
+    if "bluesky" in services:
+        if credentials.get("bluesky") and not _confirm_overwrite("Bluesky"):
+            print("Skipped Bluesky.")
+        else:
+            credentials["bluesky"] = _prompt_bluesky()
+            changed.append("Bluesky")
+
+    if "comfy_cloud" in services:
+        if credentials.get("comfy_cloud") and not _confirm_overwrite("Comfy Cloud"):
+            print("Skipped Comfy Cloud.")
+        else:
+            credentials["comfy_cloud"] = _prompt_comfy_cloud()
+            changed.append("Comfy Cloud")
+
+    if not changed:
+        print("No changes; credentials file left untouched.")
+        return
+
+    _write_credentials(credentials)
+    print(f"✓ Credentials saved to {CREDENTIALS_FILE} (updated: {', '.join(changed)})")
     print("  Your MCP server will pick these up automatically.")
 
 
@@ -189,7 +318,18 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command")
 
     # auth
-    subparsers.add_parser("auth", help="Configure Bluesky credentials")
+    auth_parser = subparsers.add_parser(
+        "auth",
+        help="Configure Bluesky and/or Comfy Cloud credentials",
+    )
+    auth_parser.add_argument("--bluesky", action="store_true", help="Configure Bluesky credentials only")
+    auth_parser.add_argument(
+        "--comfy-cloud",
+        dest="comfy_cloud",
+        action="store_true",
+        help="Configure Comfy Cloud API key only",
+    )
+    auth_parser.add_argument("--all", action="store_true", help="Configure both Bluesky and Comfy Cloud")
 
     # init
     init_parser = subparsers.add_parser("init", help="Scaffold an art project directory")
