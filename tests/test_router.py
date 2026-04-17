@@ -831,6 +831,7 @@ def _reload_router_with(monkeypatch, tmp_path):
 def _restore_router(snapshot_local):
     router._BACKENDS.clear()
     router._BACKENDS["local"] = snapshot_local
+    router.DEFAULT_BACKEND_NAME = "local"
 
 
 def test_cloud_registered_from_credentials_json(monkeypatch, tmp_path):
