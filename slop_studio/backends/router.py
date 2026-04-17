@@ -463,7 +463,7 @@ async def _get_image_cloud(
             f"Job {native_id} completed but produced no output images",
         )
 
-    safe_filename = os.path.basename(filename)
+    safe_filename = Path(filename).name
     if not safe_filename or safe_filename in (".", ".."):
         return terminal_error("completed_no_output", f"Job {native_id} produced an invalid filename")
 
@@ -480,28 +480,29 @@ async def _get_image_cloud(
         return terminal_error("completed_no_output", str(exc))
 
     date_str = date.today().isoformat()
-    date_dir = os.path.join(OUTPUT_DIR, date_str)
+    date_dir = Path(OUTPUT_DIR) / date_str
 
     try:
-        os.makedirs(date_dir, exist_ok=True)
+        date_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return transient_error("storage_error", f"Cannot create output directory '{date_dir}': {exc}")
 
-    output_path = os.path.join(date_dir, safe_filename)
-    if os.path.exists(output_path):
-        stem, ext = os.path.splitext(safe_filename)
+    output_path = date_dir / safe_filename
+    if output_path.exists():
+        safe_path = Path(safe_filename)
+        stem, ext = safe_path.stem, safe_path.suffix
         for counter in range(1, 1000):
-            candidate = os.path.join(date_dir, f"{stem}_{counter:03d}{ext}")
-            if not os.path.exists(candidate):
+            candidate = date_dir / f"{stem}_{counter:03d}{ext}"
+            if not candidate.exists():
                 output_path = candidate
                 break
 
     try:
-        await asyncio.to_thread(Path(output_path).write_bytes, image_bytes)
+        await asyncio.to_thread(output_path.write_bytes, image_bytes)
     except OSError as exc:
         return transient_error("storage_error", f"Cannot write image to '{output_path}': {exc}")
 
-    abs_path = os.path.abspath(output_path)
+    abs_path = str(output_path.resolve())
     logger.info("Cloud image saved: %s", abs_path)
 
     result: dict = {

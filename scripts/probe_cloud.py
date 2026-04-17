@@ -680,7 +680,7 @@ async def probe_5(dry_run: bool) -> int:
 
     async with _client(key) as client:
         try:
-            asset_name = await _upload_ref_asset(client)
+            asset_name, _asset = await _upload_ref_asset(client)
         except (RuntimeError, httpx.HTTPStatusError, httpx.TransportError) as e:
             _print_block(
                 5,
