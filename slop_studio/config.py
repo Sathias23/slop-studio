@@ -119,6 +119,9 @@ OUTPUT_DIR = _resolve("SLOP_STUDIO_OUTPUT_DIR", "output_dir", str(Path.home() / 
 # getter because secrets belong in credentials.json, not config.toml.
 COMFY_CLOUD_URL = _resolve("COMFY_CLOUD_URL", "comfy_cloud_url", "https://cloud.comfy.org").rstrip("/")
 
+if not COMFY_CLOUD_URL.startswith(("http://", "https://")):
+    raise ValueError(f"COMFY_CLOUD_URL must start with http:// or https://, got: {COMFY_CLOUD_URL!r}")
+
 _DEFAULT_BACKEND_RAW = _resolve("SLOP_STUDIO_DEFAULT_BACKEND", "default_backend", "local").strip().lower()
 if _DEFAULT_BACKEND_RAW in ("local", "cloud"):
     DEFAULT_BACKEND = _DEFAULT_BACKEND_RAW
@@ -179,6 +182,9 @@ def get_comfy_cloud_api_key() -> str:
             data = json.loads(creds_file.read_text())
         except (json.JSONDecodeError, OSError):
             logger.debug("comfy cloud key loaded from: none (credentials.json unreadable)")
+            return ""
+        if not isinstance(data, dict):
+            logger.debug("comfy cloud key loaded from: none (credentials.json is not a JSON object)")
             return ""
         comfy_cloud = data.get("comfy_cloud")
         if isinstance(comfy_cloud, dict):

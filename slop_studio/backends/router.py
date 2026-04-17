@@ -92,6 +92,7 @@ if _cloud_key:
     from slop_studio.backends.cloud import CloudBackend
 
     _BACKENDS["cloud"] = CloudBackend(api_key=_cloud_key, base_url=COMFY_CLOUD_URL)
+del _cloud_key
 
 
 def get_backend(name: str) -> Backend:
