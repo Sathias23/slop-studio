@@ -1,0 +1,15 @@
+{
+  "name": "api_nano_banana_pro_text_to_image",
+  "model": "gemini-3-pro-image-preview",
+  "description": "Google Gemini 3 Pro Image (a.k.a. Nano Banana Pro) via the GeminiImage2Node API node — pure text-to-image variant. No reference images; the prompt alone drives composition. Aspect ratio and resolution are baked into the workflow (1:1 at 1K by default) — edit the template JSON to change them. Runs via a Comfy Cloud API node (requires a configured API key).",
+  "backend": "cloud",
+  "expected_duration": "20 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "35",
+      "field": "prompt",
+      "type": "required",
+      "description": "Text description of the image to generate."
+    }
+  }
+}
