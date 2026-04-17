@@ -26,8 +26,12 @@ Subsequent stories:
 
 - Story 6.5: the api key, base URL, and default backend are resolved via
   ``slop_studio.config`` rather than raw env reads.
-- Story 6.6: meta-driven ``backend`` resolution. ``backend_override`` is
-  the seam 6.6 will compute from template metadata before calling here.
+- Story 6.6: meta-driven ``backend`` resolution. ``backend_override``
+  wins; the template's ``backend`` declaration in ``.meta.json`` is
+  consulted next; ``"either"`` falls through to ``DEFAULT_BACKEND_NAME``;
+  an absent field also falls through to preserve Story 6.5's user-default
+  seam. Absent/unreadable meta is not fatal — downstream dispatchers
+  surface the real error.
 - Story 6.7: refined error-reason taxonomy (new codes + ``backend`` tag).
 
 The router deliberately calls the module-level orchestrators in
@@ -106,6 +110,34 @@ def get_backend(name: str) -> Backend:
 def _prefix(backend_name: str, native_id: str) -> str:
     """Format a router-visible prompt_id as ``"<backend>:<native>"``."""
     return f"{backend_name}:{native_id}"
+
+
+def _read_template_backend(template_name: str) -> str | None:
+    """Return the template's declared backend, or ``None`` if absent/unreadable.
+
+    Consulted by ``route_submission`` to honor a template's ``backend``
+    field without requiring the caller to pass ``backend_override``.
+    Returns one of ``"local"`` / ``"cloud"`` / ``"either"`` when the field
+    is present and valid; returns ``None`` on ANY failure (missing file,
+    malformed JSON, non-dict meta, absent key, invalid value). Failure
+    falls through to ``DEFAULT_BACKEND_NAME`` in the caller — the
+    underlying "template not found" cases are surfaced by the downstream
+    dispatcher.
+
+    Hot path: runs on every submission. No INFO-level logs; silently
+    returns ``None`` on failure.
+    """
+    meta_path = Path(TEMPLATES_DIR) / f"{template_name}.meta.json"
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    backend = meta.get("backend")
+    if isinstance(backend, str) and backend in ("local", "cloud", "either"):
+        return backend
+    return None
 
 
 def route_for_prompt_id(prompt_id: str) -> tuple[Backend, str]:
@@ -253,14 +285,27 @@ async def route_submission(
 ) -> dict:
     """Dispatch a ``queue_prompt`` submission and emit a prefixed prompt_id.
 
-    ``backend_override`` is the Story 6.4 seam for explicit cloud routing;
-    Story 6.6 layers meta-driven resolution on top. ``lifecycle_manager``
-    carries the ``ComfyUIManager`` through from the server handler —
-    typed ``Any | None`` to avoid importing ``server.py`` (circular dep).
-    The manager's ``ensure_ready()`` is only awaited on the local path
-    (NFR-C6): cloud submissions must NOT spawn local ComfyUI.
+    ``backend_override`` is the Story 6.4 seam for explicit cloud routing
+    and wins over every other signal. When no override is passed, Story 6.6
+    consults the template's ``backend`` declaration via
+    ``_read_template_backend``: ``"local"`` / ``"cloud"`` lock to that
+    backend, ``"either"`` and any missing/unreadable meta fall through to
+    ``DEFAULT_BACKEND_NAME`` (preserves the Story 6.5 user-default seam).
+    ``lifecycle_manager`` carries the ``ComfyUIManager`` through from the
+    server handler — typed ``Any | None`` to avoid importing ``server.py``
+    (circular dep). The manager's ``ensure_ready()`` is only awaited on
+    the local path (NFR-C6): cloud submissions must NOT spawn local ComfyUI.
     """
-    chosen_name = backend_override or DEFAULT_BACKEND_NAME
+    if backend_override:
+        chosen_name = backend_override
+    else:
+        tmpl_backend = _read_template_backend(template_name)
+        if tmpl_backend in ("local", "cloud"):
+            chosen_name = tmpl_backend
+        elif tmpl_backend == "either":
+            chosen_name = DEFAULT_BACKEND_NAME
+        else:
+            chosen_name = DEFAULT_BACKEND_NAME
     backend = _BACKENDS.get(chosen_name)
     if backend is None:
         if chosen_name == "cloud":

@@ -956,3 +956,293 @@ async def test_no_raw_api_key_in_router_logs_or_error_dicts(monkeypatch, tmp_pat
             assert unique_key not in str(value)
     finally:
         _restore_router(snapshot)
+
+
+# ===========================================================================
+# Story 6.6 — Meta-driven backend resolution (backend field in .meta.json).
+# ===========================================================================
+
+
+def _write_template(templates_dir, name, *, backend=None):
+    """Write a minimal .json + .meta.json pair for router-level tests."""
+    (templates_dir / f"{name}.json").write_text(
+        json.dumps({"6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}}}),
+        encoding="utf-8",
+    )
+    meta = {
+        "name": name,
+        "model": "test-model",
+        "description": "test",
+        "inputs": {"prompt": {"node_id": "6", "field": "text", "type": "required"}},
+        "aspect_ratios": {},
+        "resolution_nodes": [],
+    }
+    if backend is not None:
+        meta["backend"] = backend
+    (templates_dir / f"{name}.meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+@pytest.mark.anyio
+async def test_route_submission_reads_template_backend_local(monkeypatch, tmp_path):
+    # AC #7 — template "backend": "local" with no override routes local.
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    _write_template(templates_dir, "tpl_local", backend="local")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    mock_qp = AsyncMock(return_value={"status": "success", "prompt_id": "nid-local"})
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", mock_qp)
+
+    result = await router.route_submission("tpl_local", {"prompt": "hi"})
+
+    assert result == {"status": "success", "prompt_id": "local:nid-local"}
+    mock_qp.assert_awaited_once_with("tpl_local", {"prompt": "hi"}, None)
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_route_submission_reads_template_backend_cloud(cloud_registered, tmp_path, monkeypatch):
+    # AC #8 — template "backend": "cloud" routes to CloudBackend without
+    # an explicit backend_override and emits a "cloud:<native>" prompt_id.
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    _write_template(templates_dir, "tpl_cloud", backend="cloud")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    local_qp_spy = AsyncMock()
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", local_qp_spy)
+
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "cloud-nid-1", "node_errors": {}})
+    )
+
+    result = await router.route_submission("tpl_cloud", {"prompt": "hi"})
+
+    assert result == {"status": "success", "prompt_id": "cloud:cloud-nid-1"}
+    local_qp_spy.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_route_submission_template_backend_cloud_without_registration_returns_auth_failed(monkeypatch, tmp_path):
+    # AC #7, #9 cross-check — "backend": "cloud" but cloud not registered →
+    # auth_failed with guidance (same message as Story 6.5 AC #6).
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    assert "cloud" not in router._BACKENDS
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    _write_template(templates_dir, "tpl_cloud_nokey", backend="cloud")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    result = await router.route_submission("tpl_cloud_nokey", {"prompt": "hi"})
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "auth_failed"
+    assert "COMFY_CLOUD_API_KEY" in result["error"]
+    assert "credentials.json" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_route_submission_template_backend_either_uses_default_local(monkeypatch, tmp_path):
+    # AC #9 — "backend": "either" + DEFAULT_BACKEND=local → routes local.
+    assert router.DEFAULT_BACKEND_NAME == "local"
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    _write_template(templates_dir, "tpl_either", backend="either")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    mock_qp = AsyncMock(return_value={"status": "success", "prompt_id": "nid-either"})
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", mock_qp)
+
+    result = await router.route_submission("tpl_either", {"prompt": "hi"})
+
+    assert result == {"status": "success", "prompt_id": "local:nid-either"}
+
+
+@pytest.mark.anyio
+async def test_route_submission_template_backend_either_uses_default_cloud(monkeypatch, tmp_path):
+    # AC #9 — "backend": "either" + DEFAULT_BACKEND=cloud (registered) → cloud.
+    monkeypatch.setenv("COMFY_CLOUD_API_KEY", CLOUD_TEST_KEY)
+    monkeypatch.setenv("COMFY_CLOUD_URL", CLOUD_BASE_URL)
+    monkeypatch.setenv("SLOP_STUDIO_DEFAULT_BACKEND", "cloud")
+    snapshot = _reload_router_with(monkeypatch, tmp_path)
+    try:
+        assert router.DEFAULT_BACKEND_NAME == "cloud"
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        _write_template(templates_dir, "tpl_either_cloud", backend="either")
+        monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+        cloud_backend = router._BACKENDS["cloud"]
+
+        async def fake_prepare(backend, _tmpl, _inputs, _aspect):
+            return await backend.submit({})
+
+        monkeypatch.setattr(router, "_prepare_and_submit", fake_prepare)
+        mock_submit = AsyncMock(return_value={"status": "success", "prompt_id": "cloud-nid-e"})
+        monkeypatch.setattr(cloud_backend, "submit", mock_submit)
+
+        result = await router.route_submission("tpl_either_cloud", {"prompt": "hi"})
+
+        assert result == {"status": "success", "prompt_id": "cloud:cloud-nid-e"}
+    finally:
+        _restore_router(snapshot)
+
+
+@pytest.mark.anyio
+async def test_route_submission_template_backend_either_default_cloud_without_key_returns_auth_failed(
+    monkeypatch, tmp_path
+):
+    # AC #9 — "backend": "either" + DEFAULT_BACKEND=cloud + NO key → auth_failed
+    # (same path as Story 6.5 AC #10).
+    monkeypatch.delenv("COMFY_CLOUD_API_KEY", raising=False)
+    monkeypatch.setenv("SLOP_STUDIO_DEFAULT_BACKEND", "cloud")
+    snapshot = _reload_router_with(monkeypatch, tmp_path)
+    try:
+        assert router.DEFAULT_BACKEND_NAME == "cloud"
+        assert "cloud" not in router._BACKENDS
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        _write_template(templates_dir, "tpl_either_nokey", backend="either")
+        monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+        result = await router.route_submission("tpl_either_nokey", {"prompt": "hi"})
+
+        assert result["status"] == "error"
+        assert result["error_type"] == "auth_failed"
+        assert "COMFY_CLOUD_API_KEY" in result["error"]
+        assert "credentials.json" in result["error"]
+    finally:
+        _restore_router(snapshot)
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_route_submission_backend_override_beats_template_local(cloud_registered, tmp_path, monkeypatch):
+    # AC #10 — template "backend": "local" + backend_override="cloud" → cloud.
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    _write_template(templates_dir, "tpl_local_forced_cloud", backend="local")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "cloud-override", "node_errors": {}})
+    )
+
+    result = await router.route_submission(
+        "tpl_local_forced_cloud",
+        {"prompt": "hi"},
+        backend_override="cloud",
+    )
+
+    assert result == {"status": "success", "prompt_id": "cloud:cloud-override"}
+
+
+@pytest.mark.anyio
+async def test_route_submission_backend_override_beats_template_cloud(cloud_registered, tmp_path, monkeypatch):
+    # AC #10 — template "backend": "cloud" + backend_override="local" → local.
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    _write_template(templates_dir, "tpl_cloud_forced_local", backend="cloud")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    mock_qp = AsyncMock(return_value={"status": "success", "prompt_id": "nid-forced-local"})
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", mock_qp)
+
+    result = await router.route_submission(
+        "tpl_cloud_forced_local",
+        {"prompt": "hi"},
+        backend_override="local",
+    )
+
+    assert result == {"status": "success", "prompt_id": "local:nid-forced-local"}
+    mock_qp.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_route_submission_template_no_backend_field_falls_through_to_default(monkeypatch, tmp_path):
+    # AC #7 step 5, AC #17 canary — absent backend field falls through to
+    # DEFAULT_BACKEND_NAME (preserves Story 6.5's user-default seam).
+    assert router.DEFAULT_BACKEND_NAME == "local"
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    _write_template(templates_dir, "tpl_legacy")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    mock_qp = AsyncMock(return_value={"status": "success", "prompt_id": "nid-legacy"})
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", mock_qp)
+
+    result = await router.route_submission("tpl_legacy", {"prompt": "hi"})
+
+    assert result == {"status": "success", "prompt_id": "local:nid-legacy"}
+
+
+@pytest.mark.anyio
+async def test_route_submission_malformed_template_meta_falls_through_to_default(monkeypatch, tmp_path):
+    # AC #13 — malformed meta must not raise from route_submission; the
+    # downstream local.queue_prompt surfaces a terminal error of its own.
+    assert router.DEFAULT_BACKEND_NAME == "local"
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "tpl_garbage.meta.json").write_text("{not json", encoding="utf-8")
+    (templates_dir / "tpl_garbage.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    # Stub local.queue_prompt so we don't depend on its internal meta load
+    # for assertion purposes — the focus of AC #13 is that the router
+    # resolver itself does not raise on malformed meta.
+    mock_qp = AsyncMock(return_value={"status": "success", "prompt_id": "nid-g"})
+    monkeypatch.setattr(slop_studio.backends.local, "queue_prompt", mock_qp)
+
+    result = await router.route_submission("tpl_garbage", {"prompt": "hi"})
+
+    assert isinstance(result, dict)
+    assert result == {"status": "success", "prompt_id": "local:nid-g"}
+
+
+def test_read_template_backend_returns_none_for_missing_file(monkeypatch, tmp_path):
+    # AC #14 — helper returns None on missing file (no exception).
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    assert router._read_template_backend("nonexistent") is None
+
+
+def test_read_template_backend_returns_none_for_invalid_value(monkeypatch, tmp_path):
+    # AC #14 — helper returns None when the backend value is not one of
+    # the allowed strings (defense against hand-edited meta files).
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "tpl_handhack.meta.json").write_text(
+        json.dumps({"name": "tpl_handhack", "backend": "klown"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    assert router._read_template_backend("tpl_handhack") is None
+
+
+def test_read_template_backend_returns_none_for_malformed_json(monkeypatch, tmp_path):
+    # AC #14 — helper returns None on JSONDecodeError, no exception raised.
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "tpl_badjson.meta.json").write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    assert router._read_template_backend("tpl_badjson") is None
+
+
+def test_read_template_backend_returns_valid_values(monkeypatch, tmp_path):
+    # AC #14 — helper returns "local" / "cloud" / "either" verbatim when valid.
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    for value in ("local", "cloud", "either"):
+        (templates_dir / f"tpl_{value}.meta.json").write_text(
+            json.dumps({"name": f"tpl_{value}", "backend": value}),
+            encoding="utf-8",
+        )
+    monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
+
+    assert router._read_template_backend("tpl_local") == "local"
+    assert router._read_template_backend("tpl_cloud") == "cloud"
+    assert router._read_template_backend("tpl_either") == "either"

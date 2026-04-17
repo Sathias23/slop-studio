@@ -2,6 +2,7 @@
   "name": "flux2_klein",
   "model": "flux-2-klein-9b-gguf",
   "description": "Flux 2 Klein 9B single-pass pipeline. Fast, high-quality image generation using GGUF quantized model with 8 euler steps.",
+  "backend": "local",
   "expected_duration": "30 seconds",
   "inputs": {
     "prompt": {
