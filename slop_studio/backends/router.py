@@ -539,7 +539,7 @@ async def _get_image_cloud(
     try:
         status_result = await backend.status(native_id)
     except httpx.HTTPStatusError as exc:
-        return _cloud_trans("unreachable", f"Cloud returned HTTP {exc.response.status_code}")
+        return backend.http_error_to_dict(exc)
     except httpx.TransportError:
         return _cloud_trans("unreachable", "Cannot connect to cloud")
 

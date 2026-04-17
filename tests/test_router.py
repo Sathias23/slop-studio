@@ -1490,3 +1490,18 @@ class TestCloudNonSubmitErrorTaxonomy:
         assert result["error_type"] == "auth_failed"
         assert result["backend"] == "cloud"
         assert result["retry_suggested"] is False
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_get_image_401_on_status_maps_to_auth_failed(self, cloud_registered, tmp_path, monkeypatch):
+        # Status returns 401 → should route through http_error_to_dict, not
+        # fall through to the transient "unreachable" bucket.
+        monkeypatch.setattr(router, "OUTPUT_DIR", str(tmp_path))
+        respx.get(f"{CLOUD_BASE_URL}/api/job/abc/status").mock(
+            return_value=httpx.Response(401, json={"error": "bad key"})
+        )
+
+        result = await router._get_image_cloud(router._BACKENDS["cloud"], "abc", include_base64=False)
+        assert result["error_type"] == "auth_failed"
+        assert result["backend"] == "cloud"
+        assert result["retry_suggested"] is False
