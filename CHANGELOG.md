@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `open_comfy_cloud_portal` MCP tool opens `https://platform.comfy.org/` in the default browser — the realization of the pointer already referenced in Story 6.7's `no_credits` / `account_issue` / `auth_failed` error messages. Pure URL opener: no authentication, no API key, no cloud config required (Story 6.8)
+
 ## [0.3.6] - 2026-04-17
 
 ### Added
