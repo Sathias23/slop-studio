@@ -9,12 +9,14 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Support for text-to-image and image-to-image models, currently Flux.2 Klein (more to come)
+- Ships eleven starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), and Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud)
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
 - Automatic ComfyUI spawning and lifecycle management
 - Job queuing and automatic polling
 - Bluesky posting built in
+- Claude Desktop one-click install via a signed `.mcpb` Desktop Extension
+- Centralized credential management (`slop-studio auth`) for Bluesky and Comfy Cloud
 - One-command project scaffolding (`slop-studio init`)
 
 ## Prerequisites
@@ -246,15 +248,11 @@ Two levers, evaluated in order:
 
 ### Worked example
 
-Use the shipped `image_flux2` template (`templates/image_flux2.meta.json`), which is cloud-compatible. Tag it and submit:
+Every `api_*` template and `image_flux2*` variant ships pre-tagged with `"backend": "cloud"`, so once your key is configured there's nothing else to do:
 
 ```bash
 # In your project's .env
 echo "COMFY_CLOUD_API_KEY=comfy_xxxxxxxxxxxx" >> .env
-
-# One-time: tag the template as cloud-only
-jq '. + {"backend": "cloud"}' templates/image_flux2.meta.json > templates/image_flux2.meta.json.tmp \
-  && mv templates/image_flux2.meta.json.tmp templates/image_flux2.meta.json
 ```
 
 Then, from Claude Code:
@@ -263,7 +261,7 @@ Then, from Claude Code:
 /generate edit this photo to add a pale yellow knitted beanie with a white patch reading FLUX.2 COMFY
 ```
 
-Claude picks `image_flux2`, calls `queue_prompt`, and the router forwards to Comfy Cloud because of the template's `backend` field.
+Claude picks the cloud-tagged `image_flux2` template, calls `queue_prompt`, and the router forwards to Comfy Cloud because of the template's `backend` field. Nano Banana Pro and Flux.2 Pro templates behave the same way.
 
 ### When things go wrong
 
@@ -282,13 +280,22 @@ See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the a
 
 ## Templates
 
-Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Three starter templates ship with every project:
+Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Eleven starter templates ship with every project, spanning both backends:
+
+**Local (Flux.2 Klein GGUF, 16 GB VRAM):**
 
 - **flux2_klein** — fast single-pass generation (~30s), 9 aspect ratios
 - **flux2_klein_ultrawide** — 3440x1440 wallpapers with 4x upscale (~60s)
 - **flux2_klein_edit** — multi-reference image editing with style/content transfer (~60s)
 
-The default templates run on 16GB of VRAM. More coming soon! Add your own by exporting a workflow from ComfyUI's browser UI and calling `add_template`.
+**Cloud (Comfy Cloud; requires `COMFY_CLOUD_API_KEY`):**
+
+- **image_flux2** — Flux.2 Dev single-reference image edit
+- **image_flux2_text_to_image** — Flux.2 Dev text-to-image
+- **api_flux2_pro_1img / _2img / _4img** — Flux.2 Pro API (Black Forest Labs), one / two / four reference images; 7 aspect ratios each
+- **api_nano_banana_pro_text_to_image / _1img / _2img** — Google Gemini 3 Pro Image ("Nano Banana Pro"); 10 aspect ratios each
+
+Cloud templates don't touch local VRAM — the partner API nodes run upstream at BFL and Google. Add your own by exporting a workflow from ComfyUI's browser UI and calling `add_template`.
 
 ## Configuration
 
@@ -340,7 +347,10 @@ If you're reviewing the code before installing — here are the important files:
 | File | What it does |
 |------|-------------|
 | [`slop_studio/server.py`](slop_studio/server.py) | MCP tool definitions — all tool handlers including `open_gallery` |
-| [`slop_studio/comfyui.py`](slop_studio/comfyui.py) | ComfyUI HTTP client — job submission, polling, image retrieval |
+| [`slop_studio/backends/router.py`](slop_studio/backends/router.py) | Dispatches each submission to the right backend, partitions `check_next_job` batches by backend, and re-prefixes prompt_ids on egress |
+| [`slop_studio/backends/local.py`](slop_studio/backends/local.py) | Local ComfyUI HTTP client — job submission, polling, image retrieval, input injection |
+| [`slop_studio/backends/cloud.py`](slop_studio/backends/cloud.py) | Comfy Cloud REST client — auth-stripping on signed-URL redirects, error taxonomy, partner-API-node key forwarding |
+| [`slop_studio/templates.py`](slop_studio/templates.py) | Template CRUD + meta validation |
 | [`slop_studio/process.py`](slop_studio/process.py) | Cross-platform process management — start/stop/cleanup of ComfyUI |
 | [`slop_studio/config.py`](slop_studio/config.py) | Configuration resolution — env vars, config.toml, defaults |
 | [`slop_studio/gallery.py`](slop_studio/gallery.py) | HTML gallery generator |
