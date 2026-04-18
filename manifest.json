@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "slop-studio",
   "display_name": "Slop Studio",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Conversational image generation via ComfyUI",
   "author": {
     "name": "Brad Sprigg"

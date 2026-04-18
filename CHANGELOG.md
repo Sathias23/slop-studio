@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-04-18
+
+### Added
+
+- All three Nano Banana Pro templates (`api_nano_banana_pro_text_to_image`, `api_nano_banana_pro_1img`, `api_nano_banana_pro_2img`) now expose the full ten-ratio Gemini 3 Pro Image set — `1:1, 3:2, 2:3, 4:3, 3:4, 5:4, 4:5, 16:9, 9:16, 21:9` — via the top-level `aspect_ratio` argument of `queue_prompt`. Previously aspect ratio was baked into the workflow JSON and required a manual template edit
+- Template meta-schema gains a `field_map` alternative on `resolution_nodes` entries: `{"node_id", "field_map": {src_key: dest_field}}`. Used by API-node templates whose ratio input is a string field on the node (e.g. Gemini's `aspect_ratio: "3:4"`) rather than integer width/height. The legacy `width_field`/`height_field` pair keeps working unchanged; mixing both shapes on a single entry is rejected at `add_template`/`update_template` time
+
+### Changed
+
+- Consolidated the two template directories into one canonical location at `slop_studio/assets/starter-templates/`. The top-level `templates/` was deleted — it had drifted from the package-asset copy (stale descriptions, different placeholder filenames) and forced every template change into two places. `TEMPLATES_DIR` default now resolves to the package asset; the `.mcpb` packager no longer ships a separate top-level `templates/` directory (starter-templates already rides along inside the `slop_studio/` package copy). Consumer projects are unaffected — `slop-studio init` still scaffolds a project-local `templates/` from the package asset, and the per-project `SLOP_STUDIO_TEMPLATES_DIR` override still wins
+
 ## [0.4.4] - 2026-04-18
 
 ### Fixed
