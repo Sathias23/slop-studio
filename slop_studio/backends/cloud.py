@@ -183,12 +183,23 @@ class CloudBackend(Backend):
         ``_err`` / ``_trans`` wrappers. No auto-fallback to local at any
         status code (NFR-C5). Never raises — per the ABC contract for
         ``submit``.
+
+        The same API key that authenticates the REST call is also
+        forwarded in ``extra_data.api_key_comfy_org``. Partner-API nodes
+        (Flux2Pro, Nano Banana Pro, etc.) require this inside the
+        workflow payload to bill their upstream calls — without it the
+        node 403s at execution with ``Unauthorized: Please login first``
+        even though ``/api/prompt`` itself accepts the job. See
+        https://docs.comfy.org/development/comfyui-server/api-key-integration.
         """
         try:
             async with self._client() as client:
                 response = await client.post(
                     f"{self._base_url}/api/prompt",
-                    json={"prompt": workflow},
+                    json={
+                        "prompt": workflow,
+                        "extra_data": {"api_key_comfy_org": self._api_key},
+                    },
                 )
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:

@@ -9,6 +9,7 @@ for the pure-function parser. All async tests run under
 ``@pytest.mark.anyio``.
 """
 
+import json
 import logging
 from pathlib import Path
 
@@ -119,6 +120,23 @@ async def test_submit_success_returns_prompt_id(cloud_backend):
     )
     result = await cloud_backend.submit({"1": {"class_type": "CLIPTextEncode"}})
     assert result == {"status": "success", "prompt_id": "abc-uuid-123"}
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_submit_forwards_api_key_in_extra_data(cloud_backend):
+    # Partner-API nodes (Flux2Pro, Nano Banana Pro) authenticate via
+    # extra_data.api_key_comfy_org inside the /api/prompt payload, not
+    # via the X-API-Key header. Without this, partner nodes 403 at
+    # execution with "Unauthorized: Please login first".
+    route = respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "id-xyz", "node_errors": {}})
+    )
+    await cloud_backend.submit({"1": {"class_type": "Flux2ProImageNode"}})
+
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["extra_data"]["api_key_comfy_org"] == TEST_API_KEY
+    assert sent["prompt"] == {"1": {"class_type": "Flux2ProImageNode"}}
 
 
 @pytest.mark.anyio
