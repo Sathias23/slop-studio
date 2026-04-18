@@ -389,7 +389,12 @@ async def test_add_template_rejects_field_map_with_legacy_fields(templates_dir):
     meta = _sample_meta(
         aspect_ratios={"1:1": {"aspect_ratio": "1:1"}},
         resolution_nodes=[
-            {"node_id": "35", "field_map": {"aspect_ratio": "aspect_ratio"}, "width_field": "width", "height_field": "height"}
+            {
+                "node_id": "35",
+                "field_map": {"aspect_ratio": "aspect_ratio"},
+                "width_field": "width",
+                "height_field": "height",
+            }
         ],
     )
 
