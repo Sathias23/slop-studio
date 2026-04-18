@@ -124,7 +124,7 @@ class TestBuildScript:
         output = _build(tmp_path)
         with zipfile.ZipFile(output) as zf:
             names = zf.namelist()
-            template_files = [n for n in names if n.startswith("templates/")]
+            template_files = [n for n in names if n.startswith("slop_studio/assets/starter-templates/")]
             assert len(template_files) > 0
 
     def test_template_pairs_complete(self, tmp_path):
@@ -132,7 +132,11 @@ class TestBuildScript:
         with zipfile.ZipFile(output) as zf:
             names = zf.namelist()
             json_templates = {
-                n for n in names if n.startswith("templates/") and n.endswith(".json") and not n.endswith(".meta.json")
+                n
+                for n in names
+                if n.startswith("slop_studio/assets/starter-templates/")
+                and n.endswith(".json")
+                and not n.endswith(".meta.json")
             }
             for t in json_templates:
                 meta = t.replace(".json", ".meta.json")

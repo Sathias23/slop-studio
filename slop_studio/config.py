@@ -112,7 +112,11 @@ except ValueError as exc:
 if COMFYUI_IDLE_TIMEOUT < 0:
     raise ValueError(f"COMFYUI_IDLE_TIMEOUT must be >= 0 (0 disables idle shutdown), got: {COMFYUI_IDLE_TIMEOUT}")
 
-TEMPLATES_DIR = _resolve("SLOP_STUDIO_TEMPLATES_DIR", "templates_dir", str(_PACKAGE_DIR.parent / "templates"))
+TEMPLATES_DIR = _resolve(
+    "SLOP_STUDIO_TEMPLATES_DIR",
+    "templates_dir",
+    str(_PACKAGE_DIR / "assets" / "starter-templates"),
+)
 OUTPUT_DIR = _resolve("SLOP_STUDIO_OUTPUT_DIR", "output_dir", str(Path.home() / "slop-studio" / "output"))
 
 # Comfy Cloud backend config (Story 6.5 / FR-C5). API key has its own

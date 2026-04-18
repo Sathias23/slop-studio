@@ -75,20 +75,6 @@ def build_mcpb(project_root: Path, output_dir: Path) -> Path:
             arcname = str(rel)
             zf.write(p, arcname)
 
-        # Add templates/
-        templates_dir = project_root / "templates"
-        if templates_dir.exists():
-            for p in sorted(templates_dir.rglob("*")):
-                if not p.is_file():
-                    continue
-                rel = p.relative_to(project_root)
-                if any(part in EXCLUDE_DIRS for part in rel.parts):
-                    continue
-                if p.suffix in EXCLUDE_SUFFIXES:
-                    continue
-                arcname = str(rel)
-                zf.write(p, arcname)
-
     # Validate archive contents
     expected = {"manifest.json", "pyproject.toml"}
     with zipfile.ZipFile(output_path, "r") as zf:
@@ -104,9 +90,9 @@ def build_mcpb(project_root: Path, output_dir: Path) -> Path:
         output_path.unlink(missing_ok=True)
         raise RuntimeError("Archive missing slop_studio/ package")
 
-    has_templates = any(n.startswith("templates/") for n in names)
+    has_templates = any(n.startswith("slop_studio/assets/starter-templates/") for n in names)
     if not has_templates:
         output_path.unlink(missing_ok=True)
-        raise RuntimeError("Archive missing templates/ directory")
+        raise RuntimeError("Archive missing slop_studio/assets/starter-templates/ directory")
 
     return output_path

@@ -810,6 +810,46 @@ def test_inject_resolution_missing_node_skips(caplog):
     assert "not found in workflow" in caplog.text
 
 
+def test_inject_resolution_field_map_writes_string_value():
+    """_inject_resolution with field_map writes dims[src_key] into node.inputs[dest_field].
+
+    Covers the Gemini-style API-node case where aspect_ratio is a string
+    field on the node, not integer width/height.
+    """
+    workflow = {"35": {"class_type": "GeminiImage2Node", "inputs": {"aspect_ratio": "1:1"}}}
+    meta = {
+        "aspect_ratios": {"3:4": {"aspect_ratio": "3:4"}, "16:9": {"aspect_ratio": "16:9"}},
+        "resolution_nodes": [{"node_id": "35", "field_map": {"aspect_ratio": "aspect_ratio"}}],
+    }
+    slop_studio.comfyui._inject_resolution(workflow, meta, "3:4")
+    assert workflow["35"]["inputs"]["aspect_ratio"] == "3:4"
+
+
+def test_inject_resolution_field_map_multiple_fields():
+    """field_map can patch more than one field from a single dims dict."""
+    workflow = {"35": {"class_type": "Node", "inputs": {"ratio": "", "res": ""}}}
+    meta = {
+        "aspect_ratios": {"widescreen": {"ar": "16:9", "res": "2K"}},
+        "resolution_nodes": [{"node_id": "35", "field_map": {"ar": "ratio", "res": "res"}}],
+    }
+    slop_studio.comfyui._inject_resolution(workflow, meta, "widescreen")
+    assert workflow["35"]["inputs"]["ratio"] == "16:9"
+    assert workflow["35"]["inputs"]["res"] == "2K"
+
+
+def test_inject_resolution_field_map_missing_source_key_skips_field(caplog):
+    """field_map entry whose src_key isn't in dims logs and skips that field."""
+    workflow = {"35": {"class_type": "Node", "inputs": {"a": "old", "b": "old"}}}
+    meta = {
+        "aspect_ratios": {"x": {"a": "new"}},  # 'b' missing
+        "resolution_nodes": [{"node_id": "35", "field_map": {"a": "a", "b": "b"}}],
+    }
+    slop_studio.comfyui._inject_resolution(workflow, meta, "x")
+    assert workflow["35"]["inputs"]["a"] == "new"
+    assert workflow["35"]["inputs"]["b"] == "old"
+    assert "missing key 'b'" in caplog.text
+
+
 # -- Filename collision test --
 
 
