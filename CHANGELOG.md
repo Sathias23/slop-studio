@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-04-18
+
+### Fixed
+
+- Cloud-backend submissions now forward the ComfyUI account API key in `extra_data.api_key_comfy_org` on every `/api/prompt` call, so partner-API nodes (Flux2Pro, Nano Banana Pro, etc.) authenticate upstream. Previously every `api_*` template was accepted by the cloud (returning a valid `prompt_id`) but then failed at execution with `Unauthorized: Please login first to use this node`, because only the `X-API-Key` header was being sent and partner nodes look elsewhere for their auth. Reuses the existing `COMFY_CLOUD_API_KEY` — it's the same key at platform.comfy.org for both REST auth and partner-node billing. No config changes required
+
 ## [0.4.3] - 2026-04-18
 
 ### Added
