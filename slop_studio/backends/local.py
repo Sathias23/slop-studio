@@ -170,8 +170,11 @@ def _inject_resolution(workflow: dict, meta: dict, aspect_ratio: str | None) -> 
       entry in the map. Used by API-node templates whose ratio input is a
       string field (e.g. Gemini's ``aspect_ratio: "3:4"``).
 
-    A single ``resolution_nodes`` entry picks one mode — ``field_map``
-    takes precedence when both shapes are present.
+    A single ``resolution_nodes`` entry must pick one mode; the validator
+    rejects entries that declare both ``field_map`` and
+    ``width_field``/``height_field`` at ``add_template``/``update_template``
+    time. The ``field_map``-precedence behaviour below is a runtime safety
+    net for hand-edited templates that bypass the validator.
     """
     if aspect_ratio is None:
         return
@@ -208,6 +211,13 @@ def _inject_resolution(workflow: dict, meta: dict, aspect_ratio: str | None) -> 
                     continue
                 workflow[node_id]["inputs"][dest_field] = dims[src_key]
         else:
+            if "width" not in dims or "height" not in dims:
+                logger.error(
+                    "Aspect ratio '%s' missing 'width'/'height' required by resolution_node '%s'",
+                    aspect_ratio,
+                    node_id,
+                )
+                continue
             workflow[node_id]["inputs"][width_field] = dims["width"]
             workflow[node_id]["inputs"][height_field] = dims["height"]
 
