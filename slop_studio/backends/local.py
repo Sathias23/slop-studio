@@ -157,7 +157,22 @@ def _randomize_seeds(workflow: dict) -> None:
 
 
 def _inject_resolution(workflow: dict, meta: dict, aspect_ratio: str | None) -> None:
-    """Map aspect ratio label to dimensions and inject into resolution nodes."""
+    """Map aspect ratio label to dimensions and inject into resolution nodes.
+
+    Two injection modes are supported per ``resolution_nodes`` entry:
+
+    - Legacy width/height mode: ``{"node_id", "width_field", "height_field"}``
+      patches ``dims["width"]`` / ``dims["height"]`` into the named fields.
+      Used by flux-family templates where the workflow takes integer
+      pixel dimensions.
+    - ``field_map`` mode: ``{"node_id", "field_map": {src_key: dest_field}}``
+      patches ``dims[src_key]`` into ``node.inputs[dest_field]`` for each
+      entry in the map. Used by API-node templates whose ratio input is a
+      string field (e.g. Gemini's ``aspect_ratio: "3:4"``).
+
+    A single ``resolution_nodes`` entry picks one mode — ``field_map``
+    takes precedence when both shapes are present.
+    """
     if aspect_ratio is None:
         return
 
@@ -169,9 +184,10 @@ def _inject_resolution(workflow: dict, meta: dict, aspect_ratio: str | None) -> 
     dims = aspect_ratios[aspect_ratio]
     for res_node in meta.get("resolution_nodes", []):
         node_id = res_node.get("node_id")
+        field_map = res_node.get("field_map")
         width_field = res_node.get("width_field")
         height_field = res_node.get("height_field")
-        if not node_id or not width_field or not height_field:
+        if not node_id or (not field_map and (not width_field or not height_field)):
             logger.error("Incomplete resolution_node definition: %s", res_node)
             continue
         if node_id not in workflow:
@@ -180,8 +196,20 @@ def _inject_resolution(workflow: dict, meta: dict, aspect_ratio: str | None) -> 
         if "inputs" not in workflow[node_id]:
             logger.error("Resolution node '%s' has no 'inputs' key in workflow", node_id)
             continue
-        workflow[node_id]["inputs"][width_field] = dims["width"]
-        workflow[node_id]["inputs"][height_field] = dims["height"]
+        if field_map:
+            for src_key, dest_field in field_map.items():
+                if src_key not in dims:
+                    logger.error(
+                        "Aspect ratio '%s' missing key '%s' required by resolution_node '%s'",
+                        aspect_ratio,
+                        src_key,
+                        node_id,
+                    )
+                    continue
+                workflow[node_id]["inputs"][dest_field] = dims[src_key]
+        else:
+            workflow[node_id]["inputs"][width_field] = dims["width"]
+            workflow[node_id]["inputs"][height_field] = dims["height"]
 
 
 async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | None = None) -> dict:

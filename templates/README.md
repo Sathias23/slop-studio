@@ -13,8 +13,10 @@ Every `.meta.json` must declare:
 ## Optional structural fields
 
 - `inputs` — dict of `{input_name: {node_id, field, type, description}}`. Used by `queue_prompt` to inject values into the workflow. Entries with `input_type: "image"` are uploaded and wired to the named node.
-- `aspect_ratios` — dict of `{label: {width, height}}`. Used by the `aspect_ratio` parameter of `queue_prompt`.
-- `resolution_nodes` — list of `{node_id, width_field, height_field}`. Tells slop-studio which nodes to patch when an `aspect_ratio` is applied.
+- `aspect_ratios` — dict of `{label: dims}`. Used by the `aspect_ratio` parameter of `queue_prompt`. `dims` is a JSON object whose keys are consumed by `resolution_nodes` (below). Width-and-height templates use `{"width": 1424, "height": 1424}`; string-field templates (e.g. API nodes that take an `aspect_ratio: "3:4"` input directly) use `{"aspect_ratio": "3:4"}`.
+- `resolution_nodes` — list of `{node_id, ...}`. Tells slop-studio which nodes to patch when an `aspect_ratio` is applied. Two modes per entry:
+  - **Width/height mode:** `{"node_id", "width_field", "height_field"}` — writes `dims["width"]` / `dims["height"]` into the named fields.
+  - **`field_map` mode:** `{"node_id", "field_map": {src_key: dest_field, ...}}` — writes `dims[src_key]` into `node.inputs[dest_field]` for each entry. Example for Gemini's `GeminiImage2Node`: `{"node_id": "35", "field_map": {"aspect_ratio": "aspect_ratio"}}` paired with `aspect_ratios: {"3:4": {"aspect_ratio": "3:4"}, ...}`.
 - `expected_duration` — human-readable hint (e.g. `"30 seconds"`).
 
 ## Backend routing and cloud metadata

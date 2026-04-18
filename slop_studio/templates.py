@@ -27,8 +27,12 @@ def _validate_metadata(metadata: dict) -> str | None:
     Required fields: ``name``, ``model``, ``description`` (non-empty strings).
 
     Optional structural fields: ``inputs`` (dict of input-definition dicts),
-    ``aspect_ratios`` (dict of ``{label: {width, height}}`` with integer dims;
-    ``bool`` is rejected), ``resolution_nodes`` (list of node-mapping dicts).
+    ``aspect_ratios`` (dict of ``{label: dims}`` where ``dims`` is a JSON
+    object; ``width``/``height`` keys, when present, must be integers —
+    ``bool`` is rejected), ``resolution_nodes`` (list of node-mapping
+    dicts; each entry uses either the legacy ``width_field``/``height_field``
+    pair or a ``field_map`` dict of ``{src_key: dest_field}`` for API-node
+    string-field injection).
 
     Optional Story 6.6 fields (validated only when present):
 
@@ -63,14 +67,11 @@ def _validate_metadata(metadata: dict) -> str | None:
             return "aspect_ratios must be a JSON object"
         for label, dims in aspect_ratios.items():
             if not isinstance(dims, dict):
-                return f"Aspect ratio '{label}' must be a JSON object with width/height"
-            if (
-                not isinstance(dims.get("width"), int)
-                or isinstance(dims.get("width"), bool)
-                or not isinstance(dims.get("height"), int)
-                or isinstance(dims.get("height"), bool)
-            ):
-                return f"Aspect ratio '{label}' requires integer width and height"
+                return f"Aspect ratio '{label}' must be a JSON object"
+            if "width" in dims and (isinstance(dims["width"], bool) or not isinstance(dims["width"], int)):
+                return f"Aspect ratio '{label}' 'width' must be an integer"
+            if "height" in dims and (isinstance(dims["height"], bool) or not isinstance(dims["height"], int)):
+                return f"Aspect ratio '{label}' 'height' must be an integer"
 
     res_nodes = metadata.get("resolution_nodes")
     if res_nodes is not None:
@@ -79,9 +80,28 @@ def _validate_metadata(metadata: dict) -> str | None:
         for i, node in enumerate(res_nodes):
             if not isinstance(node, dict):
                 return f"resolution_nodes[{i}] must be a JSON object"
-            for field in ("node_id", "width_field", "height_field"):
-                if not isinstance(node.get(field), str) or not node[field]:
-                    return f"resolution_nodes[{i}] missing required '{field}' (string)"
+            if not isinstance(node.get("node_id"), str) or not node["node_id"]:
+                return f"resolution_nodes[{i}] missing required 'node_id' (string)"
+            has_field_map = "field_map" in node
+            has_legacy = "width_field" in node or "height_field" in node
+            if has_field_map and has_legacy:
+                return (
+                    f"resolution_nodes[{i}] cannot declare both 'field_map' and "
+                    "'width_field'/'height_field' — pick one mode"
+                )
+            if has_field_map:
+                field_map = node["field_map"]
+                if not isinstance(field_map, dict) or not field_map:
+                    return f"resolution_nodes[{i}] 'field_map' must be a non-empty JSON object"
+                for src_key, dest_field in field_map.items():
+                    if not isinstance(src_key, str) or not src_key:
+                        return f"resolution_nodes[{i}] 'field_map' keys must be non-empty strings"
+                    if not isinstance(dest_field, str) or not dest_field:
+                        return f"resolution_nodes[{i}] 'field_map' values must be non-empty strings"
+            else:
+                for field in ("width_field", "height_field"):
+                    if not isinstance(node.get(field), str) or not node[field]:
+                        return f"resolution_nodes[{i}] missing required '{field}' (string)"
 
     backend = metadata.get("backend")
     if backend is not None and (not isinstance(backend, str) or backend not in ("local", "cloud", "either")):

@@ -369,6 +369,61 @@ async def test_add_template_rejects_invalid_aspect_ratios(templates_dir):
     assert "integer" in result["error"].lower()
 
 
+# ── field_map resolution_nodes (Gemini-style API nodes) ──
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_field_map_resolution_nodes(templates_dir):
+    meta = _sample_meta(
+        aspect_ratios={"1:1": {"aspect_ratio": "1:1"}, "16:9": {"aspect_ratio": "16:9"}},
+        resolution_nodes=[{"node_id": "35", "field_map": {"aspect_ratio": "aspect_ratio"}}],
+    )
+
+    result = await slop_studio.templates.add_template("ok_fieldmap", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_field_map_with_legacy_fields(templates_dir):
+    meta = _sample_meta(
+        aspect_ratios={"1:1": {"aspect_ratio": "1:1"}},
+        resolution_nodes=[
+            {"node_id": "35", "field_map": {"aspect_ratio": "aspect_ratio"}, "width_field": "width", "height_field": "height"}
+        ],
+    )
+
+    result = await slop_studio.templates.add_template("bad_mixed", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert "pick one mode" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_empty_field_map(templates_dir):
+    meta = _sample_meta(
+        aspect_ratios={"1:1": {"aspect_ratio": "1:1"}},
+        resolution_nodes=[{"node_id": "35", "field_map": {}}],
+    )
+
+    result = await slop_studio.templates.add_template("bad_empty_fm", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert "non-empty" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_aspect_ratios_without_width_height(templates_dir):
+    meta = _sample_meta(
+        aspect_ratios={"3:4": {"aspect_ratio": "3:4"}},
+        resolution_nodes=[{"node_id": "35", "field_map": {"aspect_ratio": "aspect_ratio"}}],
+    )
+
+    result = await slop_studio.templates.add_template("ok_no_wh", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"
+
+
 # ── Story 6.6: backend / output_keys / cloud_estimate_credits validation ──
 
 
