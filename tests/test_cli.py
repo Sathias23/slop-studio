@@ -181,6 +181,15 @@ class TestAuth:
         with patch("getpass.getpass", return_value=""), pytest.raises(SystemExit, match="1"):
             _auth(_ns(comfy_cloud=True))
 
+    def test_comfy_cloud_prompt_mentions_local_partner_api_usage(self, config_dir, capsys):
+        """Auth prompt must tell the user the key is also needed for local
+        partner-API workflows, not just Comfy Cloud submissions."""
+        with patch("getpass.getpass", return_value="comfy_abcdef"):
+            _auth(_ns(comfy_cloud=True))
+        printed = capsys.readouterr().out
+        assert "partner-API" in printed or "partner API" in printed
+        assert "local" in printed
+
     # --- Review-driven patches: coverage for the hardening -----------------
 
     @pytest.mark.parametrize(

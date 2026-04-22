@@ -15,7 +15,7 @@ import httpx
 from PIL import Image
 
 from slop_studio.backends.base import Backend
-from slop_studio.config import COMFYUI_URL, OUTPUT_DIR, TEMPLATES_DIR
+from slop_studio.config import COMFYUI_URL, OUTPUT_DIR, TEMPLATES_DIR, get_comfy_cloud_api_key
 from slop_studio.errors import terminal_error, transient_error
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,38 @@ def _trans(reason: str, message: str) -> dict:
 DEFAULT_POLL_INTERVAL = 3  # seconds between polls (FR16)
 MAX_POLL_DURATION = 45  # maximum total polling time in seconds (FR16)
 MAX_FAILURE_RETRIES = 3  # retry failed jobs this many times before reporting
+
+# Comfy partner-API node classes that proxy upstream through ComfyUI's
+# account-API infrastructure and therefore require extra_data.api_key_comfy_org
+# on the /prompt payload. Without the key, the node itself 403s at execution
+# even though /prompt accepts the job. Extend both mappings together when
+# adding templates that wrap a new partner node class.
+PARTNER_API_CLASS_LABELS: dict[str, str] = {
+    "OpenAIGPTImage1": "OpenAI GPT Image",
+    "Flux2ProImageNode": "Flux 2 Pro",
+    "GeminiImage2Node": "Google Gemini Image (Nano Banana)",
+}
+PARTNER_API_CLASS_TYPES = frozenset(PARTNER_API_CLASS_LABELS.keys())
+
+
+def _workflow_partner_nodes(workflow: dict) -> list[str]:
+    """Return sorted partner-API class_types present in the workflow.
+
+    Empty list means no auth forwarding is required for this workflow.
+    """
+    seen = set()
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        class_type = node.get("class_type")
+        if isinstance(class_type, str) and class_type in PARTNER_API_CLASS_TYPES:
+            seen.add(class_type)
+    return sorted(seen)
+
+
+def _format_partner_nodes(class_types: list[str]) -> str:
+    """Format partner class_types with human-friendly labels for error messages."""
+    return ", ".join(f"{PARTNER_API_CLASS_LABELS[ct]} ({ct})" for ct in class_types)
 
 
 def generate_thumbnail(image_bytes: bytes, max_size: int = 256, quality: int = 50) -> str:
@@ -264,6 +296,28 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
             f"Unsupported aspect ratio '{aspect_ratio}'. Supported: {supported}",
         )
 
+    # Partner-API nodes (OpenAI, BFL/Flux Pro, Gemini) proxy through ComfyUI's
+    # account-API infrastructure even when executed locally, so /prompt needs
+    # extra_data.api_key_comfy_org or the node 403s at execution. See
+    # https://docs.comfy.org/development/comfyui-server/api-key-integration.
+    # Detect on the raw workflow BEFORE _inject_inputs — partner detection
+    # only looks at class_type, and _inject_inputs would otherwise spend time
+    # uploading images to ComfyUI only to have the auth check fail immediately.
+    partner_nodes = _workflow_partner_nodes(workflow)
+    api_key = ""
+    if partner_nodes:
+        api_key = get_comfy_cloud_api_key()
+        if not api_key:
+            return _err(
+                "auth_failed",
+                f"Template uses partner-API node(s) ({_format_partner_nodes(partner_nodes)}) "
+                "which require a ComfyUI account API key, but none is configured. "
+                "Run `slop-studio auth --comfy-cloud` to set one, or add a "
+                "'comfy_cloud': {'api_key': '...'} entry to "
+                "~/.config/slop-studio/credentials.json. Get a key at "
+                "https://platform.comfy.org/profile/api-keys.",
+            )
+
     # Prepare workflow
     prepared = copy.deepcopy(workflow)
     try:
@@ -283,12 +337,16 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
     _randomize_seeds(prepared)
     _inject_resolution(prepared, meta, aspect_ratio)
 
+    payload: dict = {"prompt": prepared}
+    if partner_nodes:
+        payload["extra_data"] = {"api_key_comfy_org": api_key}
+
     # Submit to ComfyUI
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{COMFYUI_URL}/prompt",
-                json={"prompt": prepared},
+                json=payload,
             )
             response.raise_for_status()
     except httpx.HTTPStatusError as exc:
