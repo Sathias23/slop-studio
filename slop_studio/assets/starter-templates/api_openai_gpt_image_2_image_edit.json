@@ -1,0 +1,43 @@
+{
+  "268": {
+    "inputs": {
+      "prompt": "A product technical analysis infographic matching the reference image's visual style, layout, and color palette.",
+      "seed": 126220530,
+      "quality": "high",
+      "background": "auto",
+      "size": "1024x1024",
+      "n": 1,
+      "model": "gpt-image-2",
+      "image": [
+        "271",
+        0
+      ]
+    },
+    "class_type": "OpenAIGPTImage1",
+    "_meta": {
+      "title": "OpenAI GPT Image 2"
+    }
+  },
+  "269": {
+    "inputs": {
+      "filename_prefix": "gpt-image-2",
+      "images": [
+        "268",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "271": {
+    "inputs": {
+      "image": "example.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  }
+}

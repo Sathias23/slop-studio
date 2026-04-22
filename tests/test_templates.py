@@ -153,6 +153,117 @@ async def test_starter_templates_all_declare_explicit_backend(templates_dir):
         )
 
 
+def _starter_template_pairs():
+    """Yield (name, meta_path, workflow_path) for every shipped starter template.
+
+    Parametrization helper — surfaces one failing test per broken template
+    rather than collapsing into a single opaque assertion.
+    """
+    from pathlib import Path
+
+    starter_dir = Path(__file__).resolve().parent.parent / "slop_studio" / "assets" / "starter-templates"
+    for meta_path in sorted(starter_dir.glob("*.meta.json")):
+        name = meta_path.name.removesuffix(".meta.json")
+        yield name, meta_path, starter_dir / f"{name}.json"
+
+
+@pytest.mark.parametrize("name, meta_path, workflow_path", list(_starter_template_pairs()))
+def test_starter_template_meta_matches_workflow(name, meta_path, workflow_path):
+    """Every shipped starter template must have a workflow file whose nodes and
+    fields match the node_id/field references declared in its sidecar.
+
+    A silent drift between the .json and .meta.json (renamed node, stale field)
+    doesn't trip the validator (which only checks meta-internal consistency) but
+    would break queue_prompt at runtime. This canary catches the cross-file
+    contract at CI time.
+    """
+    assert workflow_path.exists(), f"starter template '{name}' is missing its workflow .json"
+
+    meta = json.loads(meta_path.read_text())
+    workflow = json.loads(workflow_path.read_text())
+
+    assert meta.get("name") == name, f"meta 'name' field ({meta.get('name')!r}) must match filename stem ({name!r})"
+
+    err = slop_studio.templates._validate_metadata(meta)
+    assert err is None, f"{name}: _validate_metadata failed: {err}"
+
+    for input_name, input_def in (meta.get("inputs") or {}).items():
+        node_id = input_def["node_id"]
+        field = input_def["field"]
+        assert node_id in workflow, (
+            f"{name}: input '{input_name}' references node_id {node_id!r}, which is not a key in {workflow_path.name}"
+        )
+        node_inputs = workflow[node_id].get("inputs", {})
+        assert field in node_inputs, (
+            f"{name}: input '{input_name}' references field {field!r} on node "
+            f"{node_id}, but that field is not present in {workflow_path.name}"
+        )
+
+    for i, res_node in enumerate(meta.get("resolution_nodes") or []):
+        node_id = res_node["node_id"]
+        assert node_id in workflow, (
+            f"{name}: resolution_nodes[{i}] references node_id {node_id!r}, which is not a key in {workflow_path.name}"
+        )
+        node_inputs = workflow[node_id].get("inputs", {})
+        if "field_map" in res_node:
+            aspect_ratios = meta.get("aspect_ratios") or {}
+            for dest_field in res_node["field_map"].values():
+                assert dest_field in node_inputs, (
+                    f"{name}: resolution_nodes[{i}] field_map targets field "
+                    f"{dest_field!r} on node {node_id}, but that field is "
+                    f"not present in {workflow_path.name}"
+                )
+            for src_key in res_node["field_map"]:
+                for label, dims in aspect_ratios.items():
+                    assert src_key in dims, (
+                        f"{name}: aspect_ratios[{label!r}] is missing key "
+                        f"{src_key!r} required by resolution_nodes[{i}].field_map"
+                    )
+        else:
+            for fk in ("width_field", "height_field"):
+                assert res_node[fk] in node_inputs, (
+                    f"{name}: resolution_nodes[{i}].{fk} targets field "
+                    f"{res_node[fk]!r} on node {node_id}, but that field is "
+                    f"not present in {workflow_path.name}"
+                )
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["api_openai_gpt_image_2_t2i", "api_openai_gpt_image_2_image_edit"],
+)
+@pytest.mark.parametrize(
+    "aspect_ratio, expected_size",
+    [
+        ("1:1", "1024x1024"),
+        ("3:2", "1536x1024"),
+        ("2:3", "1024x1536"),
+        ("16:9", "1536x1024"),
+        ("9:16", "1024x1536"),
+        ("21:9", "1536x1024"),
+    ],
+)
+def test_gpt_image_2_aspect_ratio_injection(name, aspect_ratio, expected_size):
+    """Exercise _inject_resolution against the shipped GPT Image 2 sidecars.
+
+    Covers the field_map path for API nodes whose size input is a literal
+    'WIDTHxHEIGHT' string (distinct from integer width/height pairs and from
+    Gemini's 'aspect_ratio: "3:4"' convention). Keeps the sidecar → injector
+    contract honest across label → size mapping changes.
+    """
+    from pathlib import Path
+
+    from slop_studio.backends.local import _inject_resolution
+
+    starter_dir = Path(__file__).resolve().parent.parent / "slop_studio" / "assets" / "starter-templates"
+    meta = json.loads((starter_dir / f"{name}.meta.json").read_text())
+    workflow = json.loads((starter_dir / f"{name}.json").read_text())
+
+    _inject_resolution(workflow, meta, aspect_ratio)
+
+    assert workflow["268"]["inputs"]["size"] == expected_size
+
+
 @pytest.mark.anyio
 async def test_get_template_returns_full_metadata(templates_dir):
     meta = _write_meta(templates_dir, "mytemplate")

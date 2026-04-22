@@ -1,0 +1,36 @@
+{
+  "name": "api_openai_gpt_image_2_t2i",
+  "model": "gpt-image-2",
+  "description": "OpenAI GPT Image 2 via the OpenAIGPTImage1 API node — text-to-image variant. No reference images; the prompt alone drives composition. Image size is parameterizable via the top-level aspect_ratio argument (default baked into the workflow is 1024x1024). GPT Image 2 currently delivers three documented sizes (1024x1024, 1536x1024, 1024x1536); the shared 10-label aspect_ratio vocabulary is mapped to the nearest of those (e.g. '4:3', '16:9' and '21:9' all resolve to 1536x1024). Runs against the local ComfyUI server (Comfy Cloud does not yet ship gpt-image-2); requires an OpenAI API key configured in your local ComfyUI installation.",
+  "backend": "local",
+  "expected_duration": "30 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "268",
+      "field": "prompt",
+      "type": "required",
+      "description": "Text description of the image to generate."
+    },
+    "quality": {
+      "node_id": "268",
+      "field": "quality",
+      "type": "optional",
+      "description": "Render quality tier. One of 'low', 'medium', 'high', or 'auto'. Higher tiers cost more against your OpenAI account."
+    }
+  },
+  "aspect_ratios": {
+    "1:1":  {"size": "1024x1024"},
+    "3:2":  {"size": "1536x1024"},
+    "2:3":  {"size": "1024x1536"},
+    "4:3":  {"size": "1536x1024"},
+    "3:4":  {"size": "1024x1536"},
+    "5:4":  {"size": "1024x1024"},
+    "4:5":  {"size": "1024x1024"},
+    "16:9": {"size": "1536x1024"},
+    "9:16": {"size": "1024x1536"},
+    "21:9": {"size": "1536x1024"}
+  },
+  "resolution_nodes": [
+    {"node_id": "268", "field_map": {"size": "size"}}
+  ]
+}

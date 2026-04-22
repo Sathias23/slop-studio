@@ -148,12 +148,17 @@ async def _inject_inputs(workflow: dict, meta_inputs: dict, user_inputs: dict) -
 
 
 def _randomize_seeds(workflow: dict) -> None:
-    """Replace all seed/noise_seed fields with random values to prevent cache hits."""
+    """Replace all seed/noise_seed fields with random values to prevent cache hits.
+
+    Capped at int32 max (2**31 - 1) rather than int64 — OpenAI's
+    OpenAIGPTImage1 node validates `seed` as int32 and rejects anything
+    larger. 2.1B unique values is plenty of cache-collision headroom.
+    """
     for node in workflow.values():
         inputs = node.get("inputs", {})
         for key in ("seed", "noise_seed"):
             if key in inputs and isinstance(inputs[key], int):
-                inputs[key] = random.randint(0, 2**63 - 1)
+                inputs[key] = random.randint(0, 2**31 - 1)
 
 
 def _inject_resolution(workflow: dict, meta: dict, aspect_ratio: str | None) -> None:
