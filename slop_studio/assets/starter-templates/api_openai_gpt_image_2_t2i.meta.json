@@ -1,8 +1,8 @@
 {
   "name": "api_openai_gpt_image_2_t2i",
   "model": "gpt-image-2",
-  "description": "OpenAI GPT Image 2 via the OpenAIGPTImage1 Comfy Cloud API node — text-to-image variant. No reference images; the prompt alone drives composition. Image size is parameterizable via the top-level aspect_ratio argument (default baked into the workflow is 1024x1024). GPT Image 2 currently delivers three documented sizes (1024x1024, 1536x1024, 1024x1536); the shared 10-label aspect_ratio vocabulary is mapped to the nearest of those (e.g. '4:3', '16:9' and '21:9' all resolve to 1536x1024). Runs via a Comfy Cloud API node (requires a configured OpenAI key in Comfy Cloud credentials).",
-  "backend": "cloud",
+  "description": "OpenAI GPT Image 2 via the OpenAIGPTImage1 API node — text-to-image variant. No reference images; the prompt alone drives composition. Image size is parameterizable via the top-level aspect_ratio argument (default baked into the workflow is 1024x1024). GPT Image 2 currently delivers three documented sizes (1024x1024, 1536x1024, 1024x1536); the shared 10-label aspect_ratio vocabulary is mapped to the nearest of those (e.g. '4:3', '16:9' and '21:9' all resolve to 1536x1024). Runs against the local ComfyUI server (Comfy Cloud does not yet ship gpt-image-2); requires an OpenAI API key configured in your local ComfyUI installation.",
+  "backend": "local",
   "expected_duration": "30 seconds",
   "inputs": {
     "prompt": {
@@ -15,7 +15,7 @@
       "node_id": "268",
       "field": "quality",
       "type": "optional",
-      "description": "Render quality tier. One of 'low', 'medium', 'high', or 'auto'. Higher tiers use more Comfy Cloud credits."
+      "description": "Render quality tier. One of 'low', 'medium', 'high', or 'auto'. Higher tiers cost more against your OpenAI account."
     }
   },
   "aspect_ratios": {
