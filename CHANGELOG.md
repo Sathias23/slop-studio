@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-22
+
+### Added
+
+- **OpenAI GPT Image 2 starter templates** — `api_openai_gpt_image_2_t2i` (text-to-image) and `api_openai_gpt_image_2_image_edit` (single-reference edit). Both tagged `backend: "local"` since Comfy Cloud doesn't yet ship gpt-image-2. Aspect ratio uses the shared 10-label vocabulary (`1:1, 3:2, 2:3, 4:3, 3:4, 5:4, 4:5, 16:9, 9:16, 21:9`) mapped to OpenAI's three documented sizes (1024x1024, 1536x1024, 1024x1536); the sidecar descriptions call out the collapse so users aren't surprised when e.g. `16:9` and `21:9` both resolve to `1536x1024`.
+- **Starter-template cross-file integrity canary** (`tests/test_templates.py::test_starter_template_meta_matches_workflow`) — parametrized over every shipped starter pair, asserts that node_ids and fields referenced by each `.meta.json` actually exist in the paired workflow JSON. Catches drift that `_validate_metadata` can't see on its own.
+- `scripts/smoke_gpt_image_2.py` — one-shot live harness that submits a low-quality GPT Image 2 job to local ComfyUI and polls to completion. Intended for manual verification after template changes.
+
+### Fixed
+
+- **Local-backend submissions of partner-API templates now forward `extra_data.api_key_comfy_org` on the `/prompt` payload**. Previously every `api_*` template (Flux 2 Pro, Nano Banana Pro, GPT Image 2) ran locally would 403 at execution with `Unauthorized: Please login first to use this node` because `cloud.py:201` attaches the key only on cloud submissions — partner nodes proxy through ComfyUI's account-API infrastructure even when executed locally. The fix scans the prepared workflow for known partner `class_type`s (`OpenAIGPTImage1`, `Flux2ProImageNode`, `GeminiImage2Node`), reuses the existing `comfy_cloud.api_key` credential (no new env var or credential slot), and fails fast with a clear `auth_failed` error *before* the image-upload step when the key is missing. Non-partner workflows keep their payload shape unchanged.
+- `_randomize_seeds` capped at int32 max (`2**31 - 1`) instead of int64. The `OpenAIGPTImage1` node validates `seed` as int32 and rejects anything larger with `value_bigger_than_max` at submission. 2.1B unique values remains plenty of cache-collision headroom, and int32 values are valid int64 inputs so the cap is safe for every other node in the catalogue.
+
+### Changed
+
+- `slop-studio auth --comfy-cloud` prompt copy and argparse help now explain the key's dual role — it's required for Comfy Cloud submissions AND for any local workflow that uses a Comfy partner-API node (OpenAI GPT Image, Flux 2 Pro, Gemini/Nano Banana, etc.). Surfacing this at the auth prompt means users don't have to reverse-engineer why their first `api_*` template run failed.
+
 ## [0.4.5] - 2026-04-18
 
 ### Added
