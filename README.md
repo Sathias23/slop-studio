@@ -9,7 +9,7 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Ships eleven starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), and Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud)
+- Ships thirteen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
 - Automatic ComfyUI spawning and lifecycle management
@@ -164,7 +164,7 @@ slop-studio auth --all           # both
 Running `auth` **merges** into the existing file — configuring one service never clobbers the other. Existing entries for the selected service prompt a per-service overwrite confirmation.
 
 - Create a Bluesky app password at [bsky.app](https://bsky.app) > Settings > App Passwords.
-- Create a Comfy Cloud API key at [platform.comfy.org/profile/api-keys](https://platform.comfy.org/profile/api-keys) (shown once — copy it immediately).
+- Create a Comfy Cloud API key at [platform.comfy.org/profile/api-keys](https://platform.comfy.org/profile/api-keys) (shown once — copy it immediately). The same key is used for both Comfy Cloud submissions AND any **local** workflow that includes a Comfy partner-API node (OpenAI GPT Image 2, Flux 2 Pro, Gemini / Nano Banana, etc.) — the node proxies upstream through Comfy's account-API infrastructure even when ComfyUI itself runs locally.
 
 ## CLI
 
@@ -280,13 +280,18 @@ See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the a
 
 ## Templates
 
-Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Eleven starter templates ship with every project, spanning both backends:
+Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Thirteen starter templates ship with every project, spanning both backends:
 
-**Local (Flux.2 Klein GGUF, 16 GB VRAM):**
+**Local — GGUF models on your GPU (Flux.2 Klein, 16 GB VRAM):**
 
 - **flux2_klein** — fast single-pass generation (~30s), 9 aspect ratios
 - **flux2_klein_ultrawide** — 3440x1440 wallpapers with 4x upscale (~60s)
 - **flux2_klein_edit** — multi-reference image editing with style/content transfer (~60s)
+
+**Local — partner-API nodes (requires `COMFY_CLOUD_API_KEY`; no VRAM used, node proxies upstream):**
+
+- **api_openai_gpt_image_2_t2i** — OpenAI GPT Image 2 text-to-image; 10 aspect ratios
+- **api_openai_gpt_image_2_image_edit** — OpenAI GPT Image 2 single-reference edit; 10 aspect ratios
 
 **Cloud (Comfy Cloud; requires `COMFY_CLOUD_API_KEY`):**
 
@@ -295,7 +300,7 @@ Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Eleven 
 - **api_flux2_pro_1img / _2img / _4img** — Flux.2 Pro API (Black Forest Labs), one / two / four reference images; 7 aspect ratios each
 - **api_nano_banana_pro_text_to_image / _1img / _2img** — Google Gemini 3 Pro Image ("Nano Banana Pro"); 10 aspect ratios each
 
-Cloud templates don't touch local VRAM — the partner API nodes run upstream at BFL and Google. Add your own by exporting a workflow from ComfyUI's browser UI and calling `add_template`.
+Cloud templates don't touch local VRAM — the partner-API nodes run upstream at BFL and Google. The GPT Image 2 variants are tagged `backend: "local"` (submissions go through your local ComfyUI) but the actual generation happens at OpenAI via Comfy's partner-API proxy — your GPU stays idle. Comfy Cloud doesn't yet ship the gpt-image-2 model, so local-routed is the only option today. Add your own by exporting a workflow from ComfyUI's browser UI and calling `add_template`.
 
 ## Configuration
 
