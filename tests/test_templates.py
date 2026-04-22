@@ -182,9 +182,7 @@ def test_starter_template_meta_matches_workflow(name, meta_path, workflow_path):
     meta = json.loads(meta_path.read_text())
     workflow = json.loads(workflow_path.read_text())
 
-    assert meta.get("name") == name, (
-        f"meta 'name' field ({meta.get('name')!r}) must match filename stem ({name!r})"
-    )
+    assert meta.get("name") == name, f"meta 'name' field ({meta.get('name')!r}) must match filename stem ({name!r})"
 
     err = slop_studio.templates._validate_metadata(meta)
     assert err is None, f"{name}: _validate_metadata failed: {err}"
@@ -193,8 +191,7 @@ def test_starter_template_meta_matches_workflow(name, meta_path, workflow_path):
         node_id = input_def["node_id"]
         field = input_def["field"]
         assert node_id in workflow, (
-            f"{name}: input '{input_name}' references node_id {node_id!r}, "
-            f"which is not a key in {workflow_path.name}"
+            f"{name}: input '{input_name}' references node_id {node_id!r}, which is not a key in {workflow_path.name}"
         )
         node_inputs = workflow[node_id].get("inputs", {})
         assert field in node_inputs, (
@@ -205,8 +202,7 @@ def test_starter_template_meta_matches_workflow(name, meta_path, workflow_path):
     for i, res_node in enumerate(meta.get("resolution_nodes") or []):
         node_id = res_node["node_id"]
         assert node_id in workflow, (
-            f"{name}: resolution_nodes[{i}] references node_id {node_id!r}, "
-            f"which is not a key in {workflow_path.name}"
+            f"{name}: resolution_nodes[{i}] references node_id {node_id!r}, which is not a key in {workflow_path.name}"
         )
         node_inputs = workflow[node_id].get("inputs", {})
         if "field_map" in res_node:
