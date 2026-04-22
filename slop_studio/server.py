@@ -716,9 +716,17 @@ async def post_to_bluesky(
 ) -> dict:
     """Post generated image(s) to Bluesky (up to 4).
 
-    Uploads image(s) and creates a post with the given text. Hashtags are
-    rendered as proper AT Protocol tag facets (clickable and searchable).
-    Images over 1 MB are automatically compressed to JPEG.
+    Uploads image(s) and creates a post with the given text. Images over
+    1 MB are automatically compressed to JPEG.
+
+    Hashtag handling — IMPORTANT:
+        Pass hashtag names (without `#`) via the `tags` parameter. The tool
+        automatically appends them as a trailing `#tag #tag ...` line with
+        proper AT Protocol richtext facets (clickable and searchable).
+        Do NOT write `#tag` strings inside `text` — the body is not scanned
+        for hashtags, so any `#foo` in `text` renders as plain text with no
+        facet and is not searchable. If you want the message to read a
+        certain way, put prose in `text` and the full tag list in `tags`.
 
     Provide EITHER image_path + alt_text for a single image, OR images for
     multiple. Do not provide both.
@@ -727,10 +735,13 @@ async def post_to_bluesky(
     Create an app password at bsky.app > Settings > App Passwords.
 
     Args:
-        text: Post text (max 300 characters including tags).
+        text: Post body (max 300 characters including the appended tag line).
+              Put the human-readable message here. Do NOT include `#hashtag`
+              strings — pass those via `tags`.
         image_path: Absolute path to a single image file (legacy).
         alt_text: Alt text for the single image_path.
-        tags: Optional hashtags without #. e.g. ["aiart", "comfyui"]
+        tags: Hashtag names without `#`. e.g. ["aiart", "comfyui"]. The tool
+              appends these to the post as a facetted `#tag #tag ...` line.
         images: List of image dicts, each with "path" and "alt_text" keys.
                 Up to 4. e.g. [{"path": "/out/a.png", "alt_text": "desc"}]
     """
