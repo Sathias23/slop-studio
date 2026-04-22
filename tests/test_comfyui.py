@@ -387,11 +387,10 @@ async def test_partner_fail_fast_skips_image_upload(templates_dir, monkeypatch, 
     # Use a real-looking path; _upload_image would try to open it if reached
     fake_image = tmp_path / "ref.png"
     from PIL import Image as _PILImage
+
     _PILImage.new("RGB", (8, 8), "red").save(fake_image)
 
-    result = await slop_studio.comfyui.queue_prompt(
-        "partner_image", {"prompt": "hello", "image1": str(fake_image)}
-    )
+    result = await slop_studio.comfyui.queue_prompt("partner_image", {"prompt": "hello", "image1": str(fake_image)})
 
     assert result["error_type"] == "auth_failed"
     assert not upload_route.called, "upload should not run when partner auth fails fast"
