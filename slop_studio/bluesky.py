@@ -2,6 +2,7 @@
 
 import io
 import logging
+import re
 from pathlib import Path
 
 from atproto import AsyncClient, client_utils, models
@@ -151,10 +152,77 @@ def _normalise_image_entries(
     )
 
 
+# URL detection — matches three shapes that Bluesky should linkify:
+#   1. scheme-prefixed:   https://example.com/path  or  http://...
+#   2. www-prefixed:      www.example.com/path
+#   3. bare domain+path:  github.com/foo  (requires a path so we don't match
+#                         every "word.com" in prose; TLD allowlist kept narrow
+#                         to avoid false positives on filenames like README.md)
+_COMMON_TLDS = (
+    "com",
+    "org",
+    "net",
+    "io",
+    "dev",
+    "ai",
+    "co",
+    "app",
+    "me",
+    "xyz",
+    "social",
+    "tv",
+    "gg",
+    "so",
+    "blog",
+)
+_URL_RE = re.compile(
+    r"(?:https?://|www\.)[^\s]+"
+    r"|"
+    r"(?:[a-zA-Z0-9](?:[-a-zA-Z0-9]{0,61}[a-zA-Z0-9])?\.)+"
+    r"(?:" + "|".join(_COMMON_TLDS) + r")"
+    r"/[^\s]+",
+    re.IGNORECASE,
+)
+# Trailing punctuation that's almost always sentence punctuation, not part
+# of the URL. Keep this list conservative — stripping too aggressively would
+# mutilate legitimate query strings.
+_TRAILING_PUNCT = ".,;:!?)"
+
+
+def _split_trailing_punct(url: str) -> tuple[str, str]:
+    """Peel any trailing sentence punctuation off a candidate URL match."""
+    end = len(url)
+    while end > 0 and url[end - 1] in _TRAILING_PUNCT:
+        end -= 1
+    return url[:end], url[end:]
+
+
+def _normalise_url(display: str) -> str:
+    """Prepend https:// to bare domains so the facet points somewhere real."""
+    if display.lower().startswith(("http://", "https://")):
+        return display
+    return f"https://{display}"
+
+
 def _build_post_text(text: str, tags: list[str] | None = None) -> client_utils.TextBuilder:
-    """Build rich text with optional hashtag facets using TextBuilder."""
+    """Build rich text with URL and optional hashtag facets using TextBuilder."""
     tb = client_utils.TextBuilder()
-    tb.text(text)
+
+    # Emit alternating text / link segments so URLs render as clickable
+    # facets in every Bluesky client — the composer's auto-linkify only
+    # runs for posts authored in the official app.
+    cursor = 0
+    for match in _URL_RE.finditer(text):
+        if match.start() > cursor:
+            tb.text(text[cursor : match.start()])
+        display, trailing = _split_trailing_punct(match.group(0))
+        tb.link(display, _normalise_url(display))
+        if trailing:
+            tb.text(trailing)
+        cursor = match.end()
+    if cursor < len(text):
+        tb.text(text[cursor:])
+
     if tags:
         # Sanitize: strip #, drop empty/whitespace-only tags
         clean = [t.lstrip("#").strip() for t in tags]

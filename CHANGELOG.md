@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-04-22
+
+### Fixed
+
+- `post_to_bluesky` now emits AT Protocol **link facets** for URLs in the post text, not just for hashtags. Previously a post containing `github.com/Sathias23/slop-studio` rendered as plain, unclickable text in every Bluesky client — the official composer's auto-linkify only fires for posts authored in its own UI. The fix detects three URL shapes (scheme-prefixed `https://…` / `http://…`, `www.…`, and bare `domain.tld/path` across a conservative TLD allowlist), strips trailing sentence punctuation, and prepends `https://` to bare-domain matches so the facet uri is always well-formed. Version strings (`v0.5.0`) and filenames (`README.md`) are deliberately not linkified.
+
 ## [0.5.0] - 2026-04-22
 
 ### Added

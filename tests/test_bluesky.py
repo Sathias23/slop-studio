@@ -305,6 +305,87 @@ def test_build_post_text_all_invalid_tags():
     assert tb.build_text() == "hello"
 
 
+# --- URL faceting ---
+
+
+def _link_facet_uris(tb) -> list[str]:
+    """Extract the uri of every Link feature from a TextBuilder."""
+    uris = []
+    for facet in tb.build_facets():
+        for feature in facet.features:
+            if getattr(feature, "uri", None):
+                uris.append(feature.uri)
+    return uris
+
+
+def test_build_post_text_scheme_prefixed_url_is_faceted():
+    tb = bluesky._build_post_text("check https://github.com/foo for the repo")
+    assert tb.build_text() == "check https://github.com/foo for the repo"
+    assert _link_facet_uris(tb) == ["https://github.com/foo"]
+
+
+def test_build_post_text_bare_domain_with_path_is_faceted_and_normalised():
+    """Bare domain.tld/path gets https:// prepended for the facet uri while
+    the display text stays bare."""
+    tb = bluesky._build_post_text("details at github.com/Sathias23/slop-studio")
+    assert tb.build_text() == "details at github.com/Sathias23/slop-studio"
+    assert _link_facet_uris(tb) == ["https://github.com/Sathias23/slop-studio"]
+
+
+def test_build_post_text_www_prefixed_url_is_faceted():
+    tb = bluesky._build_post_text("see www.comfy.org/cloud for docs")
+    uris = _link_facet_uris(tb)
+    assert uris == ["https://www.comfy.org/cloud"]
+
+
+def test_build_post_text_trailing_period_stripped_from_url():
+    """Sentence punctuation must not be swallowed into the facet — otherwise
+    the linkified URL 404s."""
+    tb = bluesky._build_post_text("find it at github.com/foo/bar.")
+    assert tb.build_text() == "find it at github.com/foo/bar."
+    assert _link_facet_uris(tb) == ["https://github.com/foo/bar"]
+
+
+def test_build_post_text_multiple_urls_get_separate_facets():
+    tb = bluesky._build_post_text("see github.com/a/b and https://example.com/c")
+    assert _link_facet_uris(tb) == [
+        "https://github.com/a/b",
+        "https://example.com/c",
+    ]
+
+
+def test_build_post_text_version_strings_are_not_faceted():
+    """Bare-domain detection must not fire on version numbers like 0.5.0 —
+    the TLD allowlist is load-bearing."""
+    tb = bluesky._build_post_text("slop-studio v0.5.0 is out now")
+    assert _link_facet_uris(tb) == []
+
+
+def test_build_post_text_filenames_are_not_faceted():
+    """README.md shouldn't become a link. 'md' is deliberately not in the TLD list."""
+    tb = bluesky._build_post_text("see README.md for setup")
+    assert _link_facet_uris(tb) == []
+
+
+def test_build_post_text_url_and_tags_coexist():
+    """A post with both a URL and hashtags gets one link facet plus one tag facet each."""
+    tb = bluesky._build_post_text(
+        "slop-studio v0.5.1 — github.com/Sathias23/slop-studio",
+        tags=["aiart", "comfyui"],
+    )
+    text = tb.build_text()
+    assert text == "slop-studio v0.5.1 — github.com/Sathias23/slop-studio\n\n#aiart #comfyui"
+    facets = tb.build_facets()
+    # 1 link + 2 tags = 3 facets
+    assert len(facets) == 3
+    assert _link_facet_uris(tb) == ["https://github.com/Sathias23/slop-studio"]
+
+
+def test_build_post_text_no_url_no_link_facets():
+    tb = bluesky._build_post_text("just plain text with no links whatsoever")
+    assert _link_facet_uris(tb) == []
+
+
 # --- Error edge cases ---
 
 
