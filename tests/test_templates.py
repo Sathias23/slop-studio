@@ -217,7 +217,7 @@ def test_starter_template_meta_matches_workflow(name, meta_path, workflow_path):
                     f"{dest_field!r} on node {node_id}, but that field is "
                     f"not present in {workflow_path.name}"
                 )
-            for src_key in res_node["field_map"].keys():
+            for src_key in res_node["field_map"]:
                 for label, dims in aspect_ratios.items():
                     assert src_key in dims, (
                         f"{name}: aspect_ratios[{label!r}] is missing key "
