@@ -133,6 +133,270 @@ async def test_aspect_ratio_injection(sample_templates):
     assert request_body["prompt"]["5"]["inputs"]["height"] == 768
 
 
+# ── partner-API auth forwarding (extra_data.api_key_comfy_org) ──
+
+PARTNER_WORKFLOW = {
+    "268": {
+        "class_type": "OpenAIGPTImage1",
+        "inputs": {
+            "prompt": "",
+            "seed": 0,
+            "quality": "low",
+            "size": "1024x1024",
+            "model": "gpt-image-2",
+        },
+    },
+    "269": {
+        "class_type": "SaveImage",
+        "inputs": {"filename_prefix": "out", "images": ["268", 0]},
+    },
+}
+
+PARTNER_META = {
+    "name": "partner_template",
+    "model": "gpt-image-2",
+    "description": "Partner-API test template",
+    "expected_duration": "5 seconds",
+    "inputs": {
+        "prompt": {"node_id": "268", "field": "prompt", "type": "required", "description": "Prompt"},
+    },
+    "aspect_ratios": {"1:1": {"size": "1024x1024"}},
+    "resolution_nodes": [{"node_id": "268", "field_map": {"size": "size"}}],
+}
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_non_partner_workflow_omits_extra_data_when_no_key(sample_templates, monkeypatch):
+    """Plain KSampler workflow must not grow an extra_data block regardless of
+    whether a key is configured — keeps the non-partner error surface minimal."""
+    monkeypatch.setattr("slop_studio.backends.local.get_comfy_cloud_api_key", lambda: "")
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
+    )
+    await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+
+    request_body = json.loads(respx.calls.last.request.content)
+    assert "extra_data" not in request_body
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_non_partner_workflow_omits_extra_data_even_with_key(sample_templates, monkeypatch):
+    monkeypatch.setattr("slop_studio.backends.local.get_comfy_cloud_api_key", lambda: "comfyui-TESTKEY")
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
+    )
+    await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+
+    request_body = json.loads(respx.calls.last.request.content)
+    assert "extra_data" not in request_body
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_partner_workflow_attaches_api_key(templates_dir, monkeypatch):
+    """A workflow containing OpenAIGPTImage1 must carry extra_data.api_key_comfy_org."""
+    write_template(templates_dir, "partner_template", PARTNER_WORKFLOW, PARTNER_META)
+    monkeypatch.setattr("slop_studio.backends.local.get_comfy_cloud_api_key", lambda: "comfyui-TESTKEY")
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
+    )
+
+    result = await slop_studio.comfyui.queue_prompt("partner_template", {"prompt": "hello"})
+
+    assert result == {"status": "success", "prompt_id": "abc-123"}
+    request_body = json.loads(respx.calls.last.request.content)
+    assert request_body.get("extra_data") == {"api_key_comfy_org": "comfyui-TESTKEY"}
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_partner_workflow_fails_fast_without_key(templates_dir, monkeypatch):
+    """Partner template + missing key must return auth_failed BEFORE hitting /prompt."""
+    write_template(templates_dir, "partner_template", PARTNER_WORKFLOW, PARTNER_META)
+    monkeypatch.setattr("slop_studio.backends.local.get_comfy_cloud_api_key", lambda: "")
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
+    )
+
+    result = await slop_studio.comfyui.queue_prompt("partner_template", {"prompt": "hello"})
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "auth_failed"
+    assert result["backend"] == "local"
+    assert "OpenAIGPTImage1" in result["error"]
+    assert "slop-studio auth --comfy-cloud" in result["error"]
+    # No POST should have been made
+    assert len(respx.calls) == 0
+
+
+@pytest.mark.parametrize(
+    "class_type",
+    ["OpenAIGPTImage1", "Flux2ProImageNode", "GeminiImage2Node"],
+)
+def test_workflow_partner_nodes_detects_known_classes(class_type):
+    from slop_studio.backends.local import _workflow_partner_nodes
+
+    workflow = {"1": {"class_type": class_type, "inputs": {}}}
+    assert _workflow_partner_nodes(workflow) == [class_type]
+
+
+def test_workflow_partner_nodes_empty_for_core_classes():
+    from slop_studio.backends.local import _workflow_partner_nodes
+
+    workflow = {
+        "1": {"class_type": "KSampler", "inputs": {}},
+        "2": {"class_type": "CLIPTextEncode", "inputs": {}},
+        "3": {"class_type": "SaveImage", "inputs": {}},
+    }
+    assert _workflow_partner_nodes(workflow) == []
+
+
+def test_workflow_partner_nodes_returns_sorted_unique():
+    from slop_studio.backends.local import _workflow_partner_nodes
+
+    workflow = {
+        "1": {"class_type": "GeminiImage2Node", "inputs": {}},
+        "2": {"class_type": "KSampler", "inputs": {}},
+        "3": {"class_type": "OpenAIGPTImage1", "inputs": {}},
+        "4": {"class_type": "OpenAIGPTImage1", "inputs": {}},
+    }
+    assert _workflow_partner_nodes(workflow) == ["GeminiImage2Node", "OpenAIGPTImage1"]
+
+
+@pytest.mark.parametrize(
+    "bad_node",
+    [
+        None,
+        "string",
+        42,
+        [],
+        {"inputs": {}},  # missing class_type
+        {"class_type": None, "inputs": {}},
+        {"class_type": 42, "inputs": {}},
+        {"class_type": [], "inputs": {}},
+    ],
+)
+def test_workflow_partner_nodes_ignores_malformed_entries(bad_node):
+    """Defensive guards: hand-edited templates with malformed node entries
+    must not crash detection — they just don't match."""
+    from slop_studio.backends.local import _workflow_partner_nodes
+
+    workflow = {"1": bad_node, "2": {"class_type": "OpenAIGPTImage1", "inputs": {}}}
+    assert _workflow_partner_nodes(workflow) == ["OpenAIGPTImage1"]
+
+
+MIXED_PARTNER_WORKFLOW = {
+    "10": {
+        "class_type": "OpenAIGPTImage1",
+        "inputs": {"prompt": "", "seed": 0, "size": "1024x1024", "model": "gpt-image-2"},
+    },
+    "20": {
+        "class_type": "GeminiImage2Node",
+        "inputs": {"prompt": "", "seed": 0, "aspect_ratio": "1:1"},
+    },
+    "30": {
+        "class_type": "SaveImage",
+        "inputs": {"filename_prefix": "out", "images": ["10", 0]},
+    },
+}
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_multi_partner_workflow_error_lists_all_classes(templates_dir, monkeypatch):
+    """Error message must enumerate every partner class found, alphabetically
+    sorted, with both the friendly label and the raw class_type."""
+    meta = {**PARTNER_META, "name": "multi_partner"}
+    meta["inputs"] = {"prompt": {"node_id": "10", "field": "prompt", "type": "required", "description": "Prompt"}}
+    meta["resolution_nodes"] = [{"node_id": "10", "field_map": {"size": "size"}}]
+    write_template(templates_dir, "multi_partner", MIXED_PARTNER_WORKFLOW, meta)
+    monkeypatch.setattr("slop_studio.backends.local.get_comfy_cloud_api_key", lambda: "")
+
+    result = await slop_studio.comfyui.queue_prompt("multi_partner", {"prompt": "hello"})
+
+    assert result["error_type"] == "auth_failed"
+    # Both classes appear, sorted (Gemini before OpenAI)
+    assert result["error"].index("GeminiImage2Node") < result["error"].index("OpenAIGPTImage1")
+    assert "Google Gemini Image (Nano Banana)" in result["error"]
+    assert "OpenAI GPT Image" in result["error"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_multi_partner_workflow_attaches_single_extra_data(templates_dir, monkeypatch):
+    """Multiple partner classes in one workflow produce exactly one extra_data
+    block with the single shared api_key_comfy_org field — not a list, not per-node."""
+    meta = {**PARTNER_META, "name": "multi_partner"}
+    meta["inputs"] = {"prompt": {"node_id": "10", "field": "prompt", "type": "required", "description": "Prompt"}}
+    meta["resolution_nodes"] = [{"node_id": "10", "field_map": {"size": "size"}}]
+    write_template(templates_dir, "multi_partner", MIXED_PARTNER_WORKFLOW, meta)
+    monkeypatch.setattr("slop_studio.backends.local.get_comfy_cloud_api_key", lambda: "comfyui-TESTKEY")
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
+    )
+
+    result = await slop_studio.comfyui.queue_prompt("multi_partner", {"prompt": "hello"})
+
+    assert result == {"status": "success", "prompt_id": "abc-123"}
+    request_body = json.loads(respx.calls.last.request.content)
+    assert request_body["extra_data"] == {"api_key_comfy_org": "comfyui-TESTKEY"}
+
+
+PARTNER_WITH_IMAGE_WORKFLOW = {
+    "268": {
+        "class_type": "OpenAIGPTImage1",
+        "inputs": {"prompt": "", "seed": 0, "size": "1024x1024", "model": "gpt-image-2", "image": ["271", 0]},
+    },
+    "271": {"class_type": "LoadImage", "inputs": {"image": "placeholder.png"}},
+    "269": {"class_type": "SaveImage", "inputs": {"filename_prefix": "out", "images": ["268", 0]}},
+}
+
+PARTNER_WITH_IMAGE_META = {
+    "name": "partner_image",
+    "model": "gpt-image-2",
+    "description": "Partner-API test template with image input",
+    "expected_duration": "5 seconds",
+    "inputs": {
+        "prompt": {"node_id": "268", "field": "prompt", "type": "required", "description": "Prompt"},
+        "image1": {"node_id": "271", "field": "image", "type": "required", "input_type": "image", "description": "Ref"},
+    },
+    "aspect_ratios": {"1:1": {"size": "1024x1024"}},
+    "resolution_nodes": [{"node_id": "268", "field_map": {"size": "size"}}],
+}
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_partner_fail_fast_skips_image_upload(templates_dir, monkeypatch, tmp_path):
+    """When a partner template needs an image but the key is missing, fail-fast
+    must trigger BEFORE _inject_inputs uploads — otherwise users wait for a
+    multi-MB upload only to see an auth error they could've gotten instantly."""
+    write_template(templates_dir, "partner_image", PARTNER_WITH_IMAGE_WORKFLOW, PARTNER_WITH_IMAGE_META)
+    monkeypatch.setattr("slop_studio.backends.local.get_comfy_cloud_api_key", lambda: "")
+
+    # Mock both endpoints; assert neither is hit
+    upload_route = respx.post(f"{COMFYUI_URL}/upload/image").mock(
+        return_value=httpx.Response(200, json={"name": "uploaded.png"})
+    )
+    prompt_route = respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
+    )
+
+    # Use a real-looking path; _upload_image would try to open it if reached
+    fake_image = tmp_path / "ref.png"
+    from PIL import Image as _PILImage
+
+    _PILImage.new("RGB", (8, 8), "red").save(fake_image)
+
+    result = await slop_studio.comfyui.queue_prompt("partner_image", {"prompt": "hello", "image1": str(fake_image)})
+
+    assert result["error_type"] == "auth_failed"
+    assert not upload_route.called, "upload should not run when partner auth fails fast"
+    assert not prompt_route.called, "prompt POST should not run when partner auth fails fast"
+
+
 @pytest.mark.anyio
 @respx.mock
 async def test_default_resolution_when_no_aspect_ratio(sample_templates):

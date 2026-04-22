@@ -92,6 +92,9 @@ def _prompt_bluesky() -> dict:
 
 def _prompt_comfy_cloud() -> dict:
     """Prompt for Comfy Cloud API key. Exits with code 1 on empty input."""
+    print("  Used for Comfy Cloud submissions AND for any local workflow")
+    print("  that includes a Comfy partner-API node (OpenAI GPT Image, Flux 2 Pro,")
+    print("  Gemini/Nano Banana, etc.).")
     print("  Get a key at https://platform.comfy.org/profile/api-keys (shown once — copy it).")
     api_key = getpass.getpass("Comfy Cloud API key: ").strip()
     if not api_key:
@@ -328,7 +331,7 @@ def main() -> None:
         "--comfy-cloud",
         dest="comfy_cloud",
         action="store_true",
-        help="Configure Comfy Cloud API key only",
+        help="Configure Comfy Cloud API key (also required for local partner-API templates)",
     )
     auth_parser.add_argument("--all", action="store_true", help="Configure both Bluesky and Comfy Cloud")
 
