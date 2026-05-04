@@ -9,7 +9,7 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Ships thirteen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
+- Ships fifteen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu **ERNIE-Image** and **ERNIE-Image-Turbo** (local), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
 - Automatic ComfyUI spawning and lifecycle management
@@ -280,13 +280,18 @@ See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the a
 
 ## Templates
 
-Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Thirteen starter templates ship with every project, spanning both backends:
+Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Fifteen starter templates ship with every project, spanning both backends:
 
 **Local — GGUF models on your GPU (Flux.2 Klein, 16 GB VRAM):**
 
 - **flux2_klein** — fast single-pass generation (~30s), 9 aspect ratios
 - **flux2_klein_ultrawide** — 3440x1440 wallpapers with 4x upscale (~60s)
 - **flux2_klein_edit** — multi-reference image editing with style/content transfer (~60s)
+
+**Local — Baidu ERNIE-Image (open-weight 8B DiT, requires safetensors download):**
+
+- **image_ernie_image** — text-to-image with precise text rendering and structured layouts (~60s, 20 Euler steps), 7 aspect ratios. Get the weights from [Comfy-Org/ERNIE-Image](https://huggingface.co/Comfy-Org/ERNIE-Image)
+- **image_ernie_image_turbo** — DMD/RL-distilled fast variant (~20s, 8 Euler steps at CFG 1), same 7 aspect ratios
 
 **Local — partner-API nodes (requires `COMFY_CLOUD_API_KEY`; no VRAM used, node proxies upstream):**
 

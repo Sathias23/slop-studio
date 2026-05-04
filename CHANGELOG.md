@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Baidu ERNIE-Image starter templates** — `image_ernie_image` (20-step Euler at CFG 4) and `image_ernie_image_turbo` (DMD/RL-distilled, 8 Euler steps at CFG 1 with negative conditioning zeroed out). Both are local-only single-stream-DiT 8B text-to-image templates that use the Mistral-3 3B text encoder (`ministral-3-3b.safetensors`, `flux2` type), the Flux.2 VAE, and `EmptyFlux2LatentImage`. Aspect ratios cover the seven officially supported ERNIE resolutions (1024×1024, 1264×848, 848×1264, 1376×768, 768×1376, 1200×896, 896×1200) mapped to 1:1 / 3:2 / 2:3 / 4:3 / 3:4 / 16:9 / 9:16 labels. ERNIE-Image is best-in-class for precise text rendering and structured layouts (infographics, posters, multi-language signage). Get the weights from [Comfy-Org/ERNIE-Image](https://huggingface.co/Comfy-Org/ERNIE-Image).
+
 ## [0.5.1] - 2026-04-22
 
 ### Fixed

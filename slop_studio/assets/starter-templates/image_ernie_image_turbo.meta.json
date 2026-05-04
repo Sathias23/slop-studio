@@ -1,0 +1,27 @@
+{
+  "name": "image_ernie_image_turbo",
+  "model": "ernie-image-turbo-8b",
+  "description": "Baidu ERNIE-Image-Turbo 8B — distilled (DMD + RL) fast variant of ERNIE-Image, generates in just 8 Euler steps at CFG 1 with negative conditioning zeroed out. Uses the Mistral-3 3B text encoder and the Flux.2 VAE. Local-only — requires diffusion_models/ernie-image-turbo.safetensors, text_encoders/ministral-3-3b.safetensors, and vae/flux2-vae.safetensors in your ComfyUI models directory (see https://huggingface.co/Comfy-Org/ERNIE-Image). Supported native resolutions: 1024x1024, 1264x848, 848x1264, 1376x768, 768x1376, 1200x896, 896x1200.",
+  "backend": "local",
+  "expected_duration": "20 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "6",
+      "field": "text",
+      "type": "required",
+      "description": "Text prompt describing the image to generate. ERNIE-Image excels at precise text rendering and structured layouts (infographics, posters, multi-language signage)."
+    }
+  },
+  "aspect_ratios": {
+    "1:1":  {"width": 1024, "height": 1024},
+    "3:2":  {"width": 1264, "height": 848},
+    "2:3":  {"width": 848,  "height": 1264},
+    "4:3":  {"width": 1200, "height": 896},
+    "3:4":  {"width": 896,  "height": 1200},
+    "16:9": {"width": 1376, "height": 768},
+    "9:16": {"width": 768,  "height": 1376}
+  },
+  "resolution_nodes": [
+    {"node_id": "11", "width_field": "width", "height_field": "height"}
+  ]
+}
