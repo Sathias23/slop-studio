@@ -1,7 +1,7 @@
 {
   "name": "image_ernie_turbo",
   "model": "ernie-image-turbo",
-  "description": "ERNIE-Image-Turbo — DMD/RL-distilled 8B variant of Baidu's ERNIE-Image (Apache-2.0). Same precise text rendering and instruction following as the base model, but 8 euler steps at cfg 1 for ~3-4× faster generation. Reuses ministral-3-3b CLIP + flux2-vae and the ernie-image-prompt-enhancer. ~24 GB VRAM.",
+  "description": "ERNIE-Image-Turbo — DMD/RL-distilled 8B variant of Baidu's ERNIE-Image (Apache-2.0). Same precise text rendering and instruction following as the base model, but 8 euler steps at cfg 1 for ~2× faster generation. Reuses ministral-3-3b CLIP + flux2-vae and the ernie-image-prompt-enhancer. ~24 GB VRAM.",
   "backend": "local",
   "expected_duration": "30 seconds",
   "inputs": {
