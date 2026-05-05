@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **ERNIE-Image starter templates** — `image_ernie` and `image_ernie_turbo` for Baidu's ERNIE-Image (8B Diffusion Transformer, Apache-2.0). Standard runs 20 euler steps at cfg 4 (~60s); turbo is the DMD/RL-distilled 8-step variant at cfg 1 (~30s, ~2× faster). Both tagged `backend: "local"` and ship the bundled prompt-enhancer chain so terse user prompts get rewritten before encoding. Reuses the Flux.2 stack's `ministral-3-3b` CLIP and `flux2-vae`; new downloads needed are `ernie-image.safetensors` / `ernie-image-turbo.safetensors` and the shared `ernie-image-prompt-enhancer.safetensors`. Heavy: ~24 GB VRAM. Aspect-ratio set mirrors the `flux2_klein` family (1:1 through 43:18 ultrawide).
+
 ## [0.5.1] - 2026-04-22
 
 ### Fixed
