@@ -1,0 +1,29 @@
+{
+  "30": {
+    "inputs": {
+      "prompt": "Bryan Cranston as Heisenberg from Breaking Bad skateboarding at an Albuquerque skate park",
+      "model": "uni-1",
+      "model.aspect_ratio": "auto",
+      "model.style": "auto",
+      "model.web_search": true,
+      "seed": 4428818
+    },
+    "class_type": "LumaImageNode2",
+    "_meta": {
+      "title": "Luma UNI-1 Image"
+    }
+  },
+  "34": {
+    "inputs": {
+      "filename_prefix": "UNI-1",
+      "images": [
+        "30",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

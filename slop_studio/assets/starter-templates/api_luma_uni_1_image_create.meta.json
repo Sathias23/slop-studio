@@ -1,0 +1,29 @@
+{
+  "name": "api_luma_uni_1_image_create",
+  "model": "uni-1",
+  "description": "Luma UNI-1 image generation via the LumaImageNode2 partner node — Luma's reasoning-and-generation image model. Single text prompt drives composition; aspect ratio is parameterizable via the top-level aspect_ratio argument (defaults to 'auto' baked into the workflow, letting the model pick). Workflow ships with model.style='auto' and model.web_search=true; edit the JSON if you want to change those. Runs via a Comfy Cloud API node (requires a configured COMFY_CLOUD_API_KEY).",
+  "backend": "cloud",
+  "expected_duration": "30 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "30",
+      "field": "prompt",
+      "type": "required",
+      "description": "Text description of the image to generate."
+    }
+  },
+  "aspect_ratios": {
+    "1:1":  {"aspect_ratio": "1:1"},
+    "3:2":  {"aspect_ratio": "3:2"},
+    "2:3":  {"aspect_ratio": "2:3"},
+    "16:9": {"aspect_ratio": "16:9"},
+    "9:16": {"aspect_ratio": "9:16"},
+    "2:1":  {"aspect_ratio": "2:1"},
+    "1:2":  {"aspect_ratio": "1:2"},
+    "3:1":  {"aspect_ratio": "3:1"},
+    "1:3":  {"aspect_ratio": "1:3"}
+  },
+  "resolution_nodes": [
+    {"node_id": "30", "field_map": {"aspect_ratio": "model.aspect_ratio"}}
+  ]
+}

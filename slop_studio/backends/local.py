@@ -44,6 +44,7 @@ PARTNER_API_CLASS_LABELS: dict[str, str] = {
     "OpenAIGPTImage1": "OpenAI GPT Image",
     "Flux2ProImageNode": "Flux 2 Pro",
     "GeminiImage2Node": "Google Gemini Image (Nano Banana)",
+    "LumaImageNode2": "Luma UNI-1 Image",
 }
 PARTNER_API_CLASS_TYPES = frozenset(PARTNER_API_CLASS_LABELS.keys())
 
