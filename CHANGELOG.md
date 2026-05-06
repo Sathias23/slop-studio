@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-05-06
+
 ### Added
 
 - **Luma UNI-1 starter template** — `api_luma_uni_1_image_create` for Luma's UNI-1 image model (the reasoning-and-generation flagship from Luma's image lineup), wrapping ComfyUI's `LumaImageNode2` partner node. Tagged `backend: "cloud"` since the node proxies upstream through Comfy Cloud's partner-API infrastructure. Aspect-ratio set covers Luma's full nine explicit ratios (`1:1, 3:2, 2:3, 16:9, 9:16, 2:1, 1:2, 3:1, 1:3`); when no `aspect_ratio` is passed, the workflow's baked-in `auto` lets the model pick. `LumaImageNode2` is also added to `PARTNER_API_CLASS_LABELS` so partner-API auth forwarding (`extra_data.api_key_comfy_org`) fires at submission — without that registration the node would 403 at execution despite the prompt being accepted. Total shipped starters now sixteen.
