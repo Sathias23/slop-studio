@@ -44,6 +44,12 @@ def _validate_metadata(metadata: dict) -> str | None:
     - ``cloud_estimate_credits``: non-negative ``int`` or ``float``.
       ``bool`` is rejected (mirrors the aspect_ratio pattern since
       ``isinstance(True, int)`` is truthy).
+    - ``model_requirements``: list of objects declaring local-backend model
+      dependencies. Each entry must have non-empty string ``filename``,
+      ``subfolder``, ``url`` (with no ``..``/``/``/``\\`` in ``filename``
+      or ``subfolder``). Optional: ``sha256`` (64-char hex string),
+      ``size_bytes`` (non-negative ``int``; ``bool`` rejected), ``auth``
+      ∈ ``{"huggingface", "civitai"}``.
     """
     missing = [f for f in ("name", "model", "description") if not isinstance(metadata.get(f), str) or not metadata[f]]
     if missing:
@@ -121,6 +127,50 @@ def _validate_metadata(metadata: dict) -> str | None:
             return f"cloud_estimate_credits must be a non-negative number; got {credits!r}"
         if credits < 0:
             return f"cloud_estimate_credits must be non-negative; got {credits}"
+
+    model_requirements = metadata.get("model_requirements")
+    if model_requirements is not None:
+        if not isinstance(model_requirements, list):
+            return "model_requirements must be a JSON array"
+        for i, entry in enumerate(model_requirements):
+            if not isinstance(entry, dict):
+                return f"model_requirements[{i}] must be a JSON object"
+            for required_field in ("filename", "subfolder", "url"):
+                value = entry.get(required_field)
+                if not isinstance(value, str) or not value:
+                    return f"model_requirements[{i}] missing required '{required_field}' (non-empty string)"
+            for path_field in ("filename", "subfolder"):
+                value = entry[path_field]
+                if ".." in value or "/" in value or "\\" in value:
+                    return (
+                        f"model_requirements[{i}] '{path_field}' must not contain "
+                        f"'..', '/', or '\\\\'; got {value!r}"
+                    )
+                if any(ord(c) < 32 for c in value):
+                    return (
+                        f"model_requirements[{i}] '{path_field}' must not contain "
+                        f"control characters; got {value!r}"
+                    )
+            if entry["subfolder"] == ".":
+                return (
+                    f"model_requirements[{i}] 'subfolder' must not be '.'; "
+                    f"got {entry['subfolder']!r}"
+                )
+            sha256 = entry.get("sha256")
+            if sha256 is not None:
+                if not isinstance(sha256, str):
+                    return f"model_requirements[{i}] 'sha256' must be a 64-character hex string"
+                if len(sha256) != 64 or not all(c in "0123456789abcdefABCDEF" for c in sha256):
+                    return f"model_requirements[{i}] 'sha256' must be a 64-character hex string"
+            size_bytes = entry.get("size_bytes")
+            if size_bytes is not None:
+                if isinstance(size_bytes, bool) or not isinstance(size_bytes, int):
+                    return f"model_requirements[{i}] 'size_bytes' must be a non-negative integer; got {size_bytes!r}"
+                if size_bytes < 0:
+                    return f"model_requirements[{i}] 'size_bytes' must be non-negative; got {size_bytes}"
+            auth = entry.get("auth")
+            if auth is not None and (not isinstance(auth, str) or auth not in ("huggingface", "civitai")):
+                return f"model_requirements[{i}] 'auth' must be one of: 'huggingface', 'civitai'; got {auth!r}"
 
     return None
 

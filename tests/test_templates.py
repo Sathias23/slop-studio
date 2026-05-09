@@ -694,6 +694,241 @@ async def test_add_template_rejects_cloud_estimate_credits_string(templates_dir)
     assert "cloud_estimate_credits" in result["error"]
 
 
+# ── model_requirements validation ──
+
+
+_VALID_MODEL_REQ = {
+    "filename": "flux-2-klein-9b-Q8_0.gguf",
+    "subfolder": "unet",
+    "url": "https://huggingface.co/example/flux-2-klein-9b-Q8_0.gguf",
+    "sha256": "a" * 64,
+    "size_bytes": 9876543210,
+    "auth": "huggingface",
+}
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_valid_model_requirements(templates_dir):
+    meta = _sample_meta(model_requirements=[dict(_VALID_MODEL_REQ)])
+
+    result = await slop_studio.templates.add_template("ok_mr_full", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"
+    on_disk = json.loads((templates_dir / "ok_mr_full.meta.json").read_text())
+    assert on_disk["model_requirements"][0]["filename"] == _VALID_MODEL_REQ["filename"]
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_minimal_model_requirements(templates_dir):
+    meta = _sample_meta(
+        model_requirements=[
+            {
+                "filename": "model.safetensors",
+                "subfolder": "checkpoints",
+                "url": "https://example.com/model.safetensors",
+            }
+        ]
+    )
+
+    result = await slop_studio.templates.add_template("ok_mr_min", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_empty_model_requirements(templates_dir):
+    meta = _sample_meta(model_requirements=[])
+
+    result = await slop_studio.templates.add_template("ok_mr_empty", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_model_requirements_non_list(templates_dir):
+    meta = _sample_meta(model_requirements={"filename": "foo"})
+
+    result = await slop_studio.templates.add_template("bad_mr_obj", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "model_requirements" in result["error"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("missing_field", ["filename", "subfolder", "url"])
+async def test_add_template_rejects_model_requirements_missing_required_field(templates_dir, missing_field):
+    entry = dict(_VALID_MODEL_REQ)
+    del entry[missing_field]
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template(f"bad_mr_no_{missing_field}", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert missing_field in result["error"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("empty_field", ["filename", "subfolder", "url"])
+async def test_add_template_rejects_model_requirements_empty_required_field(templates_dir, empty_field):
+    entry = dict(_VALID_MODEL_REQ)
+    entry[empty_field] = ""
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template(f"bad_mr_empty_{empty_field}", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert empty_field in result["error"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "field, bad_value",
+    [
+        ("filename", "../evil.gguf"),
+        ("filename", "sub/evil.gguf"),
+        ("filename", "sub\\evil.gguf"),
+        ("subfolder", "../unet"),
+        ("subfolder", "unet/sub"),
+        ("subfolder", "unet\\sub"),
+    ],
+)
+async def test_add_template_rejects_model_requirements_path_traversal(templates_dir, field, bad_value):
+    entry = dict(_VALID_MODEL_REQ)
+    entry[field] = bad_value
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template("bad_mr_traversal", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert field in result["error"]
+    assert not (templates_dir / "bad_mr_traversal.meta.json").exists()
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_model_requirements_filename_with_nul(templates_dir):
+    """NUL byte in filename → invalid_inputs (control-character rejection)."""
+    entry = dict(_VALID_MODEL_REQ)
+    entry["filename"] = "model\x00.gguf"
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template("bad_mr_nul_fn", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "filename" in result["error"]
+    assert "control" in result["error"].lower()
+    assert not (templates_dir / "bad_mr_nul_fn.meta.json").exists()
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_model_requirements_subfolder_with_control_char(templates_dir):
+    """Control byte (\\x01) in subfolder → invalid_inputs."""
+    entry = dict(_VALID_MODEL_REQ)
+    entry["subfolder"] = "unet\x01"
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template("bad_mr_ctl_sub", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "subfolder" in result["error"]
+    assert "control" in result["error"].lower()
+    assert not (templates_dir / "bad_mr_ctl_sub.meta.json").exists()
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_model_requirements_subfolder_dot(templates_dir):
+    """``subfolder == "."`` would resolve to models_dir/ root → reject."""
+    entry = dict(_VALID_MODEL_REQ)
+    entry["subfolder"] = "."
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template("bad_mr_dot_sub", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "subfolder" in result["error"]
+    assert not (templates_dir / "bad_mr_dot_sub.meta.json").exists()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "bad_sha",
+    [
+        "a" * 63,  # too short
+        "a" * 65,  # too long
+        "g" * 64,  # not hex
+        "Z" * 64,  # not hex
+        12345,  # not a string
+    ],
+)
+async def test_add_template_rejects_model_requirements_bad_sha256(templates_dir, bad_sha):
+    entry = dict(_VALID_MODEL_REQ)
+    entry["sha256"] = bad_sha
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template("bad_mr_sha", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "sha256" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_model_requirements_negative_size_bytes(templates_dir):
+    entry = dict(_VALID_MODEL_REQ)
+    entry["size_bytes"] = -1
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template("bad_mr_neg_size", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "size_bytes" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_model_requirements_bool_size_bytes(templates_dir):
+    # bool is a subclass of int — explicitly reject it (mirrors cloud_estimate_credits).
+    entry = dict(_VALID_MODEL_REQ)
+    entry["size_bytes"] = True
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template("bad_mr_bool_size", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "size_bytes" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_model_requirements_bad_auth(templates_dir):
+    entry = dict(_VALID_MODEL_REQ)
+    entry["auth"] = "google"
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template("bad_mr_auth", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "auth" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_model_requirements_non_dict_entry(templates_dir):
+    meta = _sample_meta(model_requirements=["not a dict"])
+
+    result = await slop_studio.templates.add_template("bad_mr_str_entry", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "model_requirements" in result["error"]
+
+
 @pytest.mark.anyio
 async def test_add_template_rejects_invalid_metadata_writes_no_file(templates_dir):
     """AC #11 canary — rejected add_template leaves the filesystem untouched."""

@@ -430,3 +430,188 @@ def test_get_comfy_cloud_api_key_strips_whitespace(monkeypatch, tmp_path):
     monkeypatch.setenv("COMFY_CLOUD_API_KEY", "  real-key  ")
     importlib.reload(config_module)
     assert config_module.get_comfy_cloud_api_key() == "real-key"
+
+
+# ---------------------------------------------------------------------------
+# ComfyUI dir / models dir resolution + HF / Civitai credential helpers.
+# ---------------------------------------------------------------------------
+
+
+def _reset_comfyui_env(monkeypatch):
+    monkeypatch.delenv("SLOP_STUDIO_COMFYUI_DIR", raising=False)
+    monkeypatch.delenv("SLOP_STUDIO_COMFYUI_MODELS_DIR", raising=False)
+
+
+def test_default_comfyui_dir(monkeypatch, tmp_path):
+    _setup_config_toml(monkeypatch, tmp_path)
+    (tmp_path / ".config" / "slop-studio" / "config.toml").unlink(missing_ok=True)
+    _reset_comfyui_env(monkeypatch)
+    importlib.reload(config_module)
+    assert str(tmp_path / "ComfyUI") == config_module.COMFYUI_DIR
+    assert str(tmp_path / "ComfyUI" / "models") == config_module.COMFYUI_MODELS_DIR
+
+
+def test_env_override_comfyui_dir_propagates_to_models_dir(monkeypatch, tmp_path):
+    _setup_config_toml(monkeypatch, tmp_path)
+    (tmp_path / ".config" / "slop-studio" / "config.toml").unlink(missing_ok=True)
+    monkeypatch.setenv("SLOP_STUDIO_COMFYUI_DIR", "/opt/comfy")
+    monkeypatch.delenv("SLOP_STUDIO_COMFYUI_MODELS_DIR", raising=False)
+    importlib.reload(config_module)
+    assert config_module.COMFYUI_DIR == "/opt/comfy"
+    assert config_module.COMFYUI_MODELS_DIR == "/opt/comfy/models"
+
+
+def test_env_override_comfyui_models_dir_independent(monkeypatch, tmp_path):
+    """Env override on models dir wins over the comfyui-dir-derived default."""
+    _setup_config_toml(monkeypatch, tmp_path)
+    (tmp_path / ".config" / "slop-studio" / "config.toml").unlink(missing_ok=True)
+    monkeypatch.setenv("SLOP_STUDIO_COMFYUI_DIR", "/opt/comfy")
+    monkeypatch.setenv("SLOP_STUDIO_COMFYUI_MODELS_DIR", "/mnt/big-disk/models")
+    importlib.reload(config_module)
+    assert config_module.COMFYUI_DIR == "/opt/comfy"
+    assert config_module.COMFYUI_MODELS_DIR == "/mnt/big-disk/models"
+
+
+def test_config_toml_comfyui_dir(monkeypatch, tmp_path):
+    _setup_config_toml(monkeypatch, tmp_path, 'comfyui_dir = "/from/toml"\n')
+    _reset_comfyui_env(monkeypatch)
+    importlib.reload(config_module)
+    assert config_module.COMFYUI_DIR == "/from/toml"
+    assert config_module.COMFYUI_MODELS_DIR == "/from/toml/models"
+
+
+def test_env_var_wins_over_toml_for_comfyui_dir(monkeypatch, tmp_path):
+    _setup_config_toml(monkeypatch, tmp_path, 'comfyui_dir = "/from/toml"\n')
+    monkeypatch.setenv("SLOP_STUDIO_COMFYUI_DIR", "/from/env")
+    monkeypatch.delenv("SLOP_STUDIO_COMFYUI_MODELS_DIR", raising=False)
+    importlib.reload(config_module)
+    assert config_module.COMFYUI_DIR == "/from/env"
+    assert config_module.COMFYUI_MODELS_DIR == "/from/env/models"
+
+
+# ── Hugging Face token resolver ──
+
+
+def test_get_huggingface_token_env_wins(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"huggingface": {"token": "from-file"}})
+    monkeypatch.setenv("HF_TOKEN", "from-env")
+    importlib.reload(config_module)
+    assert config_module.get_huggingface_token() == "from-env"
+
+
+def test_get_huggingface_token_from_credentials_json(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"huggingface": {"token": "from-file"}})
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_huggingface_token() == "from-file"
+
+
+def test_get_huggingface_token_missing_returns_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_huggingface_token() == ""
+
+
+def test_get_huggingface_token_strips_whitespace(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.setenv("HF_TOKEN", "  hf-real  ")
+    importlib.reload(config_module)
+    assert config_module.get_huggingface_token() == "hf-real"
+
+
+def test_get_huggingface_token_does_not_log_value(monkeypatch, tmp_path, caplog):
+    sentinel = "hf-DONOTLEAK-9999"
+    monkeypatch.setenv("HF_TOKEN", sentinel)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    importlib.reload(config_module)
+    with caplog.at_level(logging.DEBUG):
+        returned = config_module.get_huggingface_token()
+    assert returned == sentinel
+    assert sentinel not in caplog.text
+
+
+# ── Civitai key resolver ──
+
+
+def test_get_civitai_api_key_env_wins(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"civitai": {"api_key": "from-file"}})
+    monkeypatch.setenv("CIVITAI_API_KEY", "from-env")
+    importlib.reload(config_module)
+    assert config_module.get_civitai_api_key() == "from-env"
+
+
+def test_get_civitai_api_key_from_credentials_json(monkeypatch, tmp_path):
+    _setup_credentials_json(monkeypatch, tmp_path, {"civitai": {"api_key": "civ-file"}})
+    monkeypatch.delenv("CIVITAI_API_KEY", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_civitai_api_key() == "civ-file"
+
+
+def test_get_civitai_api_key_missing_returns_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.delenv("CIVITAI_API_KEY", raising=False)
+    importlib.reload(config_module)
+    assert config_module.get_civitai_api_key() == ""
+
+
+def test_get_civitai_api_key_does_not_log_value(monkeypatch, tmp_path, caplog):
+    sentinel = "civ-DONOTLEAK-1234"
+    monkeypatch.setenv("CIVITAI_API_KEY", sentinel)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    importlib.reload(config_module)
+    with caplog.at_level(logging.DEBUG):
+        returned = config_module.get_civitai_api_key()
+    assert returned == sentinel
+    assert sentinel not in caplog.text
+
+
+# ── credential sanitization (P9) ──
+
+
+def test_get_huggingface_token_with_newline_rejected(monkeypatch, tmp_path, caplog):
+    """A token containing \\n must be rejected (returns "") and the warning
+    must NOT contain the token value itself."""
+    tainted = "abc\ndef-DONOTLEAK"
+    monkeypatch.setenv("HF_TOKEN", tainted)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    importlib.reload(config_module)
+    with caplog.at_level(logging.WARNING, logger="slop_studio.config"):
+        returned = config_module.get_huggingface_token()
+    assert returned == ""
+    assert any("rejected" in msg.lower() for msg in caplog.messages)
+    # The raw token must NOT appear in any log record.
+    for record in caplog.records:
+        assert tainted not in record.getMessage()
+        assert "DONOTLEAK" not in record.getMessage()
+    assert tainted not in caplog.text
+
+
+def test_get_huggingface_token_with_non_ascii_rejected(monkeypatch, tmp_path, caplog):
+    """A token containing non-ASCII characters must be rejected (returns "")
+    and the value must not be logged."""
+    tainted = "abcé-DONOTLEAK"
+    monkeypatch.setenv("HF_TOKEN", tainted)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    importlib.reload(config_module)
+    with caplog.at_level(logging.WARNING, logger="slop_studio.config"):
+        returned = config_module.get_huggingface_token()
+    assert returned == ""
+    assert any("rejected" in msg.lower() for msg in caplog.messages)
+    for record in caplog.records:
+        assert tainted not in record.getMessage()
+        assert "DONOTLEAK" not in record.getMessage()
+    assert tainted not in caplog.text
+
+
+def test_get_civitai_api_key_with_carriage_return_rejected(monkeypatch, tmp_path, caplog):
+    tainted = "civ-DONOTLEAK\rsneaky"
+    monkeypatch.setenv("CIVITAI_API_KEY", tainted)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    importlib.reload(config_module)
+    with caplog.at_level(logging.WARNING, logger="slop_studio.config"):
+        returned = config_module.get_civitai_api_key()
+    assert returned == ""
+    assert any("rejected" in msg.lower() for msg in caplog.messages)
+    for record in caplog.records:
+        assert "DONOTLEAK" not in record.getMessage()
