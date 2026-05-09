@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -26,6 +27,18 @@ def _expand_env_placeholders(value: str) -> str:
 def _has_unresolved_placeholder(value: str) -> bool:
     """Check if a value still contains any unresolved ${...} placeholder."""
     return bool(_PLACEHOLDER_RE.search(value))
+
+
+def _has_unsafe_credential_chars(value: str) -> bool:
+    """Return True if the credential string contains characters that would be
+    unsafe to inject into an HTTP header.
+
+    Specifically rejects CR (``\\r``), LF (``\\n``), NUL (``\\x00``), and any
+    non-ASCII character. Returning True means the caller should refuse the
+    credential rather than risk an httpx ``LocalProtocolError`` at request
+    build time (or worse, header injection via embedded newlines).
+    """
+    return any(c in ("\r", "\n", "\x00") or not c.isascii() for c in value)
 
 
 def _env_or_default(key: str, default: str) -> str:
@@ -119,6 +132,17 @@ TEMPLATES_DIR = _resolve(
 )
 OUTPUT_DIR = _resolve("SLOP_STUDIO_OUTPUT_DIR", "output_dir", str(Path.home() / "slop-studio" / "output"))
 
+# Local ComfyUI installation paths (Story: template model requirements).
+# COMFYUI_DIR is the install root; COMFYUI_MODELS_DIR is where weight files
+# live (default: <COMFYUI_DIR>/models). The env override on the models dir
+# exists for users with split layouts (e.g. weights on a separate drive).
+COMFYUI_DIR = _resolve("SLOP_STUDIO_COMFYUI_DIR", "comfyui_dir", str(Path.home() / "ComfyUI"))
+COMFYUI_MODELS_DIR = _resolve(
+    "SLOP_STUDIO_COMFYUI_MODELS_DIR",
+    "comfyui_models_dir",
+    str(Path(COMFYUI_DIR) / "models"),
+)
+
 # Comfy Cloud backend config (Story 6.5 / FR-C5). API key has its own
 # getter because secrets belong in credentials.json, not config.toml.
 COMFY_CLOUD_URL = _resolve("COMFY_CLOUD_URL", "comfy_cloud_url", "https://cloud.comfy.org").rstrip("/")
@@ -148,8 +172,6 @@ def get_bsky_credentials() -> tuple[str, str]:
         return handle, app_password
 
     # Fall back to central credentials file
-    import json
-
     creds_file = Path.home() / ".config" / "slop-studio" / "credentials.json"
     if creds_file.is_file():
         try:
@@ -178,8 +200,6 @@ def get_comfy_cloud_api_key() -> str:
             logger.debug("comfy cloud key loaded from: env")
             return env_key
 
-    import json
-
     creds_file = Path.home() / ".config" / "slop-studio" / "credentials.json"
     if creds_file.is_file():
         try:
@@ -203,3 +223,69 @@ def get_comfy_cloud_api_key() -> str:
 
     logger.debug("comfy cloud key loaded from: none")
     return ""
+
+
+def _get_credential(env_key: str, creds_section: str, creds_field: str, log_label: str) -> str:
+    """Generic env → credentials.json → "" credential resolver.
+
+    Mirrors ``get_comfy_cloud_api_key`` exactly: env override first, then
+    a typed lookup into ``~/.config/slop-studio/credentials.json``,
+    then empty string. Logs source at DEBUG level only — never the value.
+    """
+    env_val = os.environ.get(env_key, "").strip()
+    if env_val:
+        env_val = _expand_env_placeholders(env_val).strip()
+        if not _has_unresolved_placeholder(env_val):
+            if _has_unsafe_credential_chars(env_val):
+                logger.warning("%s rejected: contains control or non-ASCII character", log_label)
+                return ""
+            logger.debug("%s loaded from: env", log_label)
+            return env_val
+
+    creds_file = Path.home() / ".config" / "slop-studio" / "credentials.json"
+    if creds_file.is_file():
+        try:
+            data = json.loads(creds_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            logger.debug("%s loaded from: none (credentials.json unreadable)", log_label)
+            return ""
+        if not isinstance(data, dict):
+            logger.debug("%s loaded from: none (credentials.json is not a JSON object)", log_label)
+            return ""
+        section = data.get(creds_section)
+        if isinstance(section, dict):
+            file_val = section.get(creds_field, "")
+            if isinstance(file_val, str):
+                file_val = file_val.strip()
+                if file_val:
+                    file_val = _expand_env_placeholders(file_val).strip()
+                    if not _has_unresolved_placeholder(file_val):
+                        if _has_unsafe_credential_chars(file_val):
+                            logger.warning(
+                                "%s rejected: contains control or non-ASCII character",
+                                log_label,
+                            )
+                            return ""
+                        logger.debug("%s loaded from: credentials.json", log_label)
+                        return file_val
+
+    logger.debug("%s loaded from: none", log_label)
+    return ""
+
+
+def get_huggingface_token() -> str:
+    """Return the Hugging Face token with env → credentials.json → "" precedence.
+
+    Reads ``HF_TOKEN`` env var, then the ``huggingface.token`` field in
+    ``~/.config/slop-studio/credentials.json``. Never logs the token value.
+    """
+    return _get_credential("HF_TOKEN", "huggingface", "token", "huggingface token")
+
+
+def get_civitai_api_key() -> str:
+    """Return the Civitai API key with env → credentials.json → "" precedence.
+
+    Reads ``CIVITAI_API_KEY`` env var, then the ``civitai.api_key`` field in
+    ``~/.config/slop-studio/credentials.json``. Never logs the key value.
+    """
+    return _get_credential("CIVITAI_API_KEY", "civitai", "api_key", "civitai key")

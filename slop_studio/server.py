@@ -383,7 +383,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 mcp = FastMCP("slop-studio", lifespan=lifespan)
 
 
-from slop_studio import bluesky, templates
+from slop_studio import bluesky, models, templates
 from slop_studio.backends import router
 
 
@@ -473,6 +473,54 @@ async def delete_template(name: str) -> dict:
 
 # sloppify_prompt is experimental — code lives in slop_studio/sloppify.py
 # but is not registered as a tool until stabilized.
+
+
+@mcp.tool()
+@safe_tool
+async def check_requirements(template_name: str) -> dict:
+    """Check whether a local-backend template's declared model files are present on disk.
+
+    Reads the template's ``model_requirements`` (if any) and reports which
+    files exist under the configured ComfyUI models directory and which
+    are missing. Read-only — never touches the network and never writes.
+
+    Call this BEFORE ``queue_prompt`` for local-backend templates the user
+    has not generated with before. If ``missing`` is non-empty, surface
+    each entry's ``filename``, ``size_bytes``, and ``url`` to the user
+    along with the total download size, then call ``download_models``
+    only after the user confirms.
+
+    Templates without ``model_requirements`` (the legacy default) return
+    ``{status: "success", present: [], missing: [], note: "..."}``.
+    """
+    return await models.check_requirements(template_name)
+
+
+@mcp.tool()
+@safe_tool
+async def download_models(template_name: str) -> dict:
+    """Download every missing model declared by a template into ComfyUI's models directory.
+
+    For each entry in ``model_requirements`` not already on disk, streams
+    the URL into ``<target>.partial``, hashes inline against any declared
+    ``sha256``, and atomic-renames on success. Failures (network error,
+    hash mismatch, auth failure) clean up the ``.partial`` before
+    returning a structured error.
+
+    Auth tokens, when required by an entry's ``auth`` field
+    (``"huggingface"`` or ``"civitai"``), are read from env vars or
+    ``~/.config/slop-studio/credentials.json`` and ride in
+    ``Authorization: Bearer <token>`` — never logged.
+
+    IMPORTANT: only call this AFTER ``check_requirements`` has surfaced
+    the missing items and their total size to the user, and the user has
+    confirmed they want to proceed. Downloads can be multi-gigabyte.
+
+    Returns ``{status: "success", downloaded: [...], skipped: [...]}`` on
+    success. Templates with no declared requirements return the no-op
+    shape with a ``note`` field.
+    """
+    return await models.download_models(template_name)
 
 
 @mcp.tool()
