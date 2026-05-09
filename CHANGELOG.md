@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-05-09
+
+### Added
+
+- **Template model requirements + auto-download** — templates can now declare the local model files they need in their `.meta.json` under `model_requirements: [{filename, subfolder, url, sha256?, size_bytes?, auth?}]`. Two new MCP tools resolve them: `check_requirements(template)` is read-only and reports which declared files are present vs missing under `<comfyui_dir>/models/<subfolder>/<filename>`; `download_models(template)` streams missing files atomically (`<target>.partial` → rename) with inline sha256 + `size_bytes` verification, https-only enforcement, manual https→https redirect handling that strips `Authorization` on cross-origin (so HuggingFace LFS → CDN flows don't leak the bearer), and `.partial` cleanup on every failure path. Auth tokens come from env (`HF_TOKEN`, `CIVITAI_API_KEY`) or `~/.config/slop-studio/credentials.json`, sanitized for control chars / non-ASCII before being placed in headers, never logged. Models directory is derived from the existing `comfyui_dir` config saved by `slop-studio init`, with `SLOP_STUDIO_COMFYUI_DIR` and `SLOP_STUDIO_COMFYUI_MODELS_DIR` env overrides for split layouts. The validator enforces https URLs, rejects path traversal, control characters, and `subfolder == "."` at write time. Existing starter templates still ship without `model_requirements` — populate per-template as the URLs/hashes are confirmed.
+
 ## [0.5.3] - 2026-05-06
 
 ### Added
