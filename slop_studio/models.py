@@ -32,6 +32,7 @@ Design notes:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from contextlib import suppress
@@ -92,6 +93,7 @@ def _no_requirements_response(downloaded_field: str | None = None) -> dict:
         payload["missing"] = []
     else:
         payload[downloaded_field] = []
+        payload["skipped"] = []
     return payload
 
 
@@ -101,10 +103,7 @@ async def _load_template_meta(template_name: str) -> dict:
     Returns the meta dict on success, or the error response dict from
     get_template on failure (callers re-return it).
     """
-    meta = await _templates_module.get_template(template_name)
-    if meta.get("status") != "success":
-        return meta
-    return meta
+    return await _templates_module.get_template(template_name)
 
 
 _REDIRECT_STATUS_CODES = (301, 302, 303, 307, 308)
@@ -118,7 +117,7 @@ def _resolve_redirect_url(current_url: str, location: str) -> str:
         return location
     base = urlparse(current_url)
     if location.startswith("//"):
-        return urlunparse((base.scheme, "", "", "", "", "")).rstrip(":") + location
+        return f"{base.scheme}:{location}"
     if location.startswith("/"):
         return urlunparse((base.scheme, base.netloc, location, "", "", ""))
     # Relative path — replace the last path segment of base.
@@ -299,7 +298,7 @@ async def _download_one(
                     async for chunk in response.aiter_bytes():
                         if not chunk:
                             continue
-                        fp.write(chunk)
+                        await asyncio.to_thread(fp.write, chunk)
                         hasher.update(chunk)
                         bytes_written += len(chunk)
                 break

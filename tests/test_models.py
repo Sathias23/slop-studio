@@ -727,6 +727,54 @@ async def test_download_models_too_many_redirects(models_env):
 
 
 @pytest.mark.anyio
+async def test_download_models_protocol_relative_redirect_resolves(models_env):
+    """A 302 with a protocol-relative `//host/path` Location must inherit the
+    base scheme (https) and follow successfully — not be misclassified as
+    non-https."""
+    templates_dir, models_dir = models_env
+
+    payload = b"protocol-relative-bytes"
+    reqs = [
+        {
+            "filename": "rel.gguf",
+            "subfolder": "unet",
+            "url": "https://example.com/start",
+        }
+    ]
+    _write_template(templates_dir, "rel", requirements=reqs)
+
+    with respx.mock(assert_all_called=True) as mock:
+        mock.get("https://example.com/start").mock(
+            return_value=httpx.Response(
+                302, headers={"Location": "//cdn.example.com/blob/rel.gguf"}
+            )
+        )
+        mock.get("https://cdn.example.com/blob/rel.gguf").mock(
+            return_value=httpx.Response(200, content=payload)
+        )
+        result = await slop_studio.models.download_models("rel")
+
+    assert result["status"] == "success", result
+    assert (models_dir / "unet" / "rel.gguf").read_bytes() == payload
+
+
+@pytest.mark.anyio
+async def test_download_models_no_requirements_includes_skipped(models_env):
+    """The no-requirements response from download_models must include both
+    `downloaded` and `skipped` fields so callers can index either without
+    a KeyError."""
+    templates_dir, _ = models_env
+    _write_template(templates_dir, "empty_reqs", requirements=[])
+
+    result = await slop_studio.models.download_models("empty_reqs")
+
+    assert result["status"] == "success"
+    assert result["downloaded"] == []
+    assert result["skipped"] == []
+    assert "note" in result
+
+
+@pytest.mark.anyio
 async def test_download_models_single_https_redirect_succeeds(models_env):
     """A single https→https redirect (within hop budget) should succeed."""
     templates_dir, models_dir = models_env
