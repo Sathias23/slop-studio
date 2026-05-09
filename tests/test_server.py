@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import importlib.metadata
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1081,3 +1082,51 @@ async def test_open_comfy_cloud_portal_requires_no_auth_or_config(tmp_path, monk
     assert result["status"] == "success"
     assert result["url"] == "https://platform.comfy.org/"
     mock_exec.assert_called_once()
+
+
+# --- report_issue tool tests ---
+
+
+@pytest.mark.anyio
+async def test_report_issue_returns_canonical_url_and_dynamic_version():
+    """Happy path: returns the canonical issue URL, the live package version,
+    and a non-empty checklist covering version, what-tried, what-happened, OS,
+    and backend."""
+    from slop_studio.server import report_issue
+
+    result = await report_issue()
+
+    assert result["status"] == "success"
+    assert result["issue_url"] == "https://github.com/Sathias23/slop-studio/issues"
+
+    # Version should match the installed package metadata exactly — not "unknown".
+    expected_version = importlib.metadata.version("slop-studio")
+    assert result["version"] == expected_version
+    assert result["version"] != "unknown"
+
+    checklist_text = " ".join(result["checklist"]).lower()
+    assert "version" in checklist_text
+    assert "what you tried" in checklist_text or "tried" in checklist_text
+    assert "what happened" in checklist_text or "happened" in checklist_text
+    assert "os" in checklist_text or "macos" in checklist_text
+    assert "backend" in checklist_text
+
+
+@pytest.mark.anyio
+async def test_report_issue_falls_back_when_package_metadata_missing():
+    """If the package isn't installed (running from raw source), the tool
+    must still return success with version='unknown' + a `note` explaining
+    where to find the version, never raise."""
+    from slop_studio.server import report_issue
+
+    with patch(
+        "slop_studio.server.importlib.metadata.version",
+        side_effect=importlib.metadata.PackageNotFoundError("slop-studio"),
+    ):
+        result = await report_issue()
+
+    assert result["status"] == "success"
+    assert result["issue_url"] == "https://github.com/Sathias23/slop-studio/issues"
+    assert result["version"] == "unknown"
+    assert "note" in result
+    assert len(result["checklist"]) > 0

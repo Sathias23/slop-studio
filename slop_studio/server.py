@@ -1,6 +1,7 @@
 import asyncio
 import atexit
 import functools
+import importlib.metadata
 import logging
 import os
 import platform
@@ -740,6 +741,58 @@ async def post_to_bluesky(
         tags=tags,
         images=images,
     )
+
+
+_ISSUE_URL = "https://github.com/Sathias23/slop-studio/issues"
+_ISSUE_CHECKLIST = [
+    "slop-studio version (provided in this response under `version`)",
+    "What you tried (the prompt + which template, if relevant)",
+    "What happened (paste the `error_type` and `error` message from the failing tool response)",
+    "OS (macOS / Linux / Windows)",
+    "Backend used (local vs cloud), and whether ComfyUI was managed by slop-studio (COMFYUI_START_CMD set) or external",
+]
+
+
+@mcp.tool()
+@safe_tool
+async def report_issue() -> dict:
+    """Surface the canonical bug-report URL + checklist for filing a slop-studio issue.
+
+    Call this when the user asks how to file a bug, raise an issue, or report a problem
+    with slop-studio itself — e.g. "how do I report this?", "where do I file a bug?",
+    "this looks like a slop-studio bug". The response gives you the GitHub issue URL and
+    a checklist of details to gather from the user before pointing them at the link, so
+    the maintainer can reproduce and triage.
+
+    Do NOT call this for generation-quality complaints (blurry images, wrong aspect ratio,
+    prompt adherence) — those belong upstream in ComfyUI or Comfy Cloud, not slop-studio.
+    Reserve this for slop-studio's own behavior: tool errors, MCP integration issues,
+    template validation failures, download problems, etc.
+
+    Returns ``{status: "success", issue_url, version, checklist}``. ``version`` is read
+    dynamically from the installed package metadata so the bug report's version field is
+    always accurate.
+    """
+    try:
+        version = importlib.metadata.version("slop-studio")
+        return {
+            "status": "success",
+            "issue_url": _ISSUE_URL,
+            "version": version,
+            "checklist": _ISSUE_CHECKLIST,
+        }
+    except importlib.metadata.PackageNotFoundError:
+        return {
+            "status": "success",
+            "issue_url": _ISSUE_URL,
+            "version": "unknown",
+            "checklist": _ISSUE_CHECKLIST,
+            "note": (
+                "Package metadata for 'slop-studio' was not found — likely running from "
+                "an uninstalled source tree. Ask the user to run `slop-studio --version` "
+                "or check `pyproject.toml` for the version string."
+            ),
+        }
 
 
 if __name__ == "__main__":
