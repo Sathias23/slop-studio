@@ -237,9 +237,7 @@ def _get_credential(env_key: str, creds_section: str, creds_field: str, log_labe
         env_val = _expand_env_placeholders(env_val).strip()
         if not _has_unresolved_placeholder(env_val):
             if _has_unsafe_credential_chars(env_val):
-                logger.warning(
-                    "%s rejected: contains control or non-ASCII character", log_label
-                )
+                logger.warning("%s rejected: contains control or non-ASCII character", log_label)
                 return ""
             logger.debug("%s loaded from: env", log_label)
             return env_val

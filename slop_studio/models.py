@@ -207,6 +207,18 @@ async def _download_one(
     declared_sha256 = entry.get("sha256")
     auth = entry.get("auth")
 
+    # Defense-in-depth: refuse to send the request if the URL isn't https.
+    # _validate_metadata enforces this at write-time, but a meta file written
+    # before that validator existed could still slip through.
+    if not url.startswith("https://"):
+        return terminal_error(
+            "invalid_inputs",
+            (
+                f"Refusing to download {filename!r}: url must start with 'https://' "
+                f"(plain HTTP would expose auth tokens); got {url!r}"
+            ),
+        )
+
     headers: dict[str, str] = {}
     if auth in ("huggingface", "civitai"):
         token = _get_token_for_auth(auth)
@@ -263,19 +275,14 @@ async def _download_one(
                     if next_parsed.scheme != "https":
                         early_return = transient_error(
                             "network_error",
-                            (
-                                f"refusing to follow redirect to non-https: {next_url} "
-                                f"(from {current_url})"
-                            ),
+                            (f"refusing to follow redirect to non-https: {next_url} (from {current_url})"),
                         )
                         break
                     next_host = next_parsed.netloc
                     if next_host != original_host and "Authorization" in current_headers:
                         # Cross-origin hop: strip Authorization to avoid
                         # leaking the bearer token to the CDN.
-                        current_headers = {
-                            k: v for k, v in current_headers.items() if k != "Authorization"
-                        }
+                        current_headers = {k: v for k, v in current_headers.items() if k != "Authorization"}
                     current_url = next_url
                     hops += 1
                     continue
@@ -344,10 +351,7 @@ async def _download_one(
             partial.unlink(missing_ok=True)
         return terminal_error(
             "verification_failed",
-            (
-                f"size mismatch for {filename!r}: declared {declared_size}, "
-                f"got {bytes_written} bytes"
-            ),
+            (f"size mismatch for {filename!r}: declared {declared_size}, got {bytes_written} bytes"),
         )
 
     if declared_sha256 is not None:
@@ -357,10 +361,7 @@ async def _download_one(
                 partial.unlink(missing_ok=True)
             return terminal_error(
                 "verification_failed",
-                (
-                    f"sha256 mismatch for {filename!r}: declared {declared_sha256}, "
-                    f"computed {computed}."
-                ),
+                (f"sha256 mismatch for {filename!r}: declared {declared_sha256}, computed {computed}."),
             )
 
     if target.exists():
@@ -475,9 +476,7 @@ async def download_models(template_name: str) -> dict:
                 )
                 continue
 
-            logger.info(
-                "Downloading model %r into %s/", entry["filename"], entry["subfolder"]
-            )
+            logger.info("Downloading model %r into %s/", entry["filename"], entry["subfolder"])
             result = await _download_one(client, entry, target)
             if result.get("status") != "success":
                 return result

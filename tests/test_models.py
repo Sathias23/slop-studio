@@ -153,9 +153,7 @@ async def test_check_requirements_models_dir_missing(tmp_path, monkeypatch):
     _write_template(
         templates_dir,
         "needs_dir",
-        requirements=[
-            {"filename": "model.gguf", "subfolder": "unet", "url": "https://example.com/m.gguf"}
-        ],
+        requirements=[{"filename": "model.gguf", "subfolder": "unet", "url": "https://example.com/m.gguf"}],
     )
 
     result = await slop_studio.models.check_requirements("needs_dir")
@@ -196,9 +194,7 @@ async def test_download_models_all_already_present(models_env):
     (models_dir / "unet").mkdir()
     (models_dir / "unet" / "have.gguf").write_bytes(b"x")
 
-    reqs = [
-        {"filename": "have.gguf", "subfolder": "unet", "url": "https://example.com/have.gguf"}
-    ]
+    reqs = [{"filename": "have.gguf", "subfolder": "unet", "url": "https://example.com/have.gguf"}]
     _write_template(templates_dir, "skip_all", requirements=reqs)
 
     result = await slop_studio.models.download_models("skip_all")
@@ -226,9 +222,7 @@ async def test_download_models_success_atomic_rename(models_env):
     _write_template(templates_dir, "ok_dl", requirements=reqs)
 
     with respx.mock(assert_all_called=True) as mock:
-        mock.get("https://example.com/good.gguf").mock(
-            return_value=httpx.Response(200, content=payload)
-        )
+        mock.get("https://example.com/good.gguf").mock(return_value=httpx.Response(200, content=payload))
         result = await slop_studio.models.download_models("ok_dl")
 
     assert result["status"] == "success", result
@@ -283,9 +277,7 @@ async def test_download_models_sha256_mismatch_cleans_partial(models_env):
     _write_template(templates_dir, "bad_sha", requirements=reqs)
 
     with respx.mock(assert_all_called=True) as mock:
-        mock.get("https://example.com/bad_sha.gguf").mock(
-            return_value=httpx.Response(200, content=payload)
-        )
+        mock.get("https://example.com/bad_sha.gguf").mock(return_value=httpx.Response(200, content=payload))
         result = await slop_studio.models.download_models("bad_sha")
 
     assert result["status"] == "error"
@@ -310,9 +302,7 @@ async def test_download_models_network_error_cleans_partial(models_env):
     _write_template(templates_dir, "neterr", requirements=reqs)
 
     with respx.mock(assert_all_called=True) as mock:
-        mock.get("https://example.com/neterr.gguf").mock(
-            side_effect=httpx.ConnectError("connection refused")
-        )
+        mock.get("https://example.com/neterr.gguf").mock(side_effect=httpx.ConnectError("connection refused"))
         result = await slop_studio.models.download_models("neterr")
 
     assert result["status"] == "error"
@@ -512,11 +502,7 @@ async def test_download_models_concurrent_collision_keeps_existing(models_env, m
         result = real_open(file, mode, *args, **kwargs)
         # When we open the .partial for writing, schedule a plant to fire
         # on close.
-        if (
-            isinstance(file, (str, Path))
-            and str(file).endswith("race.gguf.partial")
-            and "w" in mode
-        ):
+        if isinstance(file, (str, Path)) and str(file).endswith("race.gguf.partial") and "w" in mode:
             real_close = result.close
 
             def _close_then_plant(*a, **kw):
@@ -533,9 +519,7 @@ async def test_download_models_concurrent_collision_keeps_existing(models_env, m
     monkeypatch.setattr(Path, "replace", _planted_replace)
 
     with respx.mock(assert_all_called=True) as mock:
-        mock.get("https://example.com/race.gguf").mock(
-            return_value=httpx.Response(200, content=payload)
-        )
+        mock.get("https://example.com/race.gguf").mock(return_value=httpx.Response(200, content=payload))
         result = await slop_studio.models.download_models("race")
 
     assert result["status"] == "success", result
@@ -558,9 +542,7 @@ async def test_download_models_models_dir_missing(tmp_path, monkeypatch):
     _write_template(
         templates_dir,
         "needs_dir2",
-        requirements=[
-            {"filename": "m.gguf", "subfolder": "unet", "url": "https://example.com/m.gguf"}
-        ],
+        requirements=[{"filename": "m.gguf", "subfolder": "unet", "url": "https://example.com/m.gguf"}],
     )
 
     result = await slop_studio.models.download_models("needs_dir2")
@@ -633,9 +615,7 @@ async def test_download_models_redirect_to_non_https_rejected(models_env):
 
     with respx.mock(assert_all_called=True) as mock:
         mock.get("https://example.com/redirected.gguf").mock(
-            return_value=httpx.Response(
-                302, headers={"Location": "http://insecure.example.com/cdn/file"}
-            )
+            return_value=httpx.Response(302, headers={"Location": "http://insecure.example.com/cdn/file"})
         )
         result = await slop_studio.models.download_models("non_https_redir")
 
@@ -647,9 +627,7 @@ async def test_download_models_redirect_to_non_https_rejected(models_env):
 
 
 @pytest.mark.anyio
-async def test_download_models_redirect_cross_origin_strips_authorization(
-    models_env, monkeypatch
-):
+async def test_download_models_redirect_cross_origin_strips_authorization(models_env, monkeypatch):
     """A redirect from huggingface.co to a different host must DROP the
     Authorization header on the second request to avoid leaking the bearer
     token to a CDN."""
@@ -672,9 +650,7 @@ async def test_download_models_redirect_cross_origin_strips_authorization(
 
     def _capture_first(request):
         captured.append({"url": str(request.url), "headers": dict(request.headers)})
-        return httpx.Response(
-            302, headers={"Location": "https://cdn.example.com/blob/hf_redir.gguf"}
-        )
+        return httpx.Response(302, headers={"Location": "https://cdn.example.com/blob/hf_redir.gguf"})
 
     def _capture_second(request):
         captured.append({"url": str(request.url), "headers": dict(request.headers)})
@@ -712,9 +688,7 @@ async def test_download_models_too_many_redirects(models_env):
         # 7 hops > 5 cap.
         for i in range(7):
             mock.get(f"https://example.com/hop{i}").mock(
-                return_value=httpx.Response(
-                    302, headers={"Location": f"https://example.com/hop{i + 1}"}
-                )
+                return_value=httpx.Response(302, headers={"Location": f"https://example.com/hop{i + 1}"})
             )
         mock.get("https://example.com/hop7").mock(return_value=httpx.Response(200, content=b"x"))
         result = await slop_studio.models.download_models("loopy")
@@ -745,17 +719,53 @@ async def test_download_models_protocol_relative_redirect_resolves(models_env):
 
     with respx.mock(assert_all_called=True) as mock:
         mock.get("https://example.com/start").mock(
-            return_value=httpx.Response(
-                302, headers={"Location": "//cdn.example.com/blob/rel.gguf"}
-            )
+            return_value=httpx.Response(302, headers={"Location": "//cdn.example.com/blob/rel.gguf"})
         )
-        mock.get("https://cdn.example.com/blob/rel.gguf").mock(
-            return_value=httpx.Response(200, content=payload)
-        )
+        mock.get("https://cdn.example.com/blob/rel.gguf").mock(return_value=httpx.Response(200, content=payload))
         result = await slop_studio.models.download_models("rel")
 
     assert result["status"] == "success", result
     assert (models_dir / "unet" / "rel.gguf").read_bytes() == payload
+
+
+@pytest.mark.anyio
+async def test_download_models_rejects_non_https_url_at_runtime(models_env):
+    """Defense-in-depth: even if a meta file is written directly (bypassing
+    `add_template` validation), `_download_one` must refuse a non-https URL
+    BEFORE making any network call so the auth token can never go over HTTP."""
+    templates_dir, models_dir = models_env
+
+    reqs = [
+        {
+            "filename": "leaky.gguf",
+            "subfolder": "unet",
+            "url": "http://insecure.example.com/leaky.gguf",
+            "auth": "huggingface",
+        }
+    ]
+    # Bypass add_template's validator by writing the meta to disk directly.
+    _write_template(templates_dir, "leaky_template", requirements=reqs)
+
+    # Simulate a configured token; without the scheme guard it would leak.
+    import os
+
+    os.environ["HF_TOKEN"] = "leak-canary"
+    _reload_modules()
+    try:
+        with respx.mock(assert_all_called=False) as mock:
+            route = mock.get("http://insecure.example.com/leaky.gguf")
+            result = await slop_studio.models.download_models("leaky_template")
+            # Critical: NO network request should have been made.
+            assert route.call_count == 0
+    finally:
+        del os.environ["HF_TOKEN"]
+        _reload_modules()
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "https://" in result["error"]
+    assert not (models_dir / "unet" / "leaky.gguf").exists()
+    assert not (models_dir / "unet" / "leaky.gguf.partial").exists()
 
 
 @pytest.mark.anyio
@@ -791,13 +801,9 @@ async def test_download_models_single_https_redirect_succeeds(models_env):
 
     with respx.mock(assert_all_called=True) as mock:
         mock.get("https://example.com/start").mock(
-            return_value=httpx.Response(
-                302, headers={"Location": "https://cdn.example.com/file"}
-            )
+            return_value=httpx.Response(302, headers={"Location": "https://cdn.example.com/file"})
         )
-        mock.get("https://cdn.example.com/file").mock(
-            return_value=httpx.Response(200, content=payload)
-        )
+        mock.get("https://cdn.example.com/file").mock(return_value=httpx.Response(200, content=payload))
         result = await slop_studio.models.download_models("ok_redir")
 
     assert result["status"] == "success"
@@ -825,9 +831,7 @@ async def test_download_models_size_bytes_mismatch_returns_verification_failed(m
     _write_template(templates_dir, "size_mismatch", requirements=reqs)
 
     with respx.mock(assert_all_called=True) as mock:
-        mock.get("https://example.com/size_mismatch.gguf").mock(
-            return_value=httpx.Response(200, content=payload)
-        )
+        mock.get("https://example.com/size_mismatch.gguf").mock(return_value=httpx.Response(200, content=payload))
         result = await slop_studio.models.download_models("size_mismatch")
 
     assert result["status"] == "error"
@@ -854,9 +858,7 @@ async def test_download_models_size_bytes_match_succeeds(models_env):
     _write_template(templates_dir, "size_ok", requirements=reqs)
 
     with respx.mock(assert_all_called=True) as mock:
-        mock.get("https://example.com/size_ok.gguf").mock(
-            return_value=httpx.Response(200, content=payload)
-        )
+        mock.get("https://example.com/size_ok.gguf").mock(return_value=httpx.Response(200, content=payload))
         result = await slop_studio.models.download_models("size_ok")
 
     assert result["status"] == "success"
@@ -877,9 +879,7 @@ async def test_download_models_empty_body_rejected(models_env):
     _write_template(templates_dir, "empty_body", requirements=reqs)
 
     with respx.mock(assert_all_called=True) as mock:
-        mock.get("https://example.com/empty.gguf").mock(
-            return_value=httpx.Response(200, content=b"")
-        )
+        mock.get("https://example.com/empty.gguf").mock(return_value=httpx.Response(200, content=b""))
         result = await slop_studio.models.download_models("empty_body")
 
     assert result["status"] == "error"
@@ -895,9 +895,7 @@ async def test_download_models_empty_body_rejected(models_env):
 
 
 @pytest.mark.anyio
-async def test_download_models_mkdir_failure_returns_storage_error(
-    models_env, monkeypatch
-):
+async def test_download_models_mkdir_failure_returns_storage_error(models_env, monkeypatch):
     templates_dir, models_dir = models_env
 
     reqs = [
@@ -922,9 +920,7 @@ async def test_download_models_mkdir_failure_returns_storage_error(
     with respx.mock(assert_all_called=False) as mock:
         # Route registered so respx doesn't error if it gets called, but
         # we expect mkdir to fail before any network IO.
-        mock.get("https://example.com/no_dir.gguf").mock(
-            return_value=httpx.Response(200, content=b"x")
-        )
+        mock.get("https://example.com/no_dir.gguf").mock(return_value=httpx.Response(200, content=b"x"))
         result = await slop_studio.models.download_models("no_dir")
 
     assert result["status"] == "error"
@@ -937,9 +933,7 @@ async def test_download_models_mkdir_failure_returns_storage_error(
 
 
 @pytest.mark.anyio
-async def test_download_models_local_protocol_error_returns_auth_failed(
-    models_env, monkeypatch
-):
+async def test_download_models_local_protocol_error_returns_auth_failed(models_env, monkeypatch):
     """Simulate a LocalProtocolError raised at request build time (e.g. CR
     in the bearer token). The catch must classify it as auth_failed rather
     than letting it slip through the generic httpx.HTTPError branch."""
@@ -958,9 +952,7 @@ async def test_download_models_local_protocol_error_returns_auth_failed(
     # Patch _get_token_for_auth to return a CR-tainted token. (The
     # _get_credential helper would normally reject this; we bypass to
     # exercise the LocalProtocolError catch branch directly.)
-    monkeypatch.setattr(
-        slop_studio.models, "_get_token_for_auth", lambda auth: "tainted\rvalue"
-    )
+    monkeypatch.setattr(slop_studio.models, "_get_token_for_auth", lambda auth: "tainted\rvalue")
 
     result = await slop_studio.models.download_models("lpe")
 
@@ -992,9 +984,7 @@ async def test_download_models_partial_path_preserves_compound_suffix(models_env
     _write_template(templates_dir, "compound", requirements=reqs)
 
     with respx.mock(assert_all_called=True) as mock:
-        mock.get("https://example.com/model.tar.gz").mock(
-            return_value=httpx.Response(200, content=payload)
-        )
+        mock.get("https://example.com/model.tar.gz").mock(return_value=httpx.Response(200, content=payload))
         result = await slop_studio.models.download_models("compound")
 
     assert result["status"] == "success"
@@ -1012,9 +1002,7 @@ async def test_download_models_partial_path_preserves_compound_suffix(models_env
 
 
 @pytest.mark.anyio
-async def test_check_requirements_is_file_oserror_returns_storage_error(
-    models_env, monkeypatch
-):
+async def test_check_requirements_is_file_oserror_returns_storage_error(models_env, monkeypatch):
     templates_dir, _ = models_env
 
     reqs = [

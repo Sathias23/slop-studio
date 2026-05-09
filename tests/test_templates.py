@@ -809,6 +809,31 @@ async def test_add_template_rejects_model_requirements_path_traversal(templates_
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "http://example.com/model.gguf",
+        "ftp://example.com/model.gguf",
+        "//example.com/model.gguf",
+        "example.com/model.gguf",
+    ],
+)
+async def test_add_template_rejects_non_https_url(templates_dir, bad_url):
+    """Plain HTTP (or any non-https scheme) must be rejected at write time so
+    auth tokens can never be sent over an insecure transport."""
+    entry = dict(_VALID_MODEL_REQ)
+    entry["url"] = bad_url
+    meta = _sample_meta(model_requirements=[entry])
+
+    result = await slop_studio.templates.add_template("bad_scheme", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "https://" in result["error"]
+    assert not (templates_dir / "bad_scheme.meta.json").exists()
+
+
+@pytest.mark.anyio
 async def test_add_template_rejects_model_requirements_filename_with_nul(templates_dir):
     """NUL byte in filename → invalid_inputs (control-character rejection)."""
     entry = dict(_VALID_MODEL_REQ)

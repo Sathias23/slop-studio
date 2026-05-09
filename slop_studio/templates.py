@@ -139,23 +139,21 @@ def _validate_metadata(metadata: dict) -> str | None:
                 value = entry.get(required_field)
                 if not isinstance(value, str) or not value:
                     return f"model_requirements[{i}] missing required '{required_field}' (non-empty string)"
+            if not entry["url"].startswith("https://"):
+                return (
+                    f"model_requirements[{i}] 'url' must start with 'https://' "
+                    f"(plain HTTP would expose auth tokens); got {entry['url']!r}"
+                )
             for path_field in ("filename", "subfolder"):
                 value = entry[path_field]
                 if ".." in value or "/" in value or "\\" in value:
                     return (
-                        f"model_requirements[{i}] '{path_field}' must not contain "
-                        f"'..', '/', or '\\\\'; got {value!r}"
+                        f"model_requirements[{i}] '{path_field}' must not contain '..', '/', or '\\\\'; got {value!r}"
                     )
                 if any(ord(c) < 32 for c in value):
-                    return (
-                        f"model_requirements[{i}] '{path_field}' must not contain "
-                        f"control characters; got {value!r}"
-                    )
+                    return f"model_requirements[{i}] '{path_field}' must not contain control characters; got {value!r}"
             if entry["subfolder"] == ".":
-                return (
-                    f"model_requirements[{i}] 'subfolder' must not be '.'; "
-                    f"got {entry['subfolder']!r}"
-                )
+                return f"model_requirements[{i}] 'subfolder' must not be '.'; got {entry['subfolder']!r}"
             sha256 = entry.get("sha256")
             if sha256 is not None:
                 if not isinstance(sha256, str):
