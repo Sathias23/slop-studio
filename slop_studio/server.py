@@ -744,13 +744,13 @@ async def post_to_bluesky(
 
 
 _ISSUE_URL = "https://github.com/Sathias23/slop-studio/issues"
-_ISSUE_CHECKLIST = [
+_ISSUE_CHECKLIST = (
     "slop-studio version (provided in this response under `version`)",
     "What you tried (the prompt + which template, if relevant)",
     "What happened (paste the `error_type` and `error` message from the failing tool response)",
     "OS (macOS / Linux / Windows)",
     "Backend used (local vs cloud), and whether ComfyUI was managed by slop-studio (COMFYUI_START_CMD set) or external",
-]
+)
 
 
 @mcp.tool()
@@ -764,14 +764,19 @@ async def report_issue() -> dict:
     a checklist of details to gather from the user before pointing them at the link, so
     the maintainer can reproduce and triage.
 
-    Do NOT call this for generation-quality complaints (blurry images, wrong aspect ratio,
-    prompt adherence) — those belong upstream in ComfyUI or Comfy Cloud, not slop-studio.
-    Reserve this for slop-studio's own behavior: tool errors, MCP integration issues,
-    template validation failures, download problems, etc.
+    **Call this for slop-studio's own behavior:** tool errors (`error_type` set in a tool
+    response), MCP integration issues, template validation failures, model-download
+    problems, unexpected exceptions, surprising tool semantics.
 
-    Returns ``{status: "success", issue_url, version, checklist}``. ``version`` is read
-    dynamically from the installed package metadata so the bug report's version field is
-    always accurate.
+    **Do NOT call this for generation-quality complaints** (blurry images, wrong aspect
+    ratio, weak prompt adherence, color cast) — those are upstream issues with ComfyUI
+    or the model, not slop-studio. The user's recourse there is a different model,
+    template, or upstream report.
+
+    Returns ``{status, issue_url, version, checklist, note}``. ``version`` is read
+    dynamically from the installed package metadata; falls back to ``"unknown"`` with
+    an explanatory ``note`` if metadata can't be resolved (e.g. running from raw source
+    or corrupt dist-info). ``note`` is ``None`` on the happy path.
     """
     try:
         version = importlib.metadata.version("slop-studio")
@@ -779,20 +784,27 @@ async def report_issue() -> dict:
             "status": "success",
             "issue_url": _ISSUE_URL,
             "version": version,
-            "checklist": _ISSUE_CHECKLIST,
+            "checklist": list(_ISSUE_CHECKLIST),
+            "note": None,
         }
     except importlib.metadata.PackageNotFoundError:
-        return {
-            "status": "success",
-            "issue_url": _ISSUE_URL,
-            "version": "unknown",
-            "checklist": _ISSUE_CHECKLIST,
-            "note": (
-                "Package metadata for 'slop-studio' was not found — likely running from "
-                "an uninstalled source tree. Ask the user to run `slop-studio --version` "
-                "or check `pyproject.toml` for the version string."
-            ),
-        }
+        note = (
+            "Package metadata for 'slop-studio' was not found — likely running from "
+            "an uninstalled source tree. Check the `version` field in `pyproject.toml` "
+            "or `manifest.json` for the version string to include in the issue."
+        )
+    except Exception as exc:
+        note = (
+            f"Could not resolve slop-studio version from package metadata "
+            f"({type(exc).__name__}: {exc}). Check `pyproject.toml` or `manifest.json`."
+        )
+    return {
+        "status": "success",
+        "issue_url": _ISSUE_URL,
+        "version": "unknown",
+        "checklist": list(_ISSUE_CHECKLIST),
+        "note": note,
+    }
 
 
 if __name__ == "__main__":
