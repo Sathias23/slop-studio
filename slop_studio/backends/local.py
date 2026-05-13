@@ -375,6 +375,16 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
             "invalid_workflow",
             f"ComfyUI response missing prompt_id: {str(data)[:200]}",
         )
+    # ComfyUI returns 200 with `node_errors` populated when SOME output nodes
+    # fail validation but at least one passes — the job is queued, runs only
+    # the validating outputs, and the rest are silently skipped (GH #26).
+    # Surface those failures instead of returning a doomed prompt_id.
+    node_errors = data.get("node_errors")
+    if node_errors:
+        return _err(
+            "invalid_workflow",
+            f"ComfyUI workflow validation errors: {str(node_errors)[:500]}",
+        )
     return {"status": "success", "prompt_id": prompt_id}
 
 
@@ -705,6 +715,14 @@ class LocalBackend(Backend):
             return _err(
                 "invalid_workflow",
                 f"ComfyUI response missing prompt_id: {str(data)[:200]}",
+            )
+        # See GH #26 / queue_prompt() above: 200 with node_errors means the
+        # job is queued but a subset of outputs will be silently skipped.
+        node_errors = data.get("node_errors")
+        if node_errors:
+            return _err(
+                "invalid_workflow",
+                f"ComfyUI workflow validation errors: {str(node_errors)[:500]}",
             )
         return {"status": "success", "prompt_id": prompt_id}
 
