@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import importlib.metadata
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1081,3 +1082,91 @@ async def test_open_comfy_cloud_portal_requires_no_auth_or_config(tmp_path, monk
     assert result["status"] == "success"
     assert result["url"] == "https://platform.comfy.org/"
     mock_exec.assert_called_once()
+
+
+# --- report_issue tool tests ---
+
+
+@pytest.mark.anyio
+async def test_report_issue_returns_canonical_url_and_dynamic_version():
+    """Happy path: returns the canonical issue URL, the live package version,
+    a checklist covering each canonical info type, and `note: None`."""
+    from slop_studio.server import _ISSUE_URL, report_issue
+
+    try:
+        expected_version = importlib.metadata.version("slop-studio")
+    except importlib.metadata.PackageNotFoundError:
+        pytest.skip("slop-studio not installed in this env — happy path requires installed package metadata")
+
+    result = await report_issue()
+
+    assert result["status"] == "success"
+    assert result["issue_url"] == _ISSUE_URL
+    assert result["version"] == expected_version
+    assert result["version"] != "unknown"
+    assert result["note"] is None
+
+    # Each canonical checklist topic is covered by exactly one item — assert against
+    # the original-case items, not a lowercased blob, so loose substring matches don't
+    # falsely pass.
+    checklist = result["checklist"]
+    assert any("version" in item for item in checklist)
+    assert any("What you tried" in item for item in checklist)
+    assert any("What happened" in item for item in checklist)
+    assert any(item.startswith("OS ") for item in checklist)
+    assert any(item.startswith("Backend used") for item in checklist)
+
+
+@pytest.mark.anyio
+async def test_report_issue_falls_back_when_package_metadata_missing():
+    """`PackageNotFoundError` (uninstalled source tree) → success shape with
+    version='unknown' + `note` explaining where to find the version."""
+    from slop_studio.server import _ISSUE_URL, report_issue
+
+    with patch(
+        "slop_studio.server.importlib.metadata.version",
+        side_effect=importlib.metadata.PackageNotFoundError("slop-studio"),
+    ):
+        result = await report_issue()
+
+    assert result["status"] == "success"
+    assert result["issue_url"] == _ISSUE_URL
+    assert result["version"] == "unknown"
+    assert result["note"] is not None
+    assert "pyproject.toml" in result["note"] or "manifest.json" in result["note"]
+    assert len(result["checklist"]) > 0
+
+
+@pytest.mark.anyio
+async def test_report_issue_falls_back_on_unexpected_exception():
+    """Any non-PackageNotFoundError raised by importlib.metadata (e.g. corrupt
+    dist-info raising RuntimeError) must still surface the issue URL — that's
+    when the user most needs it. Caught and routed to the same fallback shape."""
+    from slop_studio.server import _ISSUE_URL, report_issue
+
+    with patch(
+        "slop_studio.server.importlib.metadata.version",
+        side_effect=RuntimeError("dist-info is corrupt"),
+    ):
+        result = await report_issue()
+
+    assert result["status"] == "success"
+    assert result["issue_url"] == _ISSUE_URL
+    assert result["version"] == "unknown"
+    assert result["note"] is not None
+    assert "RuntimeError" in result["note"]
+
+
+@pytest.mark.anyio
+async def test_report_issue_checklist_returned_by_value():
+    """The checklist module-constant must not be mutable through the response.
+    A caller mutating the returned list must not corrupt subsequent calls."""
+    from slop_studio.server import report_issue
+
+    first = await report_issue()
+    first["checklist"].append("MUTATED")
+    first["checklist"].clear()
+
+    second = await report_issue()
+    assert "MUTATED" not in second["checklist"]
+    assert len(second["checklist"]) > 0

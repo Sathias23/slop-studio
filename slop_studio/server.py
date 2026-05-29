@@ -1,6 +1,7 @@
 import asyncio
 import atexit
 import functools
+import importlib.metadata
 import logging
 import os
 import platform
@@ -740,6 +741,70 @@ async def post_to_bluesky(
         tags=tags,
         images=images,
     )
+
+
+_ISSUE_URL = "https://github.com/Sathias23/slop-studio/issues"
+_ISSUE_CHECKLIST = (
+    "slop-studio version (provided in this response under `version`)",
+    "What you tried (the prompt + which template, if relevant)",
+    "What happened (paste the `error_type` and `error` message from the failing tool response)",
+    "OS (macOS / Linux / Windows)",
+    "Backend used (local vs cloud), and whether ComfyUI was managed by slop-studio (COMFYUI_START_CMD set) or external",
+)
+
+
+@mcp.tool()
+@safe_tool
+async def report_issue() -> dict:
+    """Surface the canonical bug-report URL + checklist for filing a slop-studio issue.
+
+    Call this when the user asks how to file a bug, raise an issue, or report a problem
+    with slop-studio itself — e.g. "how do I report this?", "where do I file a bug?",
+    "this looks like a slop-studio bug". The response gives you the GitHub issue URL and
+    a checklist of details to gather from the user before pointing them at the link, so
+    the maintainer can reproduce and triage.
+
+    **Call this for slop-studio's own behavior:** tool errors (`error_type` set in a tool
+    response), MCP integration issues, template validation failures, model-download
+    problems, unexpected exceptions, surprising tool semantics.
+
+    **Do NOT call this for generation-quality complaints** (blurry images, wrong aspect
+    ratio, weak prompt adherence, color cast) — those are upstream issues with ComfyUI
+    or the model, not slop-studio. The user's recourse there is a different model,
+    template, or upstream report.
+
+    Returns ``{status, issue_url, version, checklist, note}``. ``version`` is read
+    dynamically from the installed package metadata; falls back to ``"unknown"`` with
+    an explanatory ``note`` if metadata can't be resolved (e.g. running from raw source
+    or corrupt dist-info). ``note`` is ``None`` on the happy path.
+    """
+    try:
+        version = importlib.metadata.version("slop-studio")
+        return {
+            "status": "success",
+            "issue_url": _ISSUE_URL,
+            "version": version,
+            "checklist": list(_ISSUE_CHECKLIST),
+            "note": None,
+        }
+    except importlib.metadata.PackageNotFoundError:
+        note = (
+            "Package metadata for 'slop-studio' was not found — likely running from "
+            "an uninstalled source tree. Check the `version` field in `pyproject.toml` "
+            "or `manifest.json` for the version string to include in the issue."
+        )
+    except Exception as exc:
+        note = (
+            f"Could not resolve slop-studio version from package metadata "
+            f"({type(exc).__name__}: {exc}). Check `pyproject.toml` or `manifest.json`."
+        )
+    return {
+        "status": "success",
+        "issue_url": _ISSUE_URL,
+        "version": "unknown",
+        "checklist": list(_ISSUE_CHECKLIST),
+        "note": note,
+    }
 
 
 if __name__ == "__main__":
