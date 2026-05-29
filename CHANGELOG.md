@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-05-29
+
+### Added
+
+- **`report_issue` MCP tool** — returns the canonical GitHub issue URL plus a structured checklist (version, what-was-tried, what-happened with the `error_type`/`error` from the failing tool, OS, backend) to gather before filing a slop-studio bug. The version is read dynamically via `importlib.metadata.version("slop-studio")` so it can't drift from `pyproject.toml`; falls back to `"unknown"` with an explanatory `note` when package metadata can't be resolved (raw-source dev). The docstring scopes the tool to slop-studio's own behavior and explicitly routes generation-quality complaints (blur, aspect ratio, prompt adherence) upstream to ComfyUI / the model, keeping the bug channel clean.
+
 ## [0.5.4] - 2026-05-09
 
 ### Added
