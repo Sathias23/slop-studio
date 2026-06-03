@@ -43,3 +43,16 @@ Previously tested with SDXL where it produced genuinely unhinged results — the
 Add support for image inputs in workflow templates — feed an existing generated image back into the pipeline for img2img transformations. This would allow style transfer, morphing between concepts (e.g. turning an eldritch horror into a fluffy duck while preserving composition and lighting), inpainting, and iterative refinement without starting from scratch each time.
 
 Requires templates that accept image inputs alongside text prompts, and a way to reference previous outputs by path or job ID.
+
+## Gemma 4 JSON Prompt Builder Template (Ideogram 4.0)
+
+The shipped `image_ideogram4_t2i` template takes a structured JSON prompt directly (injected as the `CLIPTextEncode` `text` string) and deliberately drops the official workflow's optional **LLM Prompt Builder** group. That group runs **Gemma 4** (`gemma4_e4b_it_fp8_scaled.safetensors`) locally with a system prompt that turns a short natural-language idea into schema-compliant Ideogram JSON, so you can prompt with a sentence instead of hand-writing the spec.
+
+Look into shipping this as an alternative template (e.g. `image_ideogram4_t2i_gemma`) that wires the Gemma 4 builder ahead of the image pipeline. Worth doing since Gemma 4 already runs locally on the Mac here.
+
+Open questions to resolve before building:
+
+- **Node availability** — the builder uses `TextGenerate`, `StringConcatenate`, `PrimitiveStringMultiline`, `CLIPLoader` (`type: "ideogram4"`). Confirm `TextGenerate` is a real core node and how it's invoked in API format (it's the LLM-inference node, not a normal encoder).
+- **Two-stage vs single graph** — either chain Gemma→Ideogram in one workflow (one `queue_prompt`, but the intermediate JSON is invisible to the user), or keep them as separate templates so the JSON can be previewed/edited between stages. The original workflow keeps them separate (the builder is a bypassed subgraph feeding a PreviewAny).
+- **`model_requirements`** — add the `gemma4_e4b_it_fp8_scaled.safetensors` text-encoder download (HF: `Comfy-Org/gemma-4`), which the current template omits since it doesn't load Gemma.
+- **bbox axis order** — the bundled Gemma system prompt instructs `[x_min, y_min, x_max, y_max]`, which is transposed relative to the model's actual `[y_min, x_min, y_max, x_max]` (see the `image_ideogram4_t2i` notes). Fix the system prompt before reusing it, or layouts will come out mirrored across the diagonal.
