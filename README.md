@@ -9,7 +9,7 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Ships sixteen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
+- Ships seventeen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
 - Automatic ComfyUI spawning and lifecycle management
@@ -280,7 +280,7 @@ See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the a
 
 ## Templates
 
-Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Sixteen starter templates ship with every project, spanning both backends:
+Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Seventeen starter templates ship with every project, spanning both backends:
 
 **Local — GGUF models on your GPU (Flux.2 Klein, 16 GB VRAM):**
 
@@ -292,6 +292,10 @@ Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Sixteen
 
 - **image_ernie** — Baidu's ERNIE-Image 8B DiT (Apache-2.0); precise text rendering, built-in prompt enhancement (~60s); 9 aspect ratios
 - **image_ernie_turbo** — DMD/RL-distilled 8-step variant (~30s, ~2× faster than standard); 9 aspect ratios
+
+**Local — Ideogram 4.0 (9.3B open-weights DiT, structured-JSON prompting; heavy — two fp8 checkpoints + 8B encoder):**
+
+- **image_ideogram4_t2i** — Ideogram 4.0 text-to-image. Takes a **structured JSON prompt** (scene summary, style block, hex color palettes, and per-element bounding boxes `[y_min, x_min, y_max, x_max]` on a 0–1000 grid) rather than plain text, for precise layout, palette control, and readable in-image text. Asymmetric CFG over a conditional + unconditional UNET pair; Default preset (20 `res_multistep` steps); 7 aspect ratios. The model carries its own baked-in safety filter — blocked results come from Ideogram's weights, not ComfyUI.
 
 **Local — partner-API nodes (requires `COMFY_CLOUD_API_KEY`; no VRAM used, node proxies upstream):**
 
