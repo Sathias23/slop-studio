@@ -1,0 +1,58 @@
+{
+  "name": "image_ideogram4_t2i",
+  "model": "ideogram-4",
+  "description": "Ideogram 4.0 — a 9.3B open-weights text-to-image foundation model with day-zero ComfyUI support. Reads a STRUCTURED JSON PROMPT (not plain text) as a spec sheet: scene summary, style block, hex color palettes, and per-element bounding boxes for precise layout and readable in-image text. Runs the Qwen3-VL 8B text encoder + flux2-vae, with asymmetric classifier-free guidance over a conditional + unconditional UNET pair (DualModelGuider) on the Ideogram4Scheduler (Default preset: 20 res_multistep steps, mu=0.0, std=1.75). Heavy local model: two fp8 diffusion checkpoints (~9.3B each) plus an 8B encoder. NOTE: Ideogram 4.0 has a safety filter baked into the model weights — a blocked/blank result is the model's own filter, not ComfyUI; rephrase the offending element rather than retrying verbatim.",
+  "backend": "local",
+  "expected_duration": "60 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "98:24",
+      "field": "text",
+      "type": "required",
+      "description": "A STRUCTURED JSON DOCUMENT (passed as a string), NOT a plain-text prompt — Ideogram 4.0 parses this JSON as a render spec. The more relationships you pin down (positions, colors, per-element styling), the more grounded the result. Plain natural language also works but gives up the layout/color/text control. Schema:\n{\n  \"high_level_description\": \"one sentence summarizing setting, subjects, and mood\",\n  \"style_description\": {\n    \"aesthetics\": \"overall visual style/treatment\",\n    \"lighting\": \"light source, direction, quality, color temperature\",\n    \"photo\": \"camera/lens specifics, or \\\"\\\" if non-photographic\",\n    \"medium\": \"photography | oil painting | 3D render | illustration | ...\",\n    \"color_palette\": [\"#RRGGBB\", \"... up to 16 overall hex colors\"]\n  },\n  \"compositional_deconstruction\": {\n    \"background\": \"only the environment behind/around the elements\",\n    \"elements\": [\n      {\n        \"type\": \"obj\",\n        \"bbox\": [y_min, x_min, y_max, x_max],\n        \"desc\": \"identity, pose, location, size, key details\",\n        \"color_palette\": [\"#RRGGBB\", \"... up to 5 per element\"]\n      },\n      {\n        \"type\": \"text\",\n        \"text\": \"the literal string to render in the image\",\n        \"bbox\": [y_min, x_min, y_max, x_max],\n        \"desc\": \"styling of the text (font feel, weight, treatment)\",\n        \"color_palette\": [\"#RRGGBB\"]\n      }\n    ]\n  }\n}\nbbox is [y_min, x_min, y_max, x_max] in 0–1000 normalized coordinates, origin top-left (y down, x right). Use type \"text\" with a literal \"text\" field for any in-image copy, and a separate \"desc\" for its styling. List elements roughly background-to-foreground."
+    }
+  },
+  "aspect_ratios": {
+    "1:1":  {"width": 1024, "height": 1024},
+    "4:3":  {"width": 1152, "height": 864},
+    "3:4":  {"width": 864,  "height": 1152},
+    "3:2":  {"width": 1216, "height": 832},
+    "2:3":  {"width": 832,  "height": 1216},
+    "16:9": {"width": 1344, "height": 768},
+    "9:16": {"width": 768,  "height": 1344}
+  },
+  "resolution_nodes": [
+    {"node_id": "98:17", "width_field": "width", "height_field": "height"},
+    {"node_id": "98:11", "width_field": "width", "height_field": "height"}
+  ],
+  "model_requirements": [
+    {
+      "filename": "flux2-vae.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors",
+      "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+      "size_bytes": 336213556
+    },
+    {
+      "filename": "ideogram4_fp8_scaled.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Ideogram-4/resolve/main/diffusion_models/ideogram4_fp8_scaled.safetensors",
+      "sha256": "49a946f1b0f8bcf5eab7d3b1ecc7b453c104e034cb1b592032745692724bd306",
+      "size_bytes": 9280741285
+    },
+    {
+      "filename": "ideogram4_unconditional_fp8_scaled.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Ideogram-4/resolve/main/diffusion_models/ideogram4_unconditional_fp8_scaled.safetensors",
+      "sha256": "9b359007dae162cca7591d00868feea733eb7c56e56e3a214a4d5a9a2a07cd60",
+      "size_bytes": 9280741293
+    },
+    {
+      "filename": "qwen3vl_8b_fp8_scaled.safetensors",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/Comfy-Org/Qwen3-VL/resolve/main/text_encoders/qwen3vl_8b_fp8_scaled.safetensors",
+      "sha256": "4ba424cf62e51392e4d1a39933e803706f4e823c1065f36aaf149c6453f66bcd",
+      "size_bytes": 10588637512
+    }
+  ]
+}
