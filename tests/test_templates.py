@@ -179,8 +179,8 @@ def test_starter_template_meta_matches_workflow(name, meta_path, workflow_path):
     """
     assert workflow_path.exists(), f"starter template '{name}' is missing its workflow .json"
 
-    meta = json.loads(meta_path.read_text())
-    workflow = json.loads(workflow_path.read_text())
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
 
     assert meta.get("name") == name, f"meta 'name' field ({meta.get('name')!r}) must match filename stem ({name!r})"
 
@@ -256,8 +256,8 @@ def test_gpt_image_2_aspect_ratio_injection(name, aspect_ratio, expected_size):
     from slop_studio.backends.local import _inject_resolution
 
     starter_dir = Path(__file__).resolve().parent.parent / "slop_studio" / "assets" / "starter-templates"
-    meta = json.loads((starter_dir / f"{name}.meta.json").read_text())
-    workflow = json.loads((starter_dir / f"{name}.json").read_text())
+    meta = json.loads((starter_dir / f"{name}.meta.json").read_text(encoding="utf-8"))
+    workflow = json.loads((starter_dir / f"{name}.json").read_text(encoding="utf-8"))
 
     _inject_resolution(workflow, meta, aspect_ratio)
 

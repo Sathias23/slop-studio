@@ -462,7 +462,10 @@ def test_build_post_text_no_url_no_link_facets():
 
 
 @pytest.mark.anyio
-@pytest.mark.skipif(os.geteuid() == 0, reason="chmod 0o000 does not block reads when running as root")
+@pytest.mark.skipif(
+    os.name != "posix" or os.geteuid() == 0,
+    reason="chmod 0o000 only blocks reads for non-root POSIX users",
+)
 async def test_read_permission_error(tmp_image):
     """Permission errors reading the file are handled gracefully."""
     os.chmod(tmp_image, 0o000)
