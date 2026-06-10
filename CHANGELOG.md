@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-06-10
+
+### Security
+
+- **`post_to_bluesky` image path confinement + content verification** — post images must now resolve inside `OUTPUT_DIR` (same allowlist confinement `open_gallery` already had), carry an image extension (`.png .jpg .jpeg .webp .gif .bmp .tiff`), and parse as a real image via PIL (`Image.verify`, offloaded through `asyncio.to_thread` so the async path never blocks). Posting publishes the file's bytes to a public network, so a prompt-injected path like `~/.ssh/id_rsa` must not be uploadable. Rejections return the canonical error codes: `invalid_path` (outside output dir), `validation_failed` (wrong extension / not a parseable image), `permission_denied` (unreadable), `file_not_found`.
+- **`route_for_prompt_id` native-id charset validation** — prompt ids are interpolated into backend URL paths (`/history/{id}`, `/api/job/{id}/status`), so characters like `/ ? # %` or whitespace could redirect the GET to a different endpoint. The router now rejects any native id not matching `[A-Za-z0-9_:-]+` at the single choke point before backend dispatch, covering `check_next_job` and `get_image` on both backends.
+- **Repository URL corrected to `github.com/Sathias23/slop-studio`** in `manifest.json`, the scaffolded CLAUDE.md template, and the CHANGELOG compare links — the previously referenced `sathias` username is unregistered and squattable.
+
+### Fixed
+
+- **Windows test runs** — `tests/test_bluesky.py` failed to collect on Windows because the new root-skip guard called `os.geteuid()` (POSIX-only) at collection time; the guard now short-circuits on `os.name != "posix"`. The starter-template integrity tests now read the shipped template JSONs with explicit `encoding="utf-8"` instead of the platform default (cp1252 on Windows).
+
 ## [0.5.6] - 2026-06-05
 
 ### Added
@@ -249,11 +261,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Output and templates resolve to the art project dir, not the package dir
 
-[Unreleased]: https://github.com/Sathias23/slop-studio/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/Sathias23/slop-studio/compare/v0.5.7...HEAD
+[0.5.7]: https://github.com/Sathias23/slop-studio/compare/v0.5.6...v0.5.7
+[0.5.6]: https://github.com/Sathias23/slop-studio/compare/v0.5.5...v0.5.6
+[0.5.5]: https://github.com/Sathias23/slop-studio/compare/v0.5.4...v0.5.5
+[0.5.4]: https://github.com/Sathias23/slop-studio/compare/v0.5.3...v0.5.4
+[0.5.3]: https://github.com/Sathias23/slop-studio/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/Sathias23/slop-studio/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/Sathias23/slop-studio/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/Sathias23/slop-studio/compare/v0.4.5...v0.5.0
+[0.4.5]: https://github.com/Sathias23/slop-studio/compare/v0.4.4...v0.4.5
+[0.4.4]: https://github.com/Sathias23/slop-studio/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/Sathias23/slop-studio/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/Sathias23/slop-studio/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Sathias23/slop-studio/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Sathias23/slop-studio/compare/v0.3.6...v0.4.0
+[0.3.6]: https://github.com/Sathias23/slop-studio/compare/v0.3.5...v0.3.6
+[0.3.5]: https://github.com/Sathias23/slop-studio/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/Sathias23/slop-studio/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/Sathias23/slop-studio/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/Sathias23/slop-studio/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Sathias23/slop-studio/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Sathias23/slop-studio/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Sathias23/slop-studio/compare/v0.1.0...v0.2.0
