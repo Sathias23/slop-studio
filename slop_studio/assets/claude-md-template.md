@@ -1,6 +1,6 @@
 # Art Project
 
-This project uses [slop-studio](https://github.com/sathias/slop-studio) for conversational image generation via ComfyUI.
+This project uses [slop-studio](https://github.com/Sathias23/slop-studio) for conversational image generation via ComfyUI.
 
 ## Quick Start
 

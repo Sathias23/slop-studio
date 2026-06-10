@@ -20,6 +20,12 @@ def _mock_embed_models():
     return mock_embed
 
 
+@pytest.fixture(autouse=True)
+def _confine_output_dir(tmp_path, monkeypatch):
+    """Point OUTPUT_DIR at the test tmp dir so fixture images pass confinement."""
+    monkeypatch.setattr(bluesky, "OUTPUT_DIR", str(tmp_path))
+
+
 @pytest.fixture
 def tmp_image(tmp_path):
     """Create a small valid PNG file for testing."""
@@ -75,11 +81,77 @@ async def test_missing_password_only(tmp_image):
 
 
 @pytest.mark.anyio
-async def test_file_not_found():
+async def test_file_not_found(tmp_path):
     with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
-        result = await bluesky.post_image(image_path="/nonexistent/image.png", text="hello", alt_text="alt")
+        result = await bluesky.post_image(image_path=str(tmp_path / "missing.png"), text="hello", alt_text="alt")
     assert result["status"] == "error"
     assert result["error_type"] == "file_not_found"
+
+
+# --- Output-dir confinement (publishing is exfiltration-sensitive) ---
+
+
+@pytest.mark.anyio
+async def test_post_rejects_path_outside_output_dir(tmp_path):
+    """A readable file outside OUTPUT_DIR must not be uploadable."""
+    from PIL import Image
+
+    outside = tmp_path.parent / f"{tmp_path.name}_outside"
+    outside.mkdir(exist_ok=True)
+    img_path = outside / "escape.png"
+    Image.new("RGB", (8, 8), color="red").save(img_path, format="PNG")
+
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_image(image_path=str(img_path), text="hello", alt_text="alt")
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_path"
+    assert result["retry_suggested"] is False
+
+
+@pytest.mark.anyio
+async def test_post_rejects_non_image_extension(tmp_path):
+    """Non-image extensions are rejected even inside OUTPUT_DIR."""
+    secret = tmp_path / "credentials.json"
+    secret.write_text('{"api_key": "hunter2"}')
+
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_image(image_path=str(secret), text="hello", alt_text="alt")
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation_failed"
+
+
+@pytest.mark.anyio
+async def test_post_rejects_non_image_content(tmp_path):
+    """A non-image file renamed to .png is rejected before upload."""
+    fake = tmp_path / "fake.png"
+    fake.write_text("ssh-rsa AAAA... not an image")
+
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_image(image_path=str(fake), text="hello", alt_text="alt")
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation_failed"
+
+
+@pytest.mark.anyio
+async def test_multi_image_outside_output_dir_rejected(tmp_path):
+    """Confinement applies to every entry in the multi-image list."""
+    from PIL import Image
+
+    inside = tmp_path / "ok.png"
+    Image.new("RGB", (8, 8), color="red").save(inside, format="PNG")
+    outside = tmp_path.parent / f"{tmp_path.name}_outside2"
+    outside.mkdir(exist_ok=True)
+    escape = outside / "escape.png"
+    Image.new("RGB", (8, 8), color="blue").save(escape, format="PNG")
+
+    images = [
+        {"path": str(inside), "alt_text": "ok"},
+        {"path": str(escape), "alt_text": "escape"},
+    ]
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_image(text="mixed", images=images)
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_path"
 
 
 # --- Text too long ---
@@ -390,6 +462,7 @@ def test_build_post_text_no_url_no_link_facets():
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(os.geteuid() == 0, reason="chmod 0o000 does not block reads when running as root")
 async def test_read_permission_error(tmp_image):
     """Permission errors reading the file are handled gracefully."""
     os.chmod(tmp_image, 0o000)
@@ -397,7 +470,9 @@ async def test_read_permission_error(tmp_image):
         with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
             result = await bluesky.post_image(image_path=tmp_image, text="hello", alt_text="alt")
         assert result["status"] == "error"
-        assert result["error_type"] == "file_not_found"
+        # PIL's verify hits the unreadable file first; the PermissionError
+        # surfaces under the canonical permission_denied code.
+        assert result["error_type"] == "permission_denied"
     finally:
         os.chmod(tmp_image, 0o644)
 
@@ -528,10 +603,10 @@ async def test_multi_image_both_params_error(tmp_images):
 
 
 @pytest.mark.anyio
-async def test_multi_image_one_bad_file(tmp_images):
+async def test_multi_image_one_bad_file(tmp_path, tmp_images):
     images = [
         {"path": tmp_images[0], "alt_text": "good"},
-        {"path": "/nonexistent/bad.png", "alt_text": "bad"},
+        {"path": str(tmp_path / "bad.png"), "alt_text": "bad"},
         {"path": tmp_images[1], "alt_text": "good"},
     ]
 
