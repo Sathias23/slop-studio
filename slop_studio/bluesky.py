@@ -14,7 +14,7 @@ from atproto_client.exceptions import (
     UnauthorizedError,
 )
 
-from slop_studio.config import get_bsky_credentials
+from slop_studio.config import OUTPUT_DIR, get_bsky_credentials
 from slop_studio.errors import terminal_error, transient_error
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,41 @@ BLOB_LIMIT = 1_000_000  # Bluesky 1 MB blob upload limit
 
 
 MAX_IMAGES = 4  # Bluesky's per-post image limit
+
+# Mirrors open_gallery's allowlist — this tool publishes to a public network,
+# so it gets the same (and stricter) confinement than the local viewer.
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
+
+
+def _validate_image_path(raw_path: str) -> tuple[Path, None] | tuple[None, dict]:
+    """Confine a post image to the output directory; verify it really is an image.
+
+    Posting publishes the file's bytes to a public network, so unlike local
+    file handling this refuses anything outside OUTPUT_DIR, anything without
+    an image extension, and anything PIL can't parse — a prompt-injected
+    path like ~/.ssh/id_rsa must not be uploadable. Returns (resolved_path,
+    None) on success or (None, error_dict) on rejection.
+    """
+    p = Path(raw_path).resolve()
+    try:
+        p.relative_to(Path(OUTPUT_DIR).resolve())
+    except ValueError:
+        return None, terminal_error(
+            "invalid_path",
+            f"Image must be inside the output directory ({OUTPUT_DIR}): {raw_path}",
+        )
+    if p.suffix.lower() not in _IMAGE_EXTENSIONS:
+        return None, terminal_error("validation_failed", f"Unsupported file type for posting: {p.suffix.lower()!r}")
+    if not p.is_file():
+        return None, terminal_error("file_not_found", f"Image file not found: {raw_path}")
+    try:
+        from PIL import Image
+
+        with Image.open(p) as img:
+            img.verify()
+    except Exception:
+        return None, terminal_error("validation_failed", f"File is not a valid image: {raw_path}")
+    return p, None
 
 
 async def post_image(
@@ -62,12 +97,12 @@ async def post_image(
             f"Post text with hashtags is {len(full_text)} characters, max 300. Shorten the text or reduce tags.",
         )
 
-    # --- Validate all files exist and read bytes ---
+    # --- Validate all files (confined to OUTPUT_DIR, real images) and read bytes ---
     image_payloads: list[tuple[bytes, str]] = []
     for entry in entries:
-        path = Path(entry["path"])
-        if not path.is_file():
-            return terminal_error("file_not_found", f"Image file not found: {entry['path']}")
+        path, path_err = _validate_image_path(entry["path"])
+        if path_err is not None:
+            return path_err
         try:
             data = path.read_bytes()
         except OSError as e:

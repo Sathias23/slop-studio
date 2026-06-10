@@ -151,6 +151,53 @@ def test_route_for_prompt_id_splits_on_first_colon_only():
 
 
 # ---------------------------------------------------------------------------
+# Native-id charset validation — ids are interpolated into backend URL paths,
+# so traversal/query characters must be rejected before any dispatch.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        "local:../queue",
+        "local:abc/def",
+        "local:abc?type=output",
+        "local:abc#frag",
+        "local:abc%2e%2e",
+        "local:abc def",
+        "local:",
+        "../queue",
+        "abc?x=1",
+    ],
+)
+def test_route_for_prompt_id_rejects_url_unsafe_ids(bad_id):
+    with pytest.raises(ValueError, match="prompt_id"):
+        router.route_for_prompt_id(bad_id)
+
+
+def test_route_for_prompt_id_accepts_uuid_shaped_ids():
+    backend, native_id = router.route_for_prompt_id("local:0a1b2c3d-4e5f-6789-abcd-ef0123456789")
+    assert isinstance(backend, LocalBackend)
+    assert native_id == "0a1b2c3d-4e5f-6789-abcd-ef0123456789"
+
+
+@pytest.mark.anyio
+async def test_check_next_job_rejects_traversal_id():
+    result = await router.check_next_job(["local:../queue"])
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert result["retry_suggested"] is False
+
+
+@pytest.mark.anyio
+async def test_get_image_rejects_traversal_id():
+    result = await router.get_image("local:../view?filename=x")
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert result["retry_suggested"] is False
+
+
+# ---------------------------------------------------------------------------
 # Story 6.3 — route_submission prefix emission (AC #1, #2).
 # ---------------------------------------------------------------------------
 

@@ -52,6 +52,7 @@ import asyncio
 import copy
 import json
 import logging
+import re
 import time
 from datetime import date
 from pathlib import Path
@@ -179,6 +180,22 @@ def _read_template_backend(template_name: str) -> str | None:
     return None
 
 
+# Native prompt_ids are UUID-shaped on both backends. The id is caller
+# input that gets interpolated into URL paths (``/history/{id}``,
+# ``/api/job/{id}/status``), so anything outside this charset — ``/``,
+# ``?``, ``#``, ``%``, whitespace — could redirect the request to a
+# different endpoint. Reject at the router choke point before any backend
+# dispatch. ``:`` is permitted (URL-path-safe, and native ids may be
+# composite — see test_route_for_prompt_id_splits_on_first_colon_only).
+_NATIVE_ID_RE = re.compile(r"^[A-Za-z0-9_:-]+$")
+
+
+def _validate_native_id(native: str, prompt_id: str) -> None:
+    """Raise ``ValueError`` if a native prompt_id is not URL-path safe."""
+    if not _NATIVE_ID_RE.fullmatch(native):
+        raise ValueError(f"Invalid prompt_id {prompt_id!r}: id part must contain only letters, digits, ':', '-' or '_'")
+
+
 def route_for_prompt_id(prompt_id: str) -> tuple[Backend, str]:
     """Resolve a prompt_id to ``(backend, native_id)``.
 
@@ -189,9 +206,14 @@ def route_for_prompt_id(prompt_id: str) -> tuple[Backend, str]:
     - Unknown prefix: raise ``ValueError``. The tool-facing orchestrators
       catch this and convert to a ``terminal_error`` — unknown prefixes are
       malformed user input, not a crash.
+
+    The native part is validated against ``_NATIVE_ID_RE`` on every path —
+    ids are interpolated into backend URL paths, so this raises
+    ``ValueError`` for anything that could traverse to a different endpoint.
     """
     if ":" in prompt_id:
         prefix, native = prompt_id.split(":", 1)
+        _validate_native_id(native, prompt_id)
         if prefix == "cloud":
             backend = _resolve_cloud_backend()
             if backend is None:
@@ -201,6 +223,7 @@ def route_for_prompt_id(prompt_id: str) -> tuple[Backend, str]:
         if backend is None:
             raise ValueError(f"Unknown backend prefix '{prefix}' in prompt_id '{prompt_id}'")
         return backend, native
+    _validate_native_id(prompt_id, prompt_id)
     if DEFAULT_BACKEND_NAME == "cloud":
         backend = _resolve_cloud_backend()
         if backend is None:
