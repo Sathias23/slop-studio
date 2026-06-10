@@ -187,7 +187,7 @@ def _read_template_backend(template_name: str) -> str | None:
 # different endpoint. Reject at the router choke point before any backend
 # dispatch. ``:`` is permitted (URL-path-safe, and native ids may be
 # composite — see test_route_for_prompt_id_splits_on_first_colon_only).
-_NATIVE_ID_RE = re.compile(r"^[A-Za-z0-9_:-]+$")
+_NATIVE_ID_RE = re.compile(r"[A-Za-z0-9_:-]+")
 
 
 def _validate_native_id(native: str, prompt_id: str) -> None:

@@ -470,9 +470,9 @@ async def test_read_permission_error(tmp_image):
         with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
             result = await bluesky.post_image(image_path=tmp_image, text="hello", alt_text="alt")
         assert result["status"] == "error"
-        # PIL's verify hits the unreadable file first, so this surfaces as
-        # a validation failure rather than file_not_found.
-        assert result["error_type"] == "validation_failed"
+        # PIL's verify hits the unreadable file first; the PermissionError
+        # surfaces under the canonical permission_denied code.
+        assert result["error_type"] == "permission_denied"
     finally:
         os.chmod(tmp_image, 0o644)
 

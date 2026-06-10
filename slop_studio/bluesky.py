@@ -1,5 +1,6 @@
 """Bluesky posting integration for slop-studio."""
 
+import asyncio
 import io
 import logging
 import re
@@ -29,7 +30,15 @@ MAX_IMAGES = 4  # Bluesky's per-post image limit
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
 
 
-def _validate_image_path(raw_path: str) -> tuple[Path, None] | tuple[None, dict]:
+def _verify_image(p: Path) -> None:
+    """Open and verify an image file. Blocking; call via asyncio.to_thread."""
+    from PIL import Image
+
+    with Image.open(p) as img:
+        img.verify()
+
+
+async def _validate_image_path(raw_path: str) -> tuple[Path, None] | tuple[None, dict]:
     """Confine a post image to the output directory; verify it really is an image.
 
     Posting publishes the file's bytes to a public network, so unlike local
@@ -51,11 +60,12 @@ def _validate_image_path(raw_path: str) -> tuple[Path, None] | tuple[None, dict]
     if not p.is_file():
         return None, terminal_error("file_not_found", f"Image file not found: {raw_path}")
     try:
-        from PIL import Image
-
-        with Image.open(p) as img:
-            img.verify()
+        await asyncio.to_thread(_verify_image, p)
+    except PermissionError:
+        logger.debug("Cannot read image %r for verification", raw_path, exc_info=True)
+        return None, terminal_error("permission_denied", f"Cannot read image: {raw_path}")
     except Exception:
+        logger.debug("PIL verification failed for %r", raw_path, exc_info=True)
         return None, terminal_error("validation_failed", f"File is not a valid image: {raw_path}")
     return p, None
 
@@ -100,7 +110,7 @@ async def post_image(
     # --- Validate all files (confined to OUTPUT_DIR, real images) and read bytes ---
     image_payloads: list[tuple[bytes, str]] = []
     for entry in entries:
-        path, path_err = _validate_image_path(entry["path"])
+        path, path_err = await _validate_image_path(entry["path"])
         if path_err is not None:
             return path_err
         try:
