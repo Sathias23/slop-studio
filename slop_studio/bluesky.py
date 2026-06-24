@@ -145,7 +145,7 @@ async def _send_one_post(
     client: AsyncClient,
     tb: client_utils.TextBuilder,
     image_payloads: list[tuple[bytes, str]],
-    reply_to=None,
+    reply_to: models.AppBskyFeedPost.ReplyRef | None = None,
 ) -> dict:
     """Upload any images, build the embed, and send a single post.
 
@@ -218,7 +218,9 @@ async def post_image(
     return await _send_one_post(client, tb, image_payloads)
 
 
-async def _resolve_reply_ref(client: AsyncClient, post_uri: str) -> tuple[object, None] | tuple[None, dict]:
+async def _resolve_reply_ref(
+    client: AsyncClient, post_uri: str
+) -> tuple[models.AppBskyFeedPost.ReplyRef, None] | tuple[None, dict]:
     """Resolve the ReplyRef (root + parent StrongRefs) for replying to ``post_uri``.
 
     Fetches the target post so we can carry its thread root forward: replying to
@@ -403,13 +405,16 @@ async def post_thread(posts: list[dict]) -> dict:
 
         res = await _send_one_post(client, tb, image_payloads, reply_to=reply_to)
         if res.get("status") != "success":
-            return {
-                "status": "error",
-                "error_type": res.get("error_type", "thread_failed"),
-                "error": f"Thread failed at post {i + 1} of {len(prepared)}: {res.get('error', '')}",
-                "retry_suggested": res.get("retry_suggested", False),
-                "posted": posted,
-            }
+            # Carry the inner failure's retryability through the canonical helper
+            # so this partial-failure dict has the same shape as every other
+            # error in the module, then attach the posts that did go live.
+            make_error = transient_error if res.get("retry_suggested") else terminal_error
+            err = make_error(
+                res.get("error_type", "thread_failed"),
+                f"Thread failed at post {i + 1} of {len(prepared)}: {res.get('error', '')}",
+            )
+            err["posted"] = posted
+            return err
 
         posted.append({"uri": res["uri"], "cid": res["cid"]})
         parent_ref = models.ComAtprotoRepoStrongRef.Main(uri=res["uri"], cid=res["cid"])
