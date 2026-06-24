@@ -56,6 +56,8 @@
     {"name": "open_gallery", "description": "Open image(s) — single opens in OS viewer, multiple opens HTML gallery"},
     {"name": "open_comfy_cloud_portal", "description": "Open the Comfy Cloud billing/account portal in the default browser"},
     {"name": "post_to_bluesky", "description": "Post image to Bluesky"},
+    {"name": "reply_to_bluesky", "description": "Reply to an existing Bluesky post"},
+    {"name": "post_thread_to_bluesky", "description": "Post a sequence of posts as a Bluesky thread"},
     {"name": "add_template", "description": "Register a new workflow template"},
     {"name": "update_template", "description": "Update an existing template"},
     {"name": "delete_template", "description": "Remove a template"}

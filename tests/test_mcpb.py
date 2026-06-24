@@ -87,6 +87,8 @@ class TestManifest:
             "open_gallery",
             "open_comfy_cloud_portal",
             "post_to_bluesky",
+            "reply_to_bluesky",
+            "post_thread_to_bluesky",
             "add_template",
             "update_template",
             "delete_template",

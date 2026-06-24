@@ -646,3 +646,373 @@ async def test_no_image_params_error():
         result = await bluesky.post_image(text="no images")
     assert result["status"] == "error"
     assert result["error_type"] == "validation_failed"
+
+
+# --- Reply tests ---
+
+_FAKE_URI = "at://did:plc:abc123/app.bsky.feed.post/parent"
+
+
+def _mock_thread_response(reply=None):
+    """Build a mock get_post_thread response whose target post carries ``reply``.
+
+    ``reply`` is the target's own reply ref (None for a top-level post). Returns
+    (response, post) so tests can inspect the resolved post.
+    """
+    record = MagicMock()
+    record.reply = reply
+    post = MagicMock()
+    post.record = record
+    thread_view = MagicMock()
+    thread_view.post = post
+    resp = MagicMock()
+    resp.thread = thread_view
+    return resp, post
+
+
+def _reply_client(reply=None):
+    """An authenticated mock client wired for a successful reply send."""
+    resp, _ = _mock_thread_response(reply)
+    mock_blob = MagicMock()
+    mock_blob.blob = MagicMock()
+    mock_post = MagicMock()
+    mock_post.uri = "at://did:plc:abc123/app.bsky.feed.post/reply"
+    mock_post.cid = "bafyreply"
+
+    client = AsyncMock()
+    client.login = AsyncMock()
+    client.get_post_thread = AsyncMock(return_value=resp)
+    client.upload_blob = AsyncMock(return_value=mock_blob)
+    client.send_post = AsyncMock(return_value=mock_post)
+    return client
+
+
+@pytest.mark.anyio
+async def test_reply_missing_credentials():
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("", "")):
+        result = await bluesky.post_reply(post_uri=_FAKE_URI, text="hi")
+    assert result["error_type"] == "missing_config"
+
+
+@pytest.mark.anyio
+async def test_reply_requires_post_uri():
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_reply(post_uri="", text="hi")
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation_failed"
+    assert "post_uri" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_reply_empty_text_and_no_image_rejected():
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_reply(post_uri=_FAKE_URI, text="   ")
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation_failed"
+
+
+@pytest.mark.anyio
+async def test_reply_text_too_long():
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_reply(post_uri=_FAKE_URI, text="x" * 301)
+    assert result["error_type"] == "validation_failed"
+    assert "301" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_reply_text_only_happy_path():
+    """A text-only reply needs no image and posts successfully."""
+    client = _reply_client(reply=None)
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
+    ):
+        result = await bluesky.post_reply(post_uri=_FAKE_URI, text="nice work!")
+
+    assert result["status"] == "success"
+    assert result["uri"].endswith("/reply")
+    # text-only: no blob upload, embed is None, reply_to is set
+    client.upload_blob.assert_not_called()
+    call = client.send_post.call_args
+    assert call.kwargs["embed"] is None
+    assert call.kwargs["reply_to"] is not None
+
+
+@pytest.mark.anyio
+async def test_reply_with_image_happy_path(tmp_image):
+    client = _reply_client(reply=None)
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
+    ):
+        result = await bluesky.post_reply(post_uri=_FAKE_URI, text="see this", image_path=tmp_image, alt_text="alt")
+
+    assert result["status"] == "success"
+    client.upload_blob.assert_called_once()
+    assert client.send_post.call_args.kwargs["embed"] is not None
+
+
+@pytest.mark.anyio
+async def test_reply_to_top_level_uses_target_as_root():
+    """Replying to a top-level post makes that post both root and parent."""
+    client = _reply_client(reply=None)
+    mock_models = _mock_embed_models()
+    parent_sentinel = object()
+    mock_models.create_strong_ref.return_value = parent_sentinel
+
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", mock_models),
+    ):
+        result = await bluesky.post_reply(post_uri=_FAKE_URI, text="hi")
+
+    assert result["status"] == "success"
+    ref_kwargs = mock_models.AppBskyFeedPost.ReplyRef.call_args.kwargs
+    assert ref_kwargs["root"] is parent_sentinel
+    assert ref_kwargs["parent"] is parent_sentinel
+
+
+@pytest.mark.anyio
+async def test_reply_to_midthread_carries_existing_root():
+    """Replying to a mid-thread post reuses that thread's root, not the parent."""
+    root_sentinel = object()
+    target_reply = MagicMock()
+    target_reply.root = root_sentinel
+    client = _reply_client(reply=target_reply)
+
+    mock_models = _mock_embed_models()
+    parent_sentinel = object()
+    mock_models.create_strong_ref.return_value = parent_sentinel
+
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", mock_models),
+    ):
+        result = await bluesky.post_reply(post_uri=_FAKE_URI, text="hi")
+
+    assert result["status"] == "success"
+    ref_kwargs = mock_models.AppBskyFeedPost.ReplyRef.call_args.kwargs
+    assert ref_kwargs["root"] is root_sentinel
+    assert ref_kwargs["parent"] is parent_sentinel
+
+
+@pytest.mark.anyio
+async def test_reply_post_not_found():
+    """A NotFoundPost / BlockedPost (no .post) yields a not_found error."""
+    client = AsyncMock()
+    client.login = AsyncMock()
+    not_found = MagicMock()
+    not_found.thread = MagicMock(spec=[])  # no .post attribute
+    client.get_post_thread = AsyncMock(return_value=not_found)
+
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
+    ):
+        result = await bluesky.post_reply(post_uri=_FAKE_URI, text="hi")
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "not_found"
+    client.send_post.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_reply_resolve_network_error():
+    from atproto_client.exceptions import NetworkError
+
+    client = AsyncMock()
+    client.login = AsyncMock()
+    client.get_post_thread = AsyncMock(side_effect=NetworkError())
+
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
+    ):
+        result = await bluesky.post_reply(post_uri=_FAKE_URI, text="hi")
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "network_error"
+    assert result["retry_suggested"] is True
+
+
+@pytest.mark.anyio
+async def test_reply_bad_request_resolving_uri():
+    from atproto_client.exceptions import BadRequestError
+
+    client = AsyncMock()
+    client.login = AsyncMock()
+    client.get_post_thread = AsyncMock(side_effect=BadRequestError(MagicMock(content=b"bad uri")))
+
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
+    ):
+        result = await bluesky.post_reply(post_uri="at://bad", text="hi")
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "not_found"
+
+
+# --- Thread tests ---
+
+
+def _thread_client():
+    """An authenticated mock client that returns a distinct post per send."""
+    client = AsyncMock()
+    client.login = AsyncMock()
+    mock_blob = MagicMock()
+    mock_blob.blob = MagicMock()
+    client.upload_blob = AsyncMock(return_value=mock_blob)
+
+    counter = {"n": 0}
+
+    async def _send(*args, **kwargs):
+        counter["n"] += 1
+        post = MagicMock()
+        post.uri = f"at://did:plc:abc123/app.bsky.feed.post/p{counter['n']}"
+        post.cid = f"bafy{counter['n']}"
+        return post
+
+    client.send_post = AsyncMock(side_effect=_send)
+    return client
+
+
+@pytest.mark.anyio
+async def test_thread_missing_credentials():
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("", "")):
+        result = await bluesky.post_thread(posts=[{"text": "hi"}])
+    assert result["error_type"] == "missing_config"
+
+
+@pytest.mark.anyio
+async def test_thread_empty_list():
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_thread(posts=[])
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation_failed"
+
+
+@pytest.mark.anyio
+async def test_thread_too_many_posts():
+    posts = [{"text": f"post {i}"} for i in range(bluesky.MAX_THREAD_POSTS + 1)]
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_thread(posts=posts)
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation_failed"
+    assert str(bluesky.MAX_THREAD_POSTS) in result["error"]
+
+
+@pytest.mark.anyio
+async def test_thread_entry_not_dict():
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_thread(posts=[{"text": "ok"}, "not a dict"])
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation_failed"
+    assert "posts[1]" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_thread_entry_empty_rejected():
+    with patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")):
+        result = await bluesky.post_thread(posts=[{"text": "ok"}, {"text": "  "}])
+    assert result["status"] == "error"
+    assert result["error_type"] == "validation_failed"
+    assert "posts[1]" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_thread_text_only_happy_path():
+    client = _thread_client()
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
+    ):
+        result = await bluesky.post_thread(posts=[{"text": "one"}, {"text": "two"}, {"text": "three"}])
+
+    assert result["status"] == "success"
+    assert result["count"] == 3
+    assert len(result["posts"]) == 3
+    assert result["uri"].endswith("/p1")  # root is the first post
+
+    # First post is a root (reply_to None); the rest are replies.
+    calls = client.send_post.call_args_list
+    assert calls[0].kwargs["reply_to"] is None
+    assert calls[1].kwargs["reply_to"] is not None
+    assert calls[2].kwargs["reply_to"] is not None
+
+
+@pytest.mark.anyio
+async def test_thread_with_images(tmp_images):
+    client = _thread_client()
+    posts = [
+        {"text": "panel 1", "image_path": tmp_images[0], "alt_text": "one"},
+        {"text": "panel 2", "image_path": tmp_images[1], "alt_text": "two"},
+    ]
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
+    ):
+        result = await bluesky.post_thread(posts=posts)
+
+    assert result["status"] == "success"
+    assert client.upload_blob.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_thread_validates_before_any_post(tmp_image, tmp_path):
+    """A bad entry must abort the whole thread before publishing anything."""
+    client = _thread_client()
+    posts = [
+        {"text": "good", "image_path": tmp_image, "alt_text": "ok"},
+        {"text": "bad", "image_path": str(tmp_path / "missing.png"), "alt_text": "nope"},
+    ]
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
+    ):
+        result = await bluesky.post_thread(posts=posts)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "file_not_found"
+    assert "posts[1]" in result["error"]
+    # Nothing should have been published.
+    client.send_post.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_thread_partial_failure_reports_posted():
+    """If a later send fails, the error carries the posts that did go live."""
+    from atproto_client.exceptions import NetworkError
+
+    client = AsyncMock()
+    client.login = AsyncMock()
+    mock_blob = MagicMock()
+    mock_blob.blob = MagicMock()
+    client.upload_blob = AsyncMock(return_value=mock_blob)
+
+    good = MagicMock()
+    good.uri = "at://did:plc:abc123/app.bsky.feed.post/p1"
+    good.cid = "bafy1"
+    client.send_post = AsyncMock(side_effect=[good, NetworkError()])
+
+    with (
+        patch("slop_studio.bluesky.get_bsky_credentials", return_value=("user.bsky.social", "secret")),
+        patch("slop_studio.bluesky.AsyncClient", return_value=client),
+        patch("slop_studio.bluesky.models", _mock_embed_models()),
+    ):
+        result = await bluesky.post_thread(posts=[{"text": "one"}, {"text": "two"}])
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "network_error"
+    assert len(result["posted"]) == 1
+    assert result["posted"][0]["uri"].endswith("/p1")
