@@ -754,6 +754,93 @@ async def post_to_bluesky(
     )
 
 
+@mcp.tool()
+@safe_tool
+async def reply_to_bluesky(
+    post_uri: str,
+    text: str = "",
+    image_path: str | None = None,
+    alt_text: str = "",
+    tags: list[str] | None = None,
+    images: list[dict] | None = None,
+) -> dict:
+    """Reply to an existing Bluesky post, optionally attaching generated image(s).
+
+    Creates a reply correctly threaded under ``post_uri`` — it carries the
+    target's thread root forward, so replying to a mid-thread post stays in the
+    same thread rather than starting a new one. Works for replying to your own
+    earlier posts (use the ``uri`` returned by ``post_to_bluesky`` /
+    ``post_thread_to_bluesky``) or to anyone else's.
+
+    Unlike ``post_to_bluesky``, images are OPTIONAL — a text-only reply is fine.
+    When you do attach images they follow the same rules: up to 4, confined to
+    the output directory, auto-compressed over 1 MB.
+
+    Hashtag handling is identical to ``post_to_bluesky``: pass tag names (no `#`)
+    via ``tags``; do NOT put `#tag` strings in ``text``.
+
+    Args:
+        post_uri: at:// URI of the post to reply to (e.g.
+                  "at://did:plc:xxx/app.bsky.feed.post/yyy").
+        text: Reply body (max 300 characters including the appended tag line).
+        image_path: Absolute path to a single image (legacy single-image form).
+        alt_text: Alt text for image_path.
+        tags: Hashtag names without `#`, appended as a facetted line.
+        images: List of {"path", "alt_text"} dicts, up to 4 (multi-image form).
+                Provide EITHER image_path OR images, not both.
+
+    Returns ``{status, uri, cid}`` for the new reply, or a structured error.
+    """
+    return await bluesky.post_reply(
+        post_uri=post_uri,
+        text=text,
+        alt_text=alt_text,
+        tags=tags,
+        images=images,
+        image_path=image_path,
+    )
+
+
+@mcp.tool()
+@safe_tool
+async def post_thread_to_bluesky(posts: list[dict]) -> dict:
+    """Post an ordered sequence of posts to Bluesky as a single self-thread.
+
+    The first entry becomes the thread root; each later entry is published as a
+    reply to the previous one, so they render as one connected thread. Use this
+    for multi-part captions, step-by-step breakdowns, or posting a set of related
+    generations that exceed one post's 4-image limit.
+
+    Each entry in ``posts`` is a dict accepting the same fields as a single post:
+        - ``text``:       post body, max 300 chars including any appended tags.
+        - ``tags``:       hashtag names without `#` (appended as a facetted line).
+        - ``image_path``: absolute path to one image (legacy single-image form).
+        - ``alt_text``:   alt text for ``image_path``.
+        - ``images``:     list of {"path", "alt_text"} dicts, up to 4 per post.
+    Provide EITHER ``image_path`` OR ``images`` within an entry, not both. Every
+    entry must carry text, image(s), or both. Up to 25 posts per thread.
+
+    All entries are validated (paths confined to the output directory, text
+    length, image count) BEFORE anything is published, so a bad entry fails the
+    whole call without leaving a partial thread live. If a network error
+    interrupts publishing partway, the error response includes a ``posted`` list
+    of the uri/cid pairs that did go live.
+
+    Example::
+
+        post_thread_to_bluesky(posts=[
+            {"text": "A 4-part series 🧵", "image_path": "/out/1.png", "alt_text": "panel 1"},
+            {"text": "Part 2", "image_path": "/out/2.png", "alt_text": "panel 2",
+             "tags": ["aiart", "comfyui"]},
+        ])
+
+    Returns ``{status, uri, count, posts}`` where ``uri`` is the root post's URI
+    and ``posts`` is the ordered list of {"uri", "cid"} for every post, or a
+    structured error.
+    """
+    return await bluesky.post_thread(posts)
+
+
 _ISSUE_URL = "https://github.com/Sathias23/slop-studio/issues"
 _ISSUE_CHECKLIST = (
     "slop-studio version (provided in this response under `version`)",

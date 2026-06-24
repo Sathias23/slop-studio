@@ -25,6 +25,13 @@ BLOB_LIMIT = 1_000_000  # Bluesky 1 MB blob upload limit
 
 MAX_IMAGES = 4  # Bluesky's per-post image limit
 
+# Cap on posts in a single self-thread. No protocol limit exists, but a large
+# thread burns through the post rate limit (~35 / 5 min) and a runaway list is
+# almost always a caller mistake — so we refuse early rather than half-publish.
+MAX_THREAD_POSTS = 25
+
+MAX_POST_LENGTH = 300  # Bluesky's per-post grapheme limit
+
 # Mirrors open_gallery's allowlist — this tool publishes to a public network,
 # so it gets the same (and stricter) confinement than the local viewer.
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
@@ -70,44 +77,35 @@ async def _validate_image_path(raw_path: str) -> tuple[Path, None] | tuple[None,
     return p, None
 
 
-async def post_image(
-    image_path: str | None = None,
-    text: str = "",
-    alt_text: str = "",
-    tags: list[str] | None = None,
-    images: list[dict] | None = None,
-) -> dict:
-    """Upload image(s) and post to Bluesky.
-
-    Accepts either the legacy single-image params (image_path + alt_text) or a
-    list of ``images`` dicts, each with ``path`` and ``alt_text`` keys.
-    Providing both is an error.
-
-    Returns a dict with status and post URI on success, or a structured error.
-    """
-    # --- Validate credentials ---
-    bsky_handle, bsky_app_password = get_bsky_credentials()
-    if not bsky_handle or not bsky_app_password:
+def _check_credentials() -> tuple[str, str] | dict:
+    """Resolve Bluesky credentials, or return a missing_config error dict."""
+    handle, app_password = get_bsky_credentials()
+    if not handle or not app_password:
         return terminal_error(
             "missing_config",
             "Bluesky credentials not configured. Run: slop-studio auth",
         )
+    return handle, app_password
 
-    # --- Normalise image entries ---
-    entries = _normalise_image_entries(image_path, alt_text, images)
-    if isinstance(entries, dict):
-        return entries  # validation error
 
-    # --- Build rich text with hashtag facets ---
-    tb = _build_post_text(text, tags)
-    full_text = tb.build_text()
-    if len(full_text) > 300:
-        return terminal_error(
-            "validation_failed",
-            f"Post text with hashtags is {len(full_text)} characters, max 300. Shorten the text or reduce tags.",
+async def _login(handle: str, app_password: str) -> tuple[AsyncClient, None] | tuple[None, dict]:
+    """Authenticate a fresh client. Returns (client, None) or (None, error_dict)."""
+    client = AsyncClient()
+    try:
+        await client.login(handle, app_password)
+    except UnauthorizedError:
+        return None, terminal_error(
+            "auth_failed",
+            "Bluesky authentication failed — check BSKY_HANDLE and BSKY_APP_PASSWORD.",
         )
+    except (NetworkError, InvokeTimeoutError, RequestException) as e:
+        return None, transient_error("network_error", f"Cannot reach Bluesky: {str(e)[:200]}")
+    return client, None
 
-    # --- Validate all files (confined to OUTPUT_DIR, real images) and read bytes ---
+
+async def _read_image_payloads(entries: list[dict]) -> list[tuple[bytes, str]] | dict:
+    """Validate every entry (confined to OUTPUT_DIR, real image), read bytes,
+    compress oversize. Returns the payload list or the first error dict."""
     image_payloads: list[tuple[bytes, str]] = []
     for entry in entries:
         path, path_err = await _validate_image_path(entry["path"])
@@ -126,20 +124,11 @@ async def post_image(
                     f"under {BLOB_LIMIT} bytes even at minimum JPEG quality.",
                 )
         image_payloads.append((data, entry["alt_text"]))
+    return image_payloads
 
-    # --- Authenticate ---
-    client = AsyncClient()
-    try:
-        await client.login(bsky_handle, bsky_app_password)
-    except UnauthorizedError:
-        return terminal_error(
-            "auth_failed",
-            "Bluesky authentication failed — check BSKY_HANDLE and BSKY_APP_PASSWORD.",
-        )
-    except (NetworkError, InvokeTimeoutError, RequestException) as e:
-        return transient_error("network_error", f"Cannot reach Bluesky: {str(e)[:200]}")
 
-    # --- Upload blobs ---
+async def _upload_blobs(client: AsyncClient, image_payloads: list[tuple[bytes, str]]) -> list | dict:
+    """Upload each blob and return the list of embed Image models, or an error dict."""
     embed_images = []
     for data, entry_alt in image_payloads:
         try:
@@ -149,18 +138,295 @@ async def post_image(
         except (NetworkError, InvokeTimeoutError, RequestException) as e:
             return transient_error("network_error", f"Image upload failed: {str(e)[:200]}")
         embed_images.append(models.AppBskyEmbedImages.Image(alt=entry_alt, image=uploaded.blob))
+    return embed_images
 
-    # --- Build embed and post ---
-    embed = models.AppBskyEmbedImages.Main(images=embed_images)
+
+async def _send_one_post(
+    client: AsyncClient,
+    tb: client_utils.TextBuilder,
+    image_payloads: list[tuple[bytes, str]],
+    reply_to: models.AppBskyFeedPost.ReplyRef | None = None,
+) -> dict:
+    """Upload any images, build the embed, and send a single post.
+
+    ``image_payloads`` may be empty (text-only reply). ``reply_to`` is an
+    ``AppBskyFeedPost.ReplyRef`` for replies/threads, or None for a root post.
+    Returns a success dict with uri/cid, or a structured error.
+    """
+    embed = None
+    if image_payloads:
+        embed_images = await _upload_blobs(client, image_payloads)
+        if isinstance(embed_images, dict):
+            return embed_images  # upload error
+        embed = models.AppBskyEmbedImages.Main(images=embed_images)
 
     try:
-        post = await client.send_post(tb, embed=embed)
+        post = await client.send_post(tb, embed=embed, reply_to=reply_to)
     except (NetworkError, InvokeTimeoutError, RequestException) as e:
         return transient_error("network_error", f"Post failed: {str(e)[:200]}")
     except BadRequestError as e:
         return terminal_error("invalid_request", f"Post rejected: {str(e)[:200]}")
 
     return {"status": "success", "uri": post.uri, "cid": post.cid}
+
+
+async def post_image(
+    image_path: str | None = None,
+    text: str = "",
+    alt_text: str = "",
+    tags: list[str] | None = None,
+    images: list[dict] | None = None,
+) -> dict:
+    """Upload image(s) and post to Bluesky.
+
+    Accepts either the legacy single-image params (image_path + alt_text) or a
+    list of ``images`` dicts, each with ``path`` and ``alt_text`` keys.
+    Providing both is an error.
+
+    Returns a dict with status and post URI on success, or a structured error.
+    """
+    creds = _check_credentials()
+    if isinstance(creds, dict):
+        return creds
+    handle, app_password = creds
+
+    # --- Normalise image entries ---
+    entries = _normalise_image_entries(image_path, alt_text, images)
+    if isinstance(entries, dict):
+        return entries  # validation error
+
+    # --- Build rich text with hashtag facets ---
+    tb = _build_post_text(text, tags)
+    full_text = tb.build_text()
+    if len(full_text) > MAX_POST_LENGTH:
+        return terminal_error(
+            "validation_failed",
+            f"Post text with hashtags is {len(full_text)} characters, max {MAX_POST_LENGTH}. "
+            "Shorten the text or reduce tags.",
+        )
+
+    # --- Validate all files (confined to OUTPUT_DIR, real images) and read bytes ---
+    image_payloads = await _read_image_payloads(entries)
+    if isinstance(image_payloads, dict):
+        return image_payloads
+
+    # --- Authenticate and post ---
+    client, login_err = await _login(handle, app_password)
+    if login_err is not None:
+        return login_err
+
+    return await _send_one_post(client, tb, image_payloads)
+
+
+async def _resolve_reply_ref(
+    client: AsyncClient, post_uri: str
+) -> tuple[models.AppBskyFeedPost.ReplyRef, None] | tuple[None, dict]:
+    """Resolve the ReplyRef (root + parent StrongRefs) for replying to ``post_uri``.
+
+    Fetches the target post so we can carry its thread root forward: replying to
+    a mid-thread post must reuse that thread's existing root, while replying to a
+    top-level post makes that post both root and parent. Returns
+    (ReplyRef, None) or (None, error_dict).
+    """
+    try:
+        thread = await client.get_post_thread(post_uri, depth=0, parent_height=0)
+    except BadRequestError as e:
+        return None, terminal_error(
+            "not_found",
+            f"Could not resolve the post to reply to ({post_uri}): {str(e)[:200]}",
+        )
+    except (NetworkError, InvokeTimeoutError, RequestException) as e:
+        return None, transient_error(
+            "network_error",
+            f"Cannot reach Bluesky to resolve reply target: {str(e)[:200]}",
+        )
+
+    # thread.thread is a union: ThreadViewPost (has .post), NotFoundPost, or
+    # BlockedPost (neither has a usable .post). Only the first is repliable.
+    post = getattr(thread.thread, "post", None)
+    if post is None:
+        return None, terminal_error(
+            "not_found",
+            f"Post not found, blocked, or inaccessible: {post_uri}",
+        )
+
+    parent_ref = models.create_strong_ref(post)
+    record_reply = getattr(getattr(post, "record", None), "reply", None)
+    root_ref = record_reply.root if record_reply is not None else parent_ref
+    return models.AppBskyFeedPost.ReplyRef(root=root_ref, parent=parent_ref), None
+
+
+async def post_reply(
+    post_uri: str,
+    text: str = "",
+    alt_text: str = "",
+    tags: list[str] | None = None,
+    images: list[dict] | None = None,
+    image_path: str | None = None,
+) -> dict:
+    """Reply to an existing Bluesky post, optionally attaching image(s).
+
+    ``post_uri`` is the at:// URI of the post being replied to (e.g. the ``uri``
+    returned by a previous post). Images are optional for a reply — a text-only
+    reply is allowed. Returns a dict with the new post's uri/cid, or an error.
+    """
+    creds = _check_credentials()
+    if isinstance(creds, dict):
+        return creds
+    handle, app_password = creds
+
+    if not post_uri or not isinstance(post_uri, str):
+        return terminal_error(
+            "validation_failed",
+            "post_uri is required — the at:// URI of the post to reply to.",
+        )
+
+    # Images are optional for a reply; only normalise when supplied.
+    image_payloads: list[tuple[bytes, str]] = []
+    if image_path or images:
+        entries = _normalise_image_entries(image_path, alt_text, images)
+        if isinstance(entries, dict):
+            return entries
+    else:
+        entries = []
+
+    tb = _build_post_text(text, tags)
+    full_text = tb.build_text()
+    if not full_text.strip() and not entries:
+        return terminal_error("validation_failed", "A reply must contain text, image(s), or both.")
+    if len(full_text) > MAX_POST_LENGTH:
+        return terminal_error(
+            "validation_failed",
+            f"Reply text with hashtags is {len(full_text)} characters, max {MAX_POST_LENGTH}. "
+            "Shorten the text or reduce tags.",
+        )
+
+    if entries:
+        image_payloads = await _read_image_payloads(entries)
+        if isinstance(image_payloads, dict):
+            return image_payloads
+
+    client, login_err = await _login(handle, app_password)
+    if login_err is not None:
+        return login_err
+
+    reply_ref, ref_err = await _resolve_reply_ref(client, post_uri)
+    if ref_err is not None:
+        return ref_err
+
+    return await _send_one_post(client, tb, image_payloads, reply_to=reply_ref)
+
+
+async def _prepare_thread_entry(entry: dict) -> tuple[client_utils.TextBuilder, list[tuple[bytes, str]]] | dict:
+    """Validate one thread entry and read its image bytes, without any network call.
+
+    Returns (TextBuilder, image_payloads) on success or an error dict. Doing all
+    of this up front lets ``post_thread`` reject a bad entry before it publishes
+    any post, so a typo in post 3 never leaves a half-finished thread live.
+    """
+    if not isinstance(entry, dict):
+        return terminal_error("validation_failed", "each post must be a dict with at least a 'text' key.")
+
+    image_path = entry.get("image_path")
+    images = entry.get("images")
+    alt_text = entry.get("alt_text", "")
+
+    if image_path or images:
+        entries = _normalise_image_entries(image_path, alt_text, images)
+        if isinstance(entries, dict):
+            return entries
+    else:
+        entries = []
+
+    tb = _build_post_text(entry.get("text", ""), entry.get("tags"))
+    full_text = tb.build_text()
+    if not full_text.strip() and not entries:
+        return terminal_error("validation_failed", "each post must contain text, image(s), or both.")
+    if len(full_text) > MAX_POST_LENGTH:
+        return terminal_error(
+            "validation_failed",
+            f"post text with hashtags is {len(full_text)} characters, max {MAX_POST_LENGTH}.",
+        )
+
+    image_payloads: list[tuple[bytes, str]] = []
+    if entries:
+        image_payloads = await _read_image_payloads(entries)
+        if isinstance(image_payloads, dict):
+            return image_payloads
+    return tb, image_payloads
+
+
+async def post_thread(posts: list[dict]) -> dict:
+    """Publish a sequence of posts as a single Bluesky self-thread.
+
+    ``posts`` is an ordered list of post dicts; each accepts the same fields as a
+    single post (``text``, ``tags``, ``image_path`` + ``alt_text``, or ``images``).
+    The first entry becomes the thread root and every subsequent entry replies to
+    the one before it, all sharing the root ref.
+
+    Every entry is validated and its images read BEFORE anything is published, so
+    a malformed entry fails the whole call cleanly. If a later post fails mid-send
+    (e.g. a transient network error), the returned error includes ``posted`` — the
+    uri/cid of the posts that did go live — so the caller can decide whether to
+    resume or delete them.
+    """
+    creds = _check_credentials()
+    if isinstance(creds, dict):
+        return creds
+    handle, app_password = creds
+
+    if not isinstance(posts, list) or not posts:
+        return terminal_error("validation_failed", "posts must be a non-empty list of post dicts.")
+    if len(posts) > MAX_THREAD_POSTS:
+        return terminal_error(
+            "validation_failed",
+            f"A thread supports at most {MAX_THREAD_POSTS} posts, got {len(posts)}.",
+        )
+
+    prepared = []
+    for i, entry in enumerate(posts):
+        result = await _prepare_thread_entry(entry)
+        if isinstance(result, dict):
+            result["error"] = f"posts[{i}]: {result['error']}"
+            return result
+        prepared.append(result)
+
+    client, login_err = await _login(handle, app_password)
+    if login_err is not None:
+        return login_err
+
+    posted: list[dict] = []
+    root_ref = None
+    parent_ref = None
+    for i, (tb, image_payloads) in enumerate(prepared):
+        reply_to = None
+        if root_ref is not None:
+            reply_to = models.AppBskyFeedPost.ReplyRef(root=root_ref, parent=parent_ref)
+
+        res = await _send_one_post(client, tb, image_payloads, reply_to=reply_to)
+        if res.get("status") != "success":
+            # Carry the inner failure's retryability through the canonical helper
+            # so this partial-failure dict has the same shape as every other
+            # error in the module, then attach the posts that did go live.
+            make_error = transient_error if res.get("retry_suggested") else terminal_error
+            err = make_error(
+                res.get("error_type", "thread_failed"),
+                f"Thread failed at post {i + 1} of {len(prepared)}: {res.get('error', '')}",
+            )
+            err["posted"] = posted
+            return err
+
+        posted.append({"uri": res["uri"], "cid": res["cid"]})
+        parent_ref = models.ComAtprotoRepoStrongRef.Main(uri=res["uri"], cid=res["cid"])
+        if root_ref is None:
+            root_ref = parent_ref
+
+    return {
+        "status": "success",
+        "uri": posted[0]["uri"],
+        "count": len(posted),
+        "posts": posted,
+    }
 
 
 def _normalise_image_entries(

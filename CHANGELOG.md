@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`reply_to_bluesky` MCP tool** — reply to an existing Bluesky post by its at:// URI, with optional image(s). Threading is resolved correctly: the tool fetches the target post and carries its thread `root` forward, so replying to a mid-thread post stays in that thread instead of starting a new one (replying to a top-level post makes it both root and parent). Unlike `post_to_bluesky`, images are optional — a text-only reply is allowed; when attached they follow the same rules (≤4, confined to `OUTPUT_DIR`, auto-compressed over 1 MB). Unresolvable/blocked/not-found targets return `not_found`; network failures resolving the URI are transient `network_error`.
+- **`post_thread_to_bluesky` MCP tool** — publish an ordered list of posts as a single connected self-thread. The first entry becomes the root and each later entry replies to the previous one, all sharing the root ref. Each entry accepts the same fields as a single post (`text`, `tags`, `image_path` + `alt_text`, or `images`). Every entry is validated and its images read **before** anything is published, so a malformed entry (bad path, oversize text, too many images) fails the whole call cleanly rather than leaving a half-posted thread; capped at 25 posts. If a network error interrupts publishing partway, the error response includes a `posted` list of the uri/cid pairs that did go live so the caller can resume or clean up.
+- Shared Bluesky posting internals (`_login`, `_read_image_payloads`, `_upload_blobs`, `_send_one_post`) extracted so `post_image`, `post_reply`, and `post_thread` share one validated, confined upload-and-send path.
+
 ## [0.5.7] - 2026-06-10
 
 ### Security

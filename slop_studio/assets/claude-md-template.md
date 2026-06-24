@@ -16,6 +16,8 @@ Use `/generate <description>` to create an image. Example: `/generate a sunset o
 - `open_gallery` — open image(s) for viewing (single opens in OS viewer, multiple opens HTML gallery)
 - `open_comfy_cloud_portal` — open the Comfy Cloud billing/account portal in the default browser
 - `post_to_bluesky` — post image(s) to Bluesky with text and hashtags. Pass hashtags via the `tags` param (names without `#`), NOT inline in the body `text` — the tool appends them with proper richtext facets; any `#tag` written into `text` stays as plain text with no facet
+- `reply_to_bluesky` — reply to an existing Bluesky post by its at:// URI (e.g. a `uri` returned by `post_to_bluesky`). Images optional; same `tags` rules as above
+- `post_thread_to_bluesky` — post an ordered list of posts as one connected thread (first is the root, each following replies to the previous). Each entry takes the same fields as a single post
 - `add_template` — register a new ComfyUI workflow as a template
 - `update_template` — update an existing template's workflow or metadata
 - `delete_template` — remove a template

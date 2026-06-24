@@ -188,6 +188,8 @@ slop-studio build-mcpb      Build .mcpb Desktop Extension package
 | `open_gallery` | Open image(s) — single opens in OS viewer, multiple opens HTML gallery |
 | `open_comfy_cloud_portal` | Open the Comfy Cloud billing/account portal in the default browser |
 | `post_to_bluesky` | Post image(s) to Bluesky with text and hashtags |
+| `reply_to_bluesky` | Reply to an existing Bluesky post (text and/or image(s)) |
+| `post_thread_to_bluesky` | Post an ordered sequence of posts as a connected thread |
 | `add_template` | Register a new ComfyUI workflow |
 | `update_template` | Update an existing template |
 | `delete_template` | Remove a template |
