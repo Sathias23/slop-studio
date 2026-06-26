@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Krea 2 starter templates** — `image_krea2_turbo` and `image_krea2_raw` for Krea's new open-weight 12B dense DiT, both tagged `backend: "local"`. Krea 2 ships as a pair of checkpoints meant to work together: **Turbo** is the 8-step distilled checkpoint (distilled from a fully post-trained RL checkpoint) for fast, high-quality text-to-image — `krea2_turbo_fp8_scaled` at 8 `euler` steps, cfg 1 (guidance distilled out), `simple` scheduler, ~16 GB VRAM; the recommended everyday checkpoint. **RAW** is the undistilled base checkpoint for fine-tuning, post-training research, and LoRA training — `krea2_raw_bf16` at 52 `er_sde` steps, cfg 3.5, `simple` scheduler, ~24 GB VRAM; diverse and malleable but not tuned for final-quality generation on its own. LoRAs trained on RAW express strongly on Turbo, so the intended flow is train-on-RAW / infer-on-Turbo. Both run the `qwen3vl_4b_fp8_scaled` text encoder (`CLIPLoader` `type: "krea2"`) + `qwen_image_vae`, take a plain natural-language `prompt` (node `6`, no structured JSON), and expose 9 aspect ratios (1:1–9:21). `model_requirements` declares all three downloads (diffusion model, text encoder, VAE) from the `Comfy-Org/Krea-2` Hugging Face repo for `check_requirements` / `download_models`. Requires ComfyUI 0.26.0+. Total shipped starters now nineteen.
+
 ## [0.5.7] - 2026-06-10
 
 ### Security
