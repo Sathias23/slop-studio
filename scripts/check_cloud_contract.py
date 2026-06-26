@@ -193,11 +193,14 @@ def check_contract(spec: dict) -> list[Result]:
         results.append(_check("GET /api/view has required `filename` param", bool(fn and fn.get("required"))))
         results.append(_check("GET /api/view documents 302 redirect", "302" in op.get("responses", {})))
 
-    # 6. POST /api/assets — upload_asset() returns the `asset_hash` field.
+    # 6. POST /api/assets — upload_asset() returns `asset_hash` from both the
+    #    201 fresh-upload and 200 dedup-hit responses, so assert each carries it.
     if op := ops.get(("post", "/api/assets")):
-        # 201 fresh upload / 200 dedup both return AssetCreated.
-        props = _properties(spec, _json_response_schema(spec, op, "201"))
-        results.append(_check("POST /api/assets 201 has `asset_hash`", "asset_hash" in props, f"props={sorted(props)}"))
+        for status in ("201", "200"):
+            props = _properties(spec, _json_response_schema(spec, op, status))
+            results.append(
+                _check(f"POST /api/assets {status} has `asset_hash`", "asset_hash" in props, f"props={sorted(props)}")
+            )
 
     return results
 
