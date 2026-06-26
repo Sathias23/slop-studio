@@ -9,7 +9,7 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Ships seventeen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
+- Ships nineteen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), **Krea 2** RAW + Turbo (local 12B DiT), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
 - Automatic ComfyUI spawning and lifecycle management
@@ -280,7 +280,7 @@ See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the a
 
 ## Templates
 
-Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Seventeen starter templates ship with every project, spanning both backends:
+Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Nineteen starter templates ship with every project, spanning both backends:
 
 **Local — GGUF models on your GPU (Flux.2 Klein, 16 GB VRAM):**
 
@@ -292,6 +292,11 @@ Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Sevente
 
 - **image_ernie** — Baidu's ERNIE-Image 8B DiT (Apache-2.0); precise text rendering, built-in prompt enhancement (~60s); 9 aspect ratios
 - **image_ernie_turbo** — DMD/RL-distilled 8-step variant (~30s, ~2× faster than standard); 9 aspect ratios
+
+**Local — Krea 2 (12B dense DiT; Qwen3-VL 4B text encoder + Qwen Image VAE; requires ComfyUI 0.26.0+):**
+
+- **image_krea2_turbo** — Krea 2 Turbo, the 8-step distilled checkpoint built for fast, high-quality text-to-image. fp8_scaled (~16 GB VRAM); 8 euler steps at cfg 1; 9 aspect ratios. The recommended Krea 2 checkpoint for everyday generation. LoRAs trained on RAW express strongly here.
+- **image_krea2_raw** — Krea 2 RAW, the undistilled base checkpoint. Diverse, malleable outputs — Krea's recommended checkpoint for fine-tuning, post-training research, and LoRA training, not tuned for final-quality generation on its own. bf16 (~24 GB VRAM); 52 er_sde steps at cfg 3.5 (~120s); 9 aspect ratios.
 
 **Local — Ideogram 4.0 (9.3B open-weights DiT, structured-JSON prompting; heavy — two fp8 checkpoints + 8B encoder):**
 

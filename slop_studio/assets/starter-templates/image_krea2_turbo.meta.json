@@ -1,0 +1,46 @@
+{
+  "name": "image_krea2_turbo",
+  "model": "krea2-turbo",
+  "description": "Krea 2 Turbo — the 8-step distilled checkpoint of Krea's 12B dense DiT, built for fast, high-quality text-to-image. Distilled from a fully post-trained RL checkpoint, so it yields higher final quality than RAW with lower output variation. Runs the qwen3vl_4b text encoder (CLIP type 'krea2') + qwen_image_vae. 8 euler steps at cfg 1 (guidance distilled out), scheduler simple. The model was trained on short, medium, and long natural-language prompts — detailed, longer prompts give the best quality. LoRAs trained on Krea 2 RAW apply cleanly here. Recommended checkpoint for everyday generation; fp8_scaled fits ~16 GB VRAM. Requires ComfyUI 0.26.0+.",
+  "backend": "local",
+  "expected_duration": "30 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "6",
+      "field": "text",
+      "type": "required",
+      "description": "Natural-language text prompt describing the image to generate. Krea 2 was trained on short, medium, and long prompts; detailed, longer prompts produce the best quality. No structured JSON or special syntax required."
+    }
+  },
+  "aspect_ratios": {
+    "1:1":  {"width": 1024, "height": 1024},
+    "4:3":  {"width": 1152, "height": 896},
+    "3:4":  {"width": 896,  "height": 1152},
+    "3:2":  {"width": 1216, "height": 832},
+    "2:3":  {"width": 832,  "height": 1216},
+    "16:9": {"width": 1344, "height": 768},
+    "9:16": {"width": 768,  "height": 1344},
+    "21:9": {"width": 1536, "height": 640},
+    "9:21": {"width": 640,  "height": 1536}
+  },
+  "resolution_nodes": [
+    {"node_id": "5", "width_field": "width", "height_field": "height"}
+  ],
+  "model_requirements": [
+    {
+      "filename": "krea2_turbo_fp8_scaled.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_fp8_scaled.safetensors"
+    },
+    {
+      "filename": "qwen3vl_4b_fp8_scaled.safetensors",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors"
+    },
+    {
+      "filename": "qwen_image_vae.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors"
+    }
+  ]
+}
