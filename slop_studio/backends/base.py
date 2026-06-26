@@ -49,7 +49,7 @@ class Backend(ABC):
         'outputs'?: dict, 'error'?: str}.
 
         For backends that split status and history (cloud: /api/job/{id}/status
-        + /api/history_v2), implementations synthesize the unified shape by
+        + /api/jobs/{id}), implementations synthesize the unified shape by
         calling history() internally when state == completed.
 
         Raises httpx.HTTPStatusError / httpx.TransportError on network failure —
