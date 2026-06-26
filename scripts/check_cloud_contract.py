@@ -105,6 +105,20 @@ def _properties(spec: dict, schema: Any) -> dict:
     return props
 
 
+def _required(spec: dict, schema: Any) -> set[str]:
+    """Return the set of required property names, merging ``allOf`` and refs."""
+    schema = _resolve(spec, schema)
+    if not isinstance(schema, dict):
+        return set()
+    req: set[str] = set()
+    for sub in schema.get("allOf", []):
+        req |= _required(spec, sub)
+    direct = schema.get("required")
+    if isinstance(direct, list):
+        req |= set(direct)
+    return req
+
+
 def _operation(spec: dict, method: str, path: str) -> dict | None:
     op = spec.get("paths", {}).get(path, {}).get(method)
     return op if isinstance(op, dict) else None
@@ -195,12 +209,25 @@ def check_contract(spec: dict) -> list[Result]:
 
     # 6. POST /api/assets — upload_asset() returns `asset_hash` from both the
     #    201 fresh-upload and 200 dedup-hit responses, so assert each carries it.
+    #    The field is documented but NOT in the schema's `required` list, while
+    #    upload_asset() treats a missing/empty hash as a hard failure (it raises
+    #    ValueError) — warn so that latent gap stays visible. We don't fail on it:
+    #    asset_hash has never been marked required upstream, so a hard assertion
+    #    would be a permanent red rather than drift detection.
     if op := ops.get(("post", "/api/assets")):
         for status in ("201", "200"):
-            props = _properties(spec, _json_response_schema(spec, op, status))
-            results.append(
-                _check(f"POST /api/assets {status} has `asset_hash`", "asset_hash" in props, f"props={sorted(props)}")
-            )
+            schema = _json_response_schema(spec, op, status)
+            props = _properties(spec, schema)
+            present = "asset_hash" in props
+            results.append(_check(f"POST /api/assets {status} has `asset_hash`", present, f"props={sorted(props)}"))
+            if present and "asset_hash" not in _required(spec, schema):
+                results.append(
+                    Result(
+                        f"POST /api/assets {status} `asset_hash` not guaranteed",
+                        "warn",
+                        "documented but not in `required`; upload_asset() treats it as mandatory",
+                    )
+                )
 
     return results
 
