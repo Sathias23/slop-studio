@@ -1552,3 +1552,47 @@ class TestCloudNonSubmitErrorTaxonomy:
         assert result["error_type"] == "auth_failed"
         assert result["backend"] == "cloud"
         assert result["retry_suggested"] is False
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_cloud_saves_glb_from_3d_output_key(cloud_registered, tmp_path, monkeypatch):
+    """The cloud orchestrator reads the same output keys as the local one."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    monkeypatch.setattr(cloud_registered, "OUTPUT_DIR", str(output_dir))
+
+    respx.get(f"{CLOUD_BASE_URL}/api/job/xyz/status").mock(return_value=httpx.Response(200, json={"status": "success"}))
+    respx.get(f"{CLOUD_BASE_URL}/api/history_v2/xyz").mock(
+        return_value=httpx.Response(
+            200,
+            json={"xyz": {"outputs": {"1": {"3d": [{"filename": "Pixal3D_3D_00001_.glb"}]}}, "status": "success"}},
+        )
+    )
+    respx.get(f"{CLOUD_BASE_URL}/api/view").mock(return_value=httpx.Response(200, content=b"glTFfake"))
+
+    result = await cloud_registered.get_image("cloud:xyz", include_base64=True)
+
+    assert result["status"] == "success"
+    assert result["file_path"].endswith("Pixal3D_3D_00001_.glb")
+    assert os.path.exists(result["file_path"])
+    # A mesh has no raster thumbnail.
+    assert "thumbnail_base64" not in result
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_cloud_no_output_reports_no_files(cloud_registered, tmp_path, monkeypatch):
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    monkeypatch.setattr(cloud_registered, "OUTPUT_DIR", str(output_dir))
+
+    respx.get(f"{CLOUD_BASE_URL}/api/job/xyz/status").mock(return_value=httpx.Response(200, json={"status": "success"}))
+    respx.get(f"{CLOUD_BASE_URL}/api/history_v2/xyz").mock(
+        return_value=httpx.Response(200, json={"xyz": {"outputs": {}, "status": "success"}})
+    )
+
+    result = await cloud_registered.get_image("cloud:xyz")
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "completed_no_output"

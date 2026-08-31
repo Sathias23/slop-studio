@@ -1,0 +1,73 @@
+{
+  "name": "image_to_3d_pixal3d",
+  "model": "pixal3d-int8-convrot",
+  "description": "Pixal3D image-to-3D: turns a single reference image into a textured GLB mesh with PBR maps (base colour, metallic, roughness, ambient occlusion, normal). Shares the TRELLIS.2 sampling stages, shape/texture VAEs and DINOv3 encoder, but conditions on projection-aware features: MoGe-2 estimates the photo's field of view and Pixal3DConditioning back-projects high-resolution DINOv3 features onto the voxel grid, so the mesh tracks the input's perspective more closely. Pipeline: BiRefNet background removal, square composite via ImageCropToMask (pad_factor 1.1, as Pixal3D expects), structure/shape/upsample/texture sampling, then remesh -> decimate -> UV unwrap -> texture bake. Output is a single .glb retrieved with get_image. No text prompt — geometry and texture come entirely from the input image.",
+  "backend": "local",
+  "output_keys": ["3d"],
+  "expected_duration": "4-8 minutes on a 24GB GPU",
+  "inputs": {
+    "image": {
+      "node_id": "122",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Reference image to reconstruct in 3D. A single, centred subject on a plain background works best; the background is removed automatically. The visible side drives the geometry — unseen faces are hallucinated."
+    },
+    "shape_resolution": {
+      "node_id": "94",
+      "field": "target_resolution",
+      "type": "optional",
+      "description": "Voxel resolution of the upsampled shape stage. Integer 1024-2048 in steps of 128; default 1536. Higher means finer geometric detail and more VRAM."
+    },
+    "texture_resolution": {
+      "node_id": "288",
+      "field": "value",
+      "type": "optional",
+      "description": "Baked texture map size in pixels (default 4096). Feeds both the UV unwrap and the texture bake. Drop to 2048 to halve bake time and file size."
+    },
+    "face_count": {
+      "node_id": "186",
+      "field": "target_face_count",
+      "type": "optional",
+      "description": "Target triangle count after decimation (default 700000). Lower it (e.g. 100000) for a game-ready or web-ready asset."
+    }
+  },
+  "model_requirements": [
+    {
+      "filename": "pixal3d_int8_convrot.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/diffusion_models/pixal3d_int8_convrot.safetensors",
+      "size_bytes": 5584555824
+    },
+    {
+      "filename": "trellis_2_shape_vae_bf16.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/vae/trellis_2_shape_vae_bf16.safetensors",
+      "size_bytes": 1095844024
+    },
+    {
+      "filename": "trellis_2_texture_vae_bf16.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/vae/trellis_2_texture_vae_bf16.safetensors",
+      "size_bytes": 948461364
+    },
+    {
+      "filename": "dino_v3_L_naf_fp32.safetensors",
+      "subfolder": "clip_vision",
+      "url": "https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/clip_vision/dino_v3_L_naf_fp32.safetensors",
+      "size_bytes": 1215214176
+    },
+    {
+      "filename": "moge_2_vitl_normal_fp16.safetensors",
+      "subfolder": "geometry_estimation",
+      "url": "https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors",
+      "size_bytes": 661859924
+    },
+    {
+      "filename": "birefnet.safetensors",
+      "subfolder": "background_removal",
+      "url": "https://huggingface.co/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors",
+      "size_bytes": 444473596
+    }
+  ]
+}

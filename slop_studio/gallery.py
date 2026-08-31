@@ -1,4 +1,10 @@
-"""Generate lightweight HTML gallery pages for batch image viewing."""
+"""Generate lightweight HTML gallery pages for batch output viewing.
+
+Handles both raster images and 3D meshes (the ``.glb`` files the TRELLIS.2 /
+Pixal3D image-to-3D templates produce). Meshes can't be shown inline without
+pulling a WebGL viewer off a CDN — which fails silently offline — so they get
+a labelled card that opens the file itself when clicked.
+"""
 
 import os
 import time
@@ -39,6 +45,16 @@ _GALLERY_HTML = """\
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .card a.mesh {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    padding: 2.5rem 0.75rem;
+    text-align: center;
+    background: linear-gradient(160deg, #2f2f2f, #202020);
+  }
+  .card a.mesh .glyph { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }
+  .card a.mesh .hint { font-size: 0.75rem; color: #777; }
   /* Lightbox */
   .lightbox {
     display: none;
@@ -70,18 +86,28 @@ const lbImg = document.getElementById("lb-img");
 images.forEach(img => {
   const card = document.createElement("div");
   card.className = "card";
-  const imgEl = document.createElement("img");
-  imgEl.src = img.src;
-  imgEl.loading = "lazy";
   const label = document.createElement("div");
   label.className = "label";
   label.textContent = img.name;
-  card.appendChild(imgEl);
+
+  if (img.kind === "mesh") {
+    const link = document.createElement("a");
+    link.className = "mesh";
+    link.href = img.src;
+    link.innerHTML = '<span class="glyph">\u25e7</span><span class="hint">3D model &mdash; click to open</span>';
+    card.appendChild(link);
+  } else {
+    const imgEl = document.createElement("img");
+    imgEl.src = img.src;
+    imgEl.loading = "lazy";
+    imgEl.addEventListener("click", () => {
+      lbImg.src = img.src;
+      lightbox.classList.add("active");
+    });
+    card.appendChild(imgEl);
+  }
+
   card.appendChild(label);
-  imgEl.addEventListener("click", () => {
-    lbImg.src = img.src;
-    lightbox.classList.add("active");
-  });
   grid.appendChild(card);
 });
 
@@ -94,11 +120,14 @@ document.addEventListener("keydown", e => {
 """
 
 
+MESH_EXTENSIONS = {".glb", ".gltf", ".obj", ".stl", ".ply", ".fbx", ".usdz"}
+
+
 def generate_gallery(image_paths: list[str], output_dir: str) -> str:
-    """Generate an HTML gallery file for the given image paths.
+    """Generate an HTML gallery file for the given output paths.
 
     Args:
-        image_paths: Absolute paths to image files.
+        image_paths: Absolute paths to image or 3D-mesh files.
         output_dir: The root output directory (gallery is written here).
 
     Returns:
@@ -113,7 +142,8 @@ def generate_gallery(image_paths: list[str], output_dir: str) -> str:
     for img_path in image_paths:
         abs_path = Path(img_path).resolve()
         rel_path = Path(os.path.relpath(abs_path, output_dir_path)).as_posix()
-        image_data.append({"src": rel_path, "name": abs_path.name})
+        kind = "mesh" if abs_path.suffix.lower() in MESH_EXTENSIONS else "image"
+        image_data.append({"src": rel_path, "name": abs_path.name, "kind": kind})
 
     html = _GALLERY_HTML.replace("IMAGE_DATA_PLACEHOLDER", json.dumps(image_data))
     gallery_path.write_text(html)

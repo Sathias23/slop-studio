@@ -1525,3 +1525,115 @@ async def test_local_get_image_malformed_prompt_id_tags_backend_local(templates_
     result = await _local.get_image("local:nonexistent-prompt-xyz")
     assert result["status"] == "error"
     assert result["backend"] == "local"
+
+
+# ---------------------------------------------------------------------------
+# 3D output retrieval (SaveGLB "3d" output key) — image-to-3D templates
+# ---------------------------------------------------------------------------
+
+HISTORY_COMPLETED_WITH_GLB = {
+    "abc-123": {
+        "outputs": {"1": {"3d": [{"filename": "Trellis2_3D_00001_.glb", "subfolder": "", "type": "output"}]}},
+        "status": {"status_str": "success", "completed": True, "messages": []},
+    }
+}
+
+FAKE_GLB_BYTES = b"glTF\x02\x00\x00\x00not-a-real-mesh"
+
+
+def test_first_output_file_empty_outputs():
+    from slop_studio.backends.local import _first_output_file
+
+    assert _first_output_file({}) == (None, "")
+
+
+def test_first_output_file_finds_3d_key():
+    from slop_studio.backends.local import _first_output_file
+
+    outputs = {"1": {"3d": [{"filename": "mesh.glb", "subfolder": "3d"}]}}
+    assert _first_output_file(outputs) == ("mesh.glb", "3d")
+
+
+def test_first_output_file_prefers_images_over_other_keys():
+    """An image-producing node wins so image templates keep their old behaviour."""
+    from slop_studio.backends.local import _first_output_file
+
+    outputs = {
+        "1": {"3d": [{"filename": "mesh.glb", "subfolder": ""}]},
+        "9": {"images": [{"filename": "render.png", "subfolder": ""}]},
+    }
+    assert _first_output_file(outputs) == ("render.png", "")
+
+
+def test_first_output_file_accepts_bare_string_entries():
+    """The cloud backend can hand back filenames rather than dicts."""
+    from slop_studio.backends.local import _first_output_file
+
+    assert _first_output_file({"9": {"images": ["cloud_out.png"]}}) == ("cloud_out.png", "")
+
+
+def test_first_output_file_ignores_non_dict_node_outputs():
+    from slop_studio.backends.local import _first_output_file
+
+    outputs = {"7": ["junk"], "9": {"images": [{"filename": "ok.png"}]}}
+    assert _first_output_file(outputs) == ("ok.png", "")
+
+
+def test_is_thumbnailable():
+    from slop_studio.backends.local import _is_thumbnailable
+
+    assert _is_thumbnailable("a.png") is True
+    assert _is_thumbnailable("A.JPEG") is True
+    assert _is_thumbnailable("mesh.glb") is False
+    assert _is_thumbnailable("noext") is False
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_saves_glb_from_3d_output_key(templates_dir, output_dir):
+    """SaveGLB reports its file under the '3d' key, not 'images'."""
+    from datetime import date
+    from pathlib import Path
+
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_GLB))
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_GLB_BYTES))
+
+    result = await slop_studio.comfyui.get_image("abc-123")
+
+    assert result["status"] == "success"
+    today = date.today().isoformat()
+    assert result["file_path"] == str(output_dir / today / "Trellis2_3D_00001_.glb")
+    assert Path(result["file_path"]).read_bytes() == FAKE_GLB_BYTES
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_skips_thumbnail_for_glb(templates_dir, output_dir, monkeypatch):
+    """A mesh is not a raster image — PIL is never handed its bytes."""
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_GLB))
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_GLB_BYTES))
+    monkeypatch.setattr(
+        slop_studio.comfyui,
+        "generate_thumbnail",
+        lambda *a, **kw: pytest.fail("generate_thumbnail called for a .glb"),
+    )
+
+    result = await slop_studio.comfyui.get_image("abc-123", include_base64=True)
+
+    assert result["status"] == "success"
+    assert "thumbnail_base64" not in result
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_still_thumbnails_images(templates_dir, output_dir):
+    """Regression guard: the suffix gate must not block ordinary image outputs."""
+    respx.get(f"{COMFYUI_URL}/history/abc-123").mock(
+        return_value=httpx.Response(200, json=HISTORY_COMPLETED_WITH_IMAGE)
+    )
+    respx.get(f"{COMFYUI_URL}/view").mock(return_value=httpx.Response(200, content=FAKE_IMAGE_BYTES))
+
+    result = await slop_studio.comfyui.get_image("abc-123", include_base64=True)
+
+    assert result["status"] == "success"
+    assert result["thumbnail_base64"]

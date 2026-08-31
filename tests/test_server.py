@@ -1170,3 +1170,56 @@ async def test_report_issue_checklist_returned_by_value():
     second = await report_issue()
     assert "MUTATED" not in second["checklist"]
     assert len(second["checklist"]) > 0
+
+
+@pytest.mark.anyio
+async def test_open_gallery_accepts_glb_mesh(tmp_path):
+    """Image-to-3D templates return .glb paths — open_gallery must accept them."""
+    from slop_studio.server import open_gallery
+
+    mesh = tmp_path / "Trellis2_3D_00001_.glb"
+    mesh.write_bytes(b"glTFfake")
+    mock_proc = AsyncMock()
+    with (
+        patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        result = await open_gallery(str(mesh))
+    assert result["status"] == "success"
+    assert result["file_path"] == str(mesh)
+    mock_exec.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_open_gallery_rejects_unknown_extension(tmp_path):
+    """The allowlist still rejects everything that isn't viewable output."""
+    from slop_studio.server import open_gallery
+
+    blob = tmp_path / "secrets.txt"
+    blob.write_text("nope")
+    with patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)):
+        result = await open_gallery(str(blob))
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+
+
+def test_generate_gallery_marks_meshes_and_images(tmp_path):
+    """Mesh entries are tagged so the page links them instead of using <img>."""
+    import json as _json
+    from pathlib import Path
+
+    from slop_studio.gallery import generate_gallery
+
+    img = tmp_path / "a.png"
+    mesh = tmp_path / "b.glb"
+    img.write_bytes(b"fake image")
+    mesh.write_bytes(b"glTFfake")
+
+    gallery_path = generate_gallery([str(img), str(mesh)], str(tmp_path))
+    html = Path(gallery_path).read_text()
+
+    payload = _json.loads(html.split("const images = ")[1].split(";\n")[0])
+    assert payload == [
+        {"src": "a.png", "name": "a.png", "kind": "image"},
+        {"src": "b.glb", "name": "b.glb", "kind": "mesh"},
+    ]

@@ -1250,3 +1250,27 @@ async def test_delete_template_workflow_file_error_still_succeeds(templates_dir,
 
     assert result["status"] == "success"
     assert not (templates_dir / "partial_del.meta.json").exists()
+
+
+@pytest.mark.parametrize("name, meta_path, workflow_path", list(_starter_template_pairs()))
+def test_starter_template_3d_outputs_are_retrievable(name, meta_path, workflow_path):
+    """A starter declaring ``output_keys: ["3d"]`` must actually save a mesh.
+
+    ``get_image`` scans ComfyUI's history for known output collection keys and
+    prefers ``images``, so a 3D template needs (a) a ``SaveGLB`` node — whose UI
+    payload is the ``3d`` key with ``{filename, subfolder}`` entries the
+    retrieval path understands, unlike ``Save3DAdvanced``'s bare path list —
+    and (b) no image-saving node that would shadow the mesh.
+    """
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("output_keys") != ["3d"]:
+        pytest.skip(f"{name} is not a 3D template")
+
+    workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
+    class_types = [node.get("class_type") for node in workflow.values()]
+
+    assert class_types.count("SaveGLB") == 1, f"{name}: expected exactly one SaveGLB output node"
+    for shadowing in ("SaveImage", "PreviewImage", "SaveAudio", "Save3DAdvanced"):
+        assert shadowing not in class_types, (
+            f"{name}: {shadowing} would shadow the mesh — get_image prefers image outputs"
+        )

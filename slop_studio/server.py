@@ -34,6 +34,10 @@ from slop_studio.process import (
 logger = logging.getLogger(__name__)
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
+# 3D meshes produced by image-to-3D templates (TRELLIS.2, Pixal3D). SaveGLB
+# writes .glb; the rest cover meshes routed through ComfyUI's other 3D savers.
+_MODEL_3D_EXTENSIONS = {".glb", ".gltf", ".obj", ".stl", ".ply", ".fbx", ".usdz"}
+_VIEWABLE_EXTENSIONS = _IMAGE_EXTENSIONS | _MODEL_3D_EXTENSIONS
 
 _COMFY_CLOUD_PORTAL_URL = "https://platform.comfy.org/"
 
@@ -580,15 +584,19 @@ async def check_next_job(prompt_ids: list[str], wait: int = 0) -> dict:
 @mcp.tool()
 @safe_tool
 async def get_image(prompt_id: str, include_base64: bool = False) -> dict | list:
-    """Retrieve the output image from a completed generation job.
+    """Retrieve the output file from a completed generation job.
 
-    Downloads the image from ComfyUI, saves it to the output directory
+    Downloads the result from ComfyUI, saves it to the output directory
     organized by date ({output_dir}/{YYYY-MM-DD}/{filename}), and returns
-    the absolute file path.
+    the absolute file path. Handles any output a template produces — images
+    from the image templates, and .glb meshes from the image-to-3D templates
+    (image_to_3d_trellis2, image_to_3d_pixal3d).
 
     Set include_base64 to true to also receive a thumbnail_base64 field
     containing a small JPEG preview for inline display (useful for clients
-    like Claude Desktop that can render embedded images).
+    like Claude Desktop that can render embedded images). Non-image outputs
+    such as .glb meshes have no thumbnail — the field is simply absent; pass
+    the returned path to open_gallery to view the mesh.
 
     Call this after check_job returns status 'completed'. If the job is
     still running, call check_job with wait first to poll for completion.
@@ -599,15 +607,20 @@ async def get_image(prompt_id: str, include_base64: bool = False) -> dict | list
 @mcp.tool()
 @safe_tool
 async def open_gallery(file_paths: str | list[str]) -> dict:
-    """Open image(s) for viewing.
+    """Open generated image(s) or 3D model(s) for viewing.
 
-    Accepts a single image path or a list. When given one image, opens it
-    directly in the OS default viewer (Preview on macOS, etc.). When given
-    multiple images, generates a lightweight HTML gallery with a dark-themed
-    responsive grid and click-to-lightbox, then opens it in the default browser.
+    Accepts a single path or a list. When given one file, opens it directly in
+    the OS default viewer (Preview on macOS, etc.). When given several,
+    generates a lightweight HTML gallery with a dark-themed responsive grid and
+    click-to-lightbox, then opens it in the default browser.
+
+    Images (.png .jpg .jpeg .webp .gif .bmp .tiff) render inline. 3D meshes
+    (.glb .gltf .obj .stl .ply .fbx .usdz — what the image-to-3D templates
+    produce) get a card in the gallery that opens the mesh file itself; a
+    single mesh goes straight to the OS 3D viewer.
 
     Args:
-        file_paths: Absolute path to an image file, or a list of paths.
+        file_paths: Absolute path to an image or mesh file, or a list of paths.
                     All must be inside the configured output directory.
     """
     if isinstance(file_paths, str):
@@ -625,7 +638,7 @@ async def open_gallery(file_paths: str | list[str]) -> dict:
             p.relative_to(output_root)
         except ValueError:
             return terminal_error("invalid_path", f"File must be inside the output directory: {file_path}")
-        if p.suffix.lower() not in _IMAGE_EXTENSIONS:
+        if p.suffix.lower() not in _VIEWABLE_EXTENSIONS:
             return terminal_error("invalid_inputs", f"Unsupported file type: {p.suffix.lower()}")
         if not p.is_file():
             return terminal_error("invalid_path", f"File not found: {file_path}")

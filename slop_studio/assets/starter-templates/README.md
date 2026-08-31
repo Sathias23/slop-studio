@@ -24,7 +24,7 @@ Every `.meta.json` must declare:
 Three optional fields control cloud/local routing and multi-modal forward compatibility:
 
 - **`backend`** — one of `"local"`, `"cloud"`, or `"either"`. Declares the template's intended backend. When absent, the router defers to `SLOP_STUDIO_DEFAULT_BACKEND`. Example: the shipped `flux2_klein` variants declare `"backend": "local"` because their GGUF model is local-only; `image_flux2` is cloud-compatible.
-- **`output_keys`** — non-empty list of strings naming the output node-keys (e.g. `["images"]`, `["audio"]`, `["images", "videos"]`). Reserved for future multi-modal support — currently validated at write-time but not consumed at read-time.
+- **`output_keys`** — non-empty list of strings naming the ComfyUI output collection keys the template's terminal node writes (e.g. `["images"]`, `["3d"]`, `["audio"]`). Retrieval is key-agnostic: `get_image` scans a fixed order — `images`, `3d`, `gifs`, `videos`, `audio` — and returns the first file it finds, preferring images. So this field documents the template's output kind (and is asserted by the starter-template canaries in `tests/test_templates.py`) rather than being looked up at read-time. A template whose real output is a mesh must therefore not also carry an image-saving node, or the image would win — the shipped `image_to_3d_*` templates end in a single `SaveGLB` for that reason. Note `SaveGLB` reports `{filename, subfolder}` entries under the `3d` key, while `Save3DAdvanced` reports a bare path list that retrieval cannot consume.
 - **`cloud_estimate_credits`** — non-negative `int` or `float`. Advisory cost estimate for a cloud run of this template; not billed or enforced. Purely documentation.
 
 Example cloud template meta:
