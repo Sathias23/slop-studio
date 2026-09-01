@@ -1596,3 +1596,33 @@ async def test_get_image_cloud_no_output_reports_no_files(cloud_registered, tmp_
 
     assert result["status"] == "error"
     assert result["error_type"] == "completed_no_output"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_image_cloud_forwards_output_subfolder(cloud_registered, tmp_path, monkeypatch):
+    """A prefixed filename_prefix (e.g. SaveGLB's default '3d/ComfyUI') puts the
+    output in a subfolder — /api/view needs it or it fetches from the root."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    monkeypatch.setattr(cloud_registered, "OUTPUT_DIR", str(output_dir))
+
+    respx.get(f"{CLOUD_BASE_URL}/api/job/xyz/status").mock(return_value=httpx.Response(200, json={"status": "success"}))
+    respx.get(f"{CLOUD_BASE_URL}/api/history_v2/xyz").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "xyz": {
+                    "outputs": {"1": {"3d": [{"filename": "ComfyUI_00001_.glb", "subfolder": "3d"}]}},
+                    "status": "success",
+                }
+            },
+        )
+    )
+    view_route = respx.get(f"{CLOUD_BASE_URL}/api/view").mock(return_value=httpx.Response(200, content=b"glTFfake"))
+
+    result = await cloud_registered.get_image("cloud:xyz")
+
+    assert result["status"] == "success"
+    assert view_route.calls.last.request.url.params["subfolder"] == "3d"
+    assert view_route.calls.last.request.url.params["filename"] == "ComfyUI_00001_.glb"

@@ -1223,3 +1223,25 @@ def test_generate_gallery_marks_meshes_and_images(tmp_path):
         {"src": "a.png", "name": "a.png", "kind": "image"},
         {"src": "b.glb", "name": "b.glb", "kind": "mesh"},
     ]
+
+
+def test_generate_gallery_encodes_url_significant_filenames(tmp_path):
+    """Filenames are filesystem paths, not URLs: '#', '?' and '%' must not be
+    read as URL syntax when the page builds an <img> src or a mesh href."""
+    import json as _json
+    from pathlib import Path
+
+    from slop_studio.gallery import generate_gallery
+
+    tricky = tmp_path / "render #1 (50%).png"
+    tricky.write_bytes(b"fake image")
+
+    gallery_path = generate_gallery([str(tricky)], str(tmp_path))
+    html = Path(gallery_path).read_text()
+
+    payload = _json.loads(html.split("const images = ")[1].split(";\n")[0])
+    # The payload stays a faithful relative path; the page encodes it per segment.
+    assert payload == [{"src": "render #1 (50%).png", "name": "render #1 (50%).png", "kind": "image"}]
+    assert 'const toUrl = path => path.split("/").map(encodeURIComponent).join("/");' in html
+    assert "imgEl.src = href;" in html
+    assert "link.href = href;" in html

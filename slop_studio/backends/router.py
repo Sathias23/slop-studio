@@ -581,7 +581,7 @@ async def _get_image_cloud(
         return _cloud_err("generation_failed", error_msg)
 
     outputs = status_result.get("outputs", {})
-    filename, _subfolder = _first_output_file(outputs)
+    filename, subfolder = _first_output_file(outputs)
 
     if not filename:
         return _cloud_err(
@@ -594,7 +594,7 @@ async def _get_image_cloud(
         return _cloud_err("completed_no_output", f"Job {native_id} produced an invalid filename")
 
     try:
-        image_bytes = await backend.view(safe_filename, file_type="output")
+        image_bytes = await backend.view(safe_filename, subfolder=subfolder, file_type="output")
     except httpx.HTTPStatusError as exc:
         # Route through the cloud error taxonomy — 401 here means the key
         # is dead, not that the cloud is unreachable.

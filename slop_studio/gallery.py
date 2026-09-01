@@ -83,9 +83,15 @@ const grid = document.getElementById("grid");
 const lightbox = document.getElementById("lightbox");
 const lbImg = document.getElementById("lb-img");
 
+// src is a filesystem-relative path, not a URL: encode each segment so a
+// filename containing #, ? or % resolves to the file rather than being read
+// as URL syntax. Separators stay literal.
+const toUrl = path => path.split("/").map(encodeURIComponent).join("/");
+
 images.forEach(img => {
   const card = document.createElement("div");
   card.className = "card";
+  const href = toUrl(img.src);
   const label = document.createElement("div");
   label.className = "label";
   label.textContent = img.name;
@@ -93,15 +99,15 @@ images.forEach(img => {
   if (img.kind === "mesh") {
     const link = document.createElement("a");
     link.className = "mesh";
-    link.href = img.src;
+    link.href = href;
     link.innerHTML = '<span class="glyph">\u25e7</span><span class="hint">3D model &mdash; click to open</span>';
     card.appendChild(link);
   } else {
     const imgEl = document.createElement("img");
-    imgEl.src = img.src;
+    imgEl.src = href;
     imgEl.loading = "lazy";
     imgEl.addEventListener("click", () => {
-      lbImg.src = img.src;
+      lbImg.src = href;
       lightbox.classList.add("active");
     });
     card.appendChild(imgEl);
