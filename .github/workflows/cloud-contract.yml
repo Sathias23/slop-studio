@@ -1,0 +1,46 @@
+name: Cloud API contract
+
+# Early-warning for Comfy Cloud API drift. Costs zero credits and needs no API
+# key — it checks the endpoints/fields cloud.py depends on against Comfy's
+# published OpenAPI spec. When this fails, the cloud integration is about to
+# break (or already has): fix slop_studio/backends/cloud.py and refresh the
+# pinned snapshot at tests/contract/openapi-cloud.yaml.
+#
+# Behavioural drift the schema can't see (302 auth-strip, 429 billing/rate-limit
+# ambiguity) is covered separately by cloud-smoke.yml.
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"  # Mondays 09:00 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "slop_studio/backends/cloud.py"
+      - "scripts/check_cloud_contract.py"
+      - "tests/contract/**"
+      - "tests/test_cloud_contract.py"
+      - ".github/workflows/cloud-contract.yml"
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Contract test against pinned snapshot (offline, deterministic)
+        run: uv run python -m pytest tests/test_cloud_contract.py -q
+
+      - name: Contract check against the LIVE published spec (drift detection)
+        run: uv run python scripts/check_cloud_contract.py

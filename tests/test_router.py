@@ -895,10 +895,10 @@ async def test_get_image_routes_to_cloud_backend(cloud_registered, tmp_path, mon
     monkeypatch.setattr(cloud_registered, "OUTPUT_DIR", str(output_dir))
 
     respx.get(f"{CLOUD_BASE_URL}/api/job/xyz/status").mock(return_value=httpx.Response(200, json={"status": "success"}))
-    respx.get(f"{CLOUD_BASE_URL}/api/history_v2/xyz").mock(
+    respx.get(f"{CLOUD_BASE_URL}/api/jobs/xyz").mock(
         return_value=httpx.Response(
             200,
-            json={"xyz": {"outputs": {"9": {"images": [{"filename": "cloud_out.png"}]}}, "status": "success"}},
+            json={"id": "xyz", "status": "completed", "outputs": {"9": {"images": [{"filename": "cloud_out.png"}]}}},
         )
     )
     # /api/view returns direct bytes (no redirect) — simpler for this test.
@@ -1520,14 +1520,13 @@ class TestCloudNonSubmitErrorTaxonomy:
                 json={"status": "success", "outputs": {"9": {"images": [{"filename": "out.png", "type": "output"}]}}},
             )
         )
-        respx.get(f"{CLOUD_BASE_URL}/api/history_v2/abc").mock(
+        respx.get(f"{CLOUD_BASE_URL}/api/jobs/abc").mock(
             return_value=httpx.Response(
                 200,
                 json={
-                    "abc": {
-                        "outputs": {"9": {"images": [{"filename": "out.png", "type": "output"}]}},
-                        "status": "success",
-                    }
+                    "id": "abc",
+                    "status": "completed",
+                    "outputs": {"9": {"images": [{"filename": "out.png", "type": "output"}]}},
                 },
             )
         )
