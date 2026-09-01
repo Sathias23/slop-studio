@@ -3,7 +3,7 @@
   "name": "slop-studio",
   "display_name": "Slop Studio",
   "version": "0.5.7",
-  "description": "Conversational image generation via ComfyUI",
+  "description": "Conversational image and 3D generation via ComfyUI",
   "author": {
     "name": "Brad Sprigg"
   },
@@ -52,8 +52,8 @@
     {"name": "get_template", "description": "Get template details and inputs"},
     {"name": "queue_prompt", "description": "Submit an image generation job"},
     {"name": "check_next_job", "description": "Poll jobs for completion"},
-    {"name": "get_image", "description": "Retrieve generated image with inline preview"},
-    {"name": "open_gallery", "description": "Open image(s) — single opens in OS viewer, multiple opens HTML gallery"},
+    {"name": "get_image", "description": "Retrieve generated output (image or 3D mesh); images include an inline preview"},
+    {"name": "open_gallery", "description": "Open output(s) — single opens in OS viewer, multiple opens HTML gallery"},
     {"name": "open_comfy_cloud_portal", "description": "Open the Comfy Cloud billing/account portal in the default browser"},
     {"name": "post_to_bluesky", "description": "Post image to Bluesky"},
     {"name": "add_template", "description": "Register a new workflow template"},

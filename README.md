@@ -1,6 +1,6 @@
 # Slop Studio
 
-MCP server for conversational image generation via ComfyUI. Generate images through natural conversation in Claude Code — describe what you want, and slop-studio handles template selection, job submission, polling, and output.
+MCP server for conversational image generation via ComfyUI. Generate images — and now 3D meshes — through natural conversation in Claude Code: describe what you want, and slop-studio handles template selection, job submission, polling, and output.
 
 *slop-studio powers [@generatedhorror.bsky.social](https://bsky.app/profile/generatedhorror.bsky.social), my horror-themed AI art account.*
 
@@ -9,7 +9,8 @@ MCP server for conversational image generation via ComfyUI. Generate images thro
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Ships seventeen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
+- Ships nineteen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), **TRELLIS.2** and **Pixal3D** image-to-3D (local), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
+- Image-to-3D: single reference image in, textured `.glb` mesh with PBR maps out
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
 - Automatic ComfyUI spawning and lifecycle management
@@ -184,8 +185,8 @@ slop-studio build-mcpb      Build .mcpb Desktop Extension package
 | `get_template` | Inspect inputs and aspect ratios for a template |
 | `queue_prompt` | Submit a generation job |
 | `check_next_job` | Poll multiple jobs for completion |
-| `get_image` | Retrieve the output image path with inline thumbnail |
-| `open_gallery` | Open image(s) — single opens in OS viewer, multiple opens HTML gallery |
+| `get_image` | Retrieve the output path (image or `.glb` mesh) with inline thumbnail for images |
+| `open_gallery` | Open output(s) — single opens in OS viewer, multiple opens HTML gallery |
 | `open_comfy_cloud_portal` | Open the Comfy Cloud billing/account portal in the default browser |
 | `post_to_bluesky` | Post image(s) to Bluesky with text and hashtags |
 | `add_template` | Register a new ComfyUI workflow |
@@ -280,7 +281,7 @@ See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the a
 
 ## Templates
 
-Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Seventeen starter templates ship with every project, spanning both backends:
+Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Nineteen starter templates ship with every project, spanning both backends:
 
 **Local — GGUF models on your GPU (Flux.2 Klein, 16 GB VRAM):**
 
@@ -296,6 +297,13 @@ Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Sevente
 **Local — Ideogram 4.0 (9.3B open-weights DiT, structured-JSON prompting; heavy — two fp8 checkpoints + 8B encoder):**
 
 - **image_ideogram4_t2i** — Ideogram 4.0 text-to-image. Takes a **structured JSON prompt** (scene summary, style block, hex color palettes, and per-element bounding boxes `[y_min, x_min, y_max, x_max]` on a 0–1000 grid) rather than plain text, for precise layout, palette control, and readable in-image text. Asymmetric CFG over a conditional + unconditional UNET pair; Default preset (20 `res_multistep` steps); 7 aspect ratios. The model carries its own baked-in safety filter — blocked results come from Ideogram's weights, not ComfyUI.
+
+**Local — image-to-3D (TRELLIS.2 / Pixal3D; ~9-10 GB of model downloads each, 24 GB VRAM recommended):**
+
+- **image_to_3d_trellis2** — Microsoft's TRELLIS.2. One reference image in, one textured `.glb` out with PBR maps (base colour, metallic, roughness, ambient occlusion, normal). BiRefNet strips the background, DINOv3 conditions a three-stage sparse-voxel sample (structure → shape → cascade upsample to 1536), then the mesh is remeshed, decimated, UV-unwrapped and baked. No text prompt.
+- **image_to_3d_pixal3d** — Pixal3D, sharing TRELLIS.2's sampling stages, VAEs and DINOv3 encoder but conditioning on projection-aware features: MoGe-2 estimates the photo's field of view so the mesh tracks the input's perspective more closely. Same `.glb` + PBR output.
+
+Both accept optional `shape_resolution` (1024–2048), `texture_resolution` and `face_count` inputs, take 4–8 minutes on a 24 GB GPU, and have no aspect ratios — output geometry, not a canvas. Run `check_requirements` / `download_models` first; the weights are large. Retrieve the result with `get_image` and view it with `open_gallery`.
 
 **Local — partner-API nodes (requires `COMFY_CLOUD_API_KEY`; no VRAM used, node proxies upstream):**
 
@@ -347,11 +355,11 @@ COMFYUI_START_CMD=/path/to/venv/bin/python /path/to/ComfyUI/main.py
 
 ## Image Viewing
 
-slop-studio can open generated images directly from the conversation.
+slop-studio can open generated output directly from the conversation.
 
-- **`open_gallery`** accepts a single image path or a list. One image opens directly in the OS default viewer (Preview on macOS, etc.). Multiple images generate a lightweight HTML page with a dark grid layout and lightbox, then open it in your browser — useful for comparing generations side by side.
+- **`open_gallery`** accepts a single path or a list. One file opens directly in the OS default viewer (Preview on macOS, etc.). Multiple files generate a lightweight HTML page with a dark grid layout and lightbox, then open it in your browser — useful for comparing generations side by side.
 
-Image paths are validated against an allowlist of extensions (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.tiff`) and must reside inside the configured output directory.
+Paths are validated against an allowlist of extensions and must reside inside the configured output directory: images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.tiff`) and 3D meshes (`.glb`, `.gltf`, `.obj`, `.stl`, `.ply`, `.fbx`, `.usdz`). Meshes can't be drawn inline without pulling a WebGL viewer off a CDN, so in the HTML gallery they appear as a labelled card that opens the mesh file when clicked; a single mesh goes straight to your OS 3D viewer.
 
 ![Gallery View](docs/gallery.png)
 
@@ -375,6 +383,7 @@ If you're reviewing the code before installing — here are the important files:
 ## Coming Soon
 
 - More workflow templates (SDXL, video, inpainting, LoRA stacks)
+- Inline mesh preview (turntable render) for image-to-3D outputs
 - Model downloading and management tools
 - The Sloppifier — token and prompt manipulation tools
 - Claude Code personas and lore system

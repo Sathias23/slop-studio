@@ -64,7 +64,9 @@ from slop_studio.backends import local as _local
 from slop_studio.backends.base import Backend
 from slop_studio.backends.local import (
     LocalBackend,
+    _first_output_file,
     _inject_resolution,
+    _is_thumbnailable,
     _randomize_seeds,
     generate_thumbnail,
 )
@@ -579,22 +581,12 @@ async def _get_image_cloud(
         return _cloud_err("generation_failed", error_msg)
 
     outputs = status_result.get("outputs", {})
-    filename = None
-    for node_output in outputs.values():
-        images = node_output.get("images", []) if isinstance(node_output, dict) else []
-        if images:
-            first = images[0]
-            if isinstance(first, dict):
-                filename = first.get("filename")
-            elif isinstance(first, str):
-                filename = first
-            if filename:
-                break
+    filename, subfolder = _first_output_file(outputs)
 
     if not filename:
         return _cloud_err(
             "completed_no_output",
-            f"Job {native_id} completed but produced no output images",
+            f"Job {native_id} completed but produced no output files",
         )
 
     safe_filename = Path(filename).name
@@ -602,7 +594,7 @@ async def _get_image_cloud(
         return _cloud_err("completed_no_output", f"Job {native_id} produced an invalid filename")
 
     try:
-        image_bytes = await backend.view(safe_filename, file_type="output")
+        image_bytes = await backend.view(safe_filename, subfolder=subfolder, file_type="output")
     except httpx.HTTPStatusError as exc:
         # Route through the cloud error taxonomy — 401 here means the key
         # is dead, not that the cloud is unreachable.
@@ -644,7 +636,7 @@ async def _get_image_cloud(
         "prompt_id": native_id,
     }
 
-    if include_base64:
+    if include_base64 and _is_thumbnailable(safe_filename):
         try:
             result["thumbnail_base64"] = generate_thumbnail(image_bytes)
         except Exception:

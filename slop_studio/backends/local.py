@@ -69,6 +69,46 @@ def _format_partner_nodes(class_types: list[str]) -> str:
     return ", ".join(f"{PARTNER_API_CLASS_LABELS[ct]} ({ct})" for ct in class_types)
 
 
+# ComfyUI groups a node's saved files under a key naming the output kind:
+# SaveImage/PreviewImage use "images", SaveGLB uses "3d" (the TRELLIS.2 and
+# Pixal3D image-to-3D templates), SaveAudio "audio", video nodes "gifs"/"videos".
+# Scanned in this order so an image-producing node still wins on a workflow that
+# saves several kinds — preserving pre-3D behaviour for every image template.
+_OUTPUT_COLLECTION_KEYS = ("images", "3d", "gifs", "videos", "audio")
+
+# Suffixes generate_thumbnail can actually decode. A .glb from an image-to-3D
+# template is a mesh, not a picture: skip the thumbnail rather than handing PIL
+# bytes it will only reject.
+_THUMBNAILABLE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
+
+
+def _first_output_file(outputs: dict) -> tuple[str | None, str]:
+    """Return ``(filename, subfolder)`` for the first saved file in ``outputs``.
+
+    ``outputs`` is ComfyUI's history payload: ``{node_id: {<kind>: [entry, ...]}}``.
+    Entries are normally ``{"filename": ..., "subfolder": ...}`` dicts; the cloud
+    backend can hand back bare filename strings, which are accepted too.
+    Returns ``(None, "")`` when nothing usable is present.
+    """
+    for key in _OUTPUT_COLLECTION_KEYS:
+        for node_output in outputs.values():
+            if not isinstance(node_output, dict):
+                continue
+            for entry in node_output.get(key) or []:
+                if isinstance(entry, dict):
+                    filename = entry.get("filename")
+                    if filename:
+                        return filename, entry.get("subfolder", "") or ""
+                elif isinstance(entry, str) and entry:
+                    return entry, ""
+    return None, ""
+
+
+def _is_thumbnailable(filename: str) -> bool:
+    """True when ``filename`` looks like a raster image PIL can open."""
+    return os.path.splitext(filename)[1].lower() in _THUMBNAILABLE_SUFFIXES
+
+
 def generate_thumbnail(image_bytes: bytes, max_size: int = 256, quality: int = 50) -> str:
     """Generate a base64-encoded JPEG thumbnail from raw image bytes.
 
@@ -588,18 +628,11 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
     # state == "completed"
     outputs = result.get("outputs", {})
 
-    # 2. Find first image in outputs
-    filename = None
-    subfolder = ""
-    for node_output in outputs.values():
-        images = node_output.get("images", [])
-        if images:
-            filename = images[0].get("filename")
-            subfolder = images[0].get("subfolder", "")
-            break
+    # 2. Find the first saved file in outputs (image, 3D mesh, video, audio)
+    filename, subfolder = _first_output_file(outputs)
 
     if not filename:
-        return _err("completed_no_output", f"Job {prompt_id} completed but produced no output images")
+        return _err("completed_no_output", f"Job {prompt_id} completed but produced no output files")
 
     # 3. Sanitize filename (FR21)
     safe_filename = os.path.basename(filename)
@@ -654,7 +687,7 @@ async def get_image(prompt_id: str, *, include_base64: bool = False) -> dict | l
     }
 
     # Generate thumbnail for inline display via data URI
-    if include_base64:
+    if include_base64 and _is_thumbnailable(safe_filename):
         try:
             result["thumbnail_base64"] = generate_thumbnail(image_bytes)
         except Exception:
