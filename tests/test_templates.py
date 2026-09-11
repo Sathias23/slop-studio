@@ -1492,3 +1492,29 @@ async def test_add_template_rejects_enum_empty_prompt_suffix(templates_dir):
 
     assert result["status"] == "error"
     assert "prompt_suffix" in result["error"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("text_field", ["prompt_prefix", "prompt_suffix"])
+async def test_add_template_rejects_prompt_text_without_prompt_input(templates_dir, text_field):
+    """Prompt text has nowhere to go without prompt_input, and resolution skips
+    it silently — the template would be accepted but not behave as written."""
+    meta = _enum_meta(options={"inky": {text_field: "ink wash style"}})
+    del meta["inputs"]["style"]["prompt_input"]
+
+    result = await slop_studio.templates.add_template("bad_enum_no_target", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "must also declare 'prompt_input'" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_enum_without_prompt_input_when_no_prompt_text(templates_dir):
+    """The resolution enum sets a value and nothing else — no prompt_input needed."""
+    meta = _enum_meta(options={"1k": {"value": 1.0}, "2k": {"value": 2.0}})
+    del meta["inputs"]["style"]["prompt_input"]
+
+    result = await slop_studio.templates.add_template("ok_enum_no_target", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"

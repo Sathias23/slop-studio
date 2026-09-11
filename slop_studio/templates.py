@@ -67,6 +67,16 @@ def _validate_enum_input(key: str, defn: dict, all_inputs: dict) -> str | None:
     if prompt_input is not None and (not isinstance(prompt_input, str) or prompt_input not in all_inputs):
         return f"Enum input '{key}' prompt_input {prompt_input!r} does not name another input"
 
+    # Prompt text has nowhere to go without prompt_input, and resolution would
+    # skip it silently — the template would be accepted but not behave as written.
+    if prompt_input is None:
+        for option_name, option in options.items():
+            if option.get("prompt_prefix") or option.get("prompt_suffix"):
+                return (
+                    f"Enum input '{key}' option '{option_name}' declares prompt text, "
+                    f"so '{key}' must also declare 'prompt_input' naming the input to join it onto"
+                )
+
     return None
 
 

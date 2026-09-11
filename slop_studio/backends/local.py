@@ -251,7 +251,11 @@ def _resolve_enum_inputs(meta_inputs: dict, user_inputs: dict) -> tuple[dict, li
         choice = user_inputs.get(input_name, input_def.get("default"))
         if choice is None:
             continue
-        if choice not in options:
+        # Option names are strings (the validator enforces it), and callers can
+        # pass arbitrary JSON — a dict/list choice would make the `in` lookup
+        # raise TypeError, which would surface as a retryable internal_error
+        # instead of the terminal invalid_inputs this raises.
+        if not isinstance(choice, str) or choice not in options:
             raise ValueError(f"Unsupported {input_name} '{choice}'. Supported: {sorted(options)}")
 
         option = options[choice]

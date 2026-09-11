@@ -1767,3 +1767,16 @@ async def test_omitted_seed_is_still_randomized(enum_templates, monkeypatch):
     workflow = await _submit({"prompt": "a martini glass"})
 
     assert workflow["3"]["inputs"]["seed"] == 42
+
+
+@pytest.mark.anyio
+@respx.mock
+@pytest.mark.parametrize("choice", [["inky"], {"name": "inky"}, 7])
+async def test_non_string_enum_choice_returns_terminal_error(enum_templates, choice):
+    """A dict/list choice would make the option lookup raise TypeError, which
+    safe_tool would report as a retryable internal_error rather than bad input."""
+    result = await _submit({"prompt": "a martini glass", "style": choice})
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert result["retry_suggested"] is False
