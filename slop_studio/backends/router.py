@@ -64,10 +64,13 @@ from slop_studio.backends import local as _local
 from slop_studio.backends.base import Backend
 from slop_studio.backends.local import (
     LocalBackend,
+    _apply_patches,
     _first_output_file,
     _inject_resolution,
+    _injected_fields,
     _is_thumbnailable,
     _randomize_seeds,
+    _resolve_enum_inputs,
     generate_thumbnail,
 )
 from slop_studio.config import (
@@ -331,6 +334,11 @@ async def _prepare_and_submit(
             backend=backend.name,
         )
 
+    try:
+        inputs, patches = _resolve_enum_inputs(meta_inputs, inputs)
+    except ValueError as exc:
+        return terminal_error("invalid_inputs", str(exc), backend=backend.name)
+
     prepared = copy.deepcopy(workflow)
     try:
         await _inject_inputs_via_backend(prepared, meta_inputs, inputs, backend)
@@ -349,7 +357,8 @@ async def _prepare_and_submit(
             backend=backend.name,
         )
 
-    _randomize_seeds(prepared)
+    _apply_patches(prepared, patches)
+    _randomize_seeds(prepared, _injected_fields(meta_inputs, inputs))
     _inject_resolution(prepared, meta, aspect_ratio)
 
     return await backend.submit(prepared)

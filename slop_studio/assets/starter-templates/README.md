@@ -19,6 +19,54 @@ Every `.meta.json` must declare:
   - **`field_map` mode:** `{"node_id", "field_map": {src_key: dest_field, ...}}` — writes `dims[src_key]` into `node.inputs[dest_field]` for each entry. Example for Gemini's `GeminiImage2Node`: `{"node_id": "35", "field_map": {"aspect_ratio": "aspect_ratio"}}` paired with `aspect_ratios: {"3:4": {"aspect_ratio": "3:4"}, ...}`.
 - `expected_duration` — human-readable hint (e.g. `"30 seconds"`).
 
+## Enum inputs
+
+An input declaring `"input_type": "enum"` lets one user-facing choice drive several
+workflow fields at once. It is how the Krea-2 templates expose their style LoRAs: the
+editor's CustomCombo node auto-fills a LoRA's trigger word in the UI, but that plumbing
+does not run over the API, so the sidecar carries the mapping itself.
+
+```json
+"style": {
+  "node_id": "30:15", "field": "lora_name",
+  "type": "optional", "input_type": "enum",
+  "default": "none", "prompt_input": "prompt",
+  "options": {
+    "none": {},
+    "darkbrush": {
+      "value": "krea2_darkbrush.safetensors",
+      "prompt_suffix": "monochrome ink wash style",
+      "patches": [{"node_id": "30:3", "field": "model", "value": ["30:15", 0]}]
+    }
+  }
+}
+```
+
+Per option:
+
+- `value` — written to the enum input's own `node_id`/`field`. An option without one
+  (`"none"` above) leaves that field at its shipped default.
+- `patches` — extra `{node_id, field, value}` writes. A `value` of `[node_id, slot]` is a
+  link reference, so a patch can rewire the graph — `darkbrush` above moves the sampler's
+  `model` input from the bare checkpoint onto the LoRA loader. Leaving the LoRA loader
+  unreachable by default matters: ComfyUI validates combo widgets on every node reachable
+  from an output, so a permanently-wired loader would demand the LoRA file even when
+  unused.
+- `prompt_prefix` / `prompt_suffix` — text joined (comma-separated) onto the value of the
+  input named by the enum's `prompt_input`, before injection.
+
+`default` names the option applied when the caller omits the input; an option the template
+doesn't declare is a terminal `invalid_inputs` error naming the supported set. Because
+`get_template` returns the sidecar verbatim, the options and their descriptions are
+self-documenting to the caller.
+
+## Seeds
+
+`queue_prompt` randomizes every `seed` / `noise_seed` field before submitting, so repeated
+calls don't return ComfyUI's cached result. A template that declares a `seed` **input** is
+the exception: a value the caller passes explicitly is left alone, which is what makes a
+generation reproducible. Every other seed in the workflow is still randomized.
+
 ## Backend routing and cloud metadata
 
 Three optional fields control cloud/local routing and multi-modal forward compatibility:
