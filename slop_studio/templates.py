@@ -21,12 +21,73 @@ def _validate_template_name(name: str) -> str | None:
     return None
 
 
+def _validate_enum_input(key: str, defn: dict, all_inputs: dict) -> str | None:
+    """Validate one ``input_type: "enum"`` input definition.
+
+    An enum input maps a named choice onto a value for the input's own
+    ``node_id``/``field`` plus, optionally, extra ``patches`` and text joined
+    onto another input's prompt string. See ``backends.local._resolve_enum_inputs``
+    for the runtime semantics.
+    """
+    options = defn.get("options")
+    if not isinstance(options, dict) or not options:
+        return f"Enum input '{key}' requires a non-empty 'options' JSON object"
+
+    for option_name, option in options.items():
+        if not isinstance(option_name, str) or not option_name:
+            return f"Enum input '{key}' option names must be non-empty strings"
+        if not isinstance(option, dict):
+            return f"Enum input '{key}' option '{option_name}' must be a JSON object"
+        for text_field in ("prompt_prefix", "prompt_suffix"):
+            text = option.get(text_field)
+            if text is not None and (not isinstance(text, str) or not text):
+                return f"Enum input '{key}' option '{option_name}' '{text_field}' must be a non-empty string"
+        patches = option.get("patches")
+        if patches is not None:
+            if not isinstance(patches, list):
+                return f"Enum input '{key}' option '{option_name}' 'patches' must be a JSON array"
+            for i, patch in enumerate(patches):
+                if not isinstance(patch, dict):
+                    return f"Enum input '{key}' option '{option_name}' patches[{i}] must be a JSON object"
+                for patch_field in ("node_id", "field"):
+                    value = patch.get(patch_field)
+                    if not isinstance(value, str) or not value:
+                        return (
+                            f"Enum input '{key}' option '{option_name}' patches[{i}] "
+                            f"missing required '{patch_field}' (string)"
+                        )
+                if "value" not in patch:
+                    return f"Enum input '{key}' option '{option_name}' patches[{i}] missing required 'value'"
+
+    default = defn.get("default")
+    if default is not None and default not in options:
+        return f"Enum input '{key}' default {default!r} is not one of its options: {sorted(options)}"
+
+    prompt_input = defn.get("prompt_input")
+    if prompt_input is not None and (not isinstance(prompt_input, str) or prompt_input not in all_inputs):
+        return f"Enum input '{key}' prompt_input {prompt_input!r} does not name another input"
+
+    # Prompt text has nowhere to go without prompt_input, and resolution would
+    # skip it silently — the template would be accepted but not behave as written.
+    if prompt_input is None:
+        for option_name, option in options.items():
+            if option.get("prompt_prefix") or option.get("prompt_suffix"):
+                return (
+                    f"Enum input '{key}' option '{option_name}' declares prompt text, "
+                    f"so '{key}' must also declare 'prompt_input' naming the input to join it onto"
+                )
+
+    return None
+
+
 def _validate_metadata(metadata: dict) -> str | None:
     """Validate meta structure. Returns error message or None.
 
     Required fields: ``name``, ``model``, ``description`` (non-empty strings).
 
-    Optional structural fields: ``inputs`` (dict of input-definition dicts),
+    Optional structural fields: ``inputs`` (dict of input-definition dicts;
+    entries with ``input_type: "enum"`` are validated by
+    ``_validate_enum_input``),
     ``aspect_ratios`` (dict of ``{label: dims}`` where ``dims`` is a JSON
     object; ``width``/``height`` keys, when present, must be integers —
     ``bool`` is rejected), ``resolution_nodes`` (list of node-mapping
@@ -66,6 +127,10 @@ def _validate_metadata(metadata: dict) -> str | None:
                 return f"Input '{key}' missing required 'node_id' (string)"
             if not isinstance(defn.get("field"), str) or not defn["field"]:
                 return f"Input '{key}' missing required 'field' (string)"
+            if defn.get("input_type") == "enum":
+                enum_err = _validate_enum_input(key, defn, inputs)
+                if enum_err:
+                    return enum_err
 
     aspect_ratios = metadata.get("aspect_ratios")
     if aspect_ratios is not None:

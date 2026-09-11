@@ -1637,3 +1637,146 @@ async def test_get_image_still_thumbnails_images(templates_dir, output_dir):
 
     assert result["status"] == "success"
     assert result["thumbnail_base64"]
+
+
+# ── enum inputs and explicit seeds ──
+
+ENUM_WORKFLOW = {
+    **SAMPLE_WORKFLOW,
+    "4": {"class_type": "UNETLoader", "inputs": {"unet_name": "base.safetensors"}},
+    "8": {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {"model": ["4", 0], "lora_name": "placeholder.safetensors", "strength_model": 1.0},
+    },
+}
+
+ENUM_META = {
+    **SAMPLE_META,
+    "name": "enum_template",
+    "inputs": {
+        "prompt": {"node_id": "6", "field": "text", "type": "required", "description": "Prompt text"},
+        "seed": {"node_id": "3", "field": "seed", "type": "optional", "description": "Sampler seed"},
+        "style": {
+            "node_id": "8",
+            "field": "lora_name",
+            "type": "optional",
+            "input_type": "enum",
+            "default": "none",
+            "prompt_input": "prompt",
+            "description": "Style LoRA",
+            "options": {
+                "none": {},
+                "inky": {
+                    "value": "inky.safetensors",
+                    "prompt_suffix": "ink wash style",
+                    "patches": [{"node_id": "3", "field": "model", "value": ["8", 0]}],
+                },
+                "dotty": {
+                    "value": "dotty.safetensors",
+                    "prompt_prefix": "stippled",
+                    "patches": [{"node_id": "3", "field": "model", "value": ["8", 0]}],
+                },
+            },
+        },
+    },
+}
+
+
+@pytest.fixture
+def enum_templates(templates_dir):
+    write_template(templates_dir, "enum_template", ENUM_WORKFLOW, ENUM_META)
+    return templates_dir
+
+
+async def _submit(inputs, **kwargs):
+    """Queue enum_template and return the workflow ComfyUI received."""
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
+    )
+    result = await slop_studio.comfyui.queue_prompt("enum_template", inputs, **kwargs)
+    if result["status"] != "success":
+        return result
+    return json.loads(respx.calls.last.request.content)["prompt"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_enum_option_injects_value_patches_and_suffix(enum_templates):
+    workflow = await _submit({"prompt": "a martini glass", "style": "inky"})
+
+    assert workflow["8"]["inputs"]["lora_name"] == "inky.safetensors"
+    # The patch rewires the sampler onto the LoRA loader.
+    assert workflow["3"]["inputs"]["model"] == ["8", 0]
+    assert workflow["6"]["inputs"]["text"] == "a martini glass, ink wash style"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_enum_option_prompt_prefix_leads_the_prompt(enum_templates):
+    workflow = await _submit({"prompt": "a martini glass", "style": "dotty"})
+
+    assert workflow["6"]["inputs"]["text"] == "stippled, a martini glass"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_enum_option_without_value_leaves_workflow_untouched(enum_templates):
+    """'none' has no value and no patches — the bare model stays wired up."""
+    workflow = await _submit({"prompt": "a martini glass", "style": "none"})
+
+    assert workflow["8"]["inputs"]["lora_name"] == "placeholder.safetensors"
+    assert workflow["3"]["inputs"]["model"] == ["4", 0]
+    assert workflow["6"]["inputs"]["text"] == "a martini glass"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_enum_default_applies_when_input_omitted(enum_templates):
+    workflow = await _submit({"prompt": "a martini glass"})
+
+    assert workflow["3"]["inputs"]["model"] == ["4", 0]
+    assert workflow["6"]["inputs"]["text"] == "a martini glass"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_unknown_enum_option_returns_terminal_error(enum_templates):
+    result = await _submit({"prompt": "a martini glass", "style": "sketchy"})
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "sketchy" in result["error"]
+    assert "inky" in result["error"]
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_explicit_seed_survives_randomization(enum_templates, monkeypatch):
+    monkeypatch.setattr(slop_studio.comfyui.random, "randint", lambda a, b: 42)
+
+    workflow = await _submit({"prompt": "a martini glass", "seed": 12345})
+
+    assert workflow["3"]["inputs"]["seed"] == 12345
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_omitted_seed_is_still_randomized(enum_templates, monkeypatch):
+    monkeypatch.setattr(slop_studio.comfyui.random, "randint", lambda a, b: 42)
+
+    workflow = await _submit({"prompt": "a martini glass"})
+
+    assert workflow["3"]["inputs"]["seed"] == 42
+
+
+@pytest.mark.anyio
+@respx.mock
+@pytest.mark.parametrize("choice", [["inky"], {"name": "inky"}, 7])
+async def test_non_string_enum_choice_returns_terminal_error(enum_templates, choice):
+    """A dict/list choice would make the option lookup raise TypeError, which
+    safe_tool would report as a retryable internal_error rather than bad input."""
+    result = await _submit({"prompt": "a martini glass", "style": choice})
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert result["retry_suggested"] is False

@@ -220,16 +220,116 @@ async def _inject_inputs(workflow: dict, meta_inputs: dict, user_inputs: dict) -
         workflow[node_id]["inputs"][field] = value
 
 
-def _randomize_seeds(workflow: dict) -> None:
-    """Replace all seed/noise_seed fields with random values to prevent cache hits.
+def _resolve_enum_inputs(meta_inputs: dict, user_inputs: dict) -> tuple[dict, list[dict]]:
+    """Expand ``input_type: "enum"`` inputs into concrete values and patches.
+
+    An enum input lets one user-facing choice drive several workflow fields —
+    the Krea-2 ``style`` input picks a LoRA filename, rewires the sampler onto
+    the LoRA loader, and appends the LoRA's trigger word to the prompt. Each
+    option may declare:
+
+    - ``value`` — written to the enum input's own ``node_id``/``field``.
+      An option without one (e.g. ``"none"``) leaves that field untouched.
+    - ``patches`` — extra ``{node_id, field, value}`` writes. ``value`` may be
+      a ``[node_id, slot]`` pair, which rewires a link rather than setting a
+      widget.
+    - ``prompt_prefix`` / ``prompt_suffix`` — text joined onto the value of
+      the input named by the enum's ``prompt_input`` (comma-separated, the
+      same way the upstream workflow concatenates trigger words).
+
+    Returns ``(effective_inputs, patches)``. Raises ``ValueError`` for an
+    option the template doesn't declare — that's user input, and the callers
+    turn it into a terminal ``invalid_inputs`` error.
+    """
+    effective = dict(user_inputs)
+    patches: list[dict] = []
+
+    for input_name, input_def in meta_inputs.items():
+        if input_def.get("input_type") != "enum":
+            continue
+        options = input_def.get("options") or {}
+        choice = user_inputs.get(input_name, input_def.get("default"))
+        if choice is None:
+            continue
+        # Option names are strings (the validator enforces it), and callers can
+        # pass arbitrary JSON — a dict/list choice would make the `in` lookup
+        # raise TypeError, which would surface as a retryable internal_error
+        # instead of the terminal invalid_inputs this raises.
+        if not isinstance(choice, str) or choice not in options:
+            raise ValueError(f"Unsupported {input_name} '{choice}'. Supported: {sorted(options)}")
+
+        option = options[choice]
+        if "value" in option:
+            effective[input_name] = option["value"]
+        else:
+            effective.pop(input_name, None)
+        patches.extend(option.get("patches", []))
+
+        prompt_input = input_def.get("prompt_input")
+        prefix = option.get("prompt_prefix")
+        suffix = option.get("prompt_suffix")
+        if prompt_input and (prefix or suffix):
+            base = effective.get(prompt_input)
+            if isinstance(base, str):
+                parts = [p for p in (prefix, base.strip(), suffix) if p]
+                effective[prompt_input] = ", ".join(parts)
+
+    return effective, patches
+
+
+def _apply_patches(workflow: dict, patches: list[dict]) -> None:
+    """Write enum-option patches into the workflow in-place.
+
+    Mirrors ``_inject_inputs``' tolerance for stale references: a patch naming
+    a node the workflow doesn't have is logged and skipped rather than
+    aborting a submission that is otherwise valid.
+    """
+    for patch in patches:
+        node_id = patch.get("node_id")
+        field = patch.get("field")
+        if not node_id or not field:
+            logger.error("Incomplete patch (missing node_id or field): %s", patch)
+            continue
+        if node_id not in workflow or "inputs" not in workflow[node_id]:
+            logger.error("Node '%s' referenced by patch not found in workflow", node_id)
+            continue
+        workflow[node_id]["inputs"][field] = patch.get("value")
+
+
+def _injected_fields(meta_inputs: dict, user_inputs: dict) -> set[tuple[str, str]]:
+    """Return the ``(node_id, field)`` pairs a submission writes explicitly.
+
+    Used to keep ``_randomize_seeds`` off a seed the caller asked for.
+    """
+    pairs = set()
+    for input_name in user_inputs:
+        input_def = meta_inputs.get(input_name)
+        if not input_def:
+            continue
+        node_id, field = input_def.get("node_id"), input_def.get("field")
+        if node_id and field:
+            pairs.add((node_id, field))
+    return pairs
+
+
+def _randomize_seeds(workflow: dict, preserve: set[tuple[str, str]] | None = None) -> None:
+    """Replace seed/noise_seed fields with random values to prevent cache hits.
+
+    ``preserve`` holds ``(node_id, field)`` pairs the caller injected
+    explicitly — a template that exposes a ``seed`` input would otherwise have
+    the user's value overwritten here, making reproducible generations
+    impossible. Every other seed is still randomized.
 
     Capped at int32 max (2**31 - 1) rather than int64 — OpenAI's
     OpenAIGPTImage1 node validates `seed` as int32 and rejects anything
     larger. 2.1B unique values is plenty of cache-collision headroom.
     """
-    for node in workflow.values():
+    preserve = preserve or set()
+    for node_id, node in workflow.items():
         inputs = node.get("inputs", {})
         for key in ("seed", "noise_seed"):
+            if (node_id, key) in preserve:
+                continue
             if key in inputs and isinstance(inputs[key], int):
                 inputs[key] = random.randint(0, 2**31 - 1)
 
@@ -359,6 +459,13 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
                 "https://platform.comfy.org/profile/api-keys.",
             )
 
+    # Enum inputs expand into concrete field values plus extra node patches
+    # before injection, so a style choice can also rewrite the prompt.
+    try:
+        inputs, patches = _resolve_enum_inputs(meta_inputs, inputs)
+    except ValueError as exc:
+        return _err("invalid_inputs", str(exc))
+
     # Prepare workflow
     prepared = copy.deepcopy(workflow)
     try:
@@ -375,7 +482,8 @@ async def queue_prompt(template_name: str, inputs: dict, aspect_ratio: str | Non
             "unreachable",
             f"ComfyUI image upload returned HTTP {exc.response.status_code}",
         )
-    _randomize_seeds(prepared)
+    _apply_patches(prepared, patches)
+    _randomize_seeds(prepared, _injected_fields(meta_inputs, inputs))
     _inject_resolution(prepared, meta, aspect_ratio)
 
     payload: dict = {"prompt": prepared}

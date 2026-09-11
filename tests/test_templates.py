@@ -199,6 +199,27 @@ def test_starter_template_meta_matches_workflow(name, meta_path, workflow_path):
             f"{node_id}, but that field is not present in {workflow_path.name}"
         )
 
+        for option_name, option in (input_def.get("options") or {}).items():
+            for i, patch in enumerate(option.get("patches") or []):
+                patch_node = patch["node_id"]
+                assert patch_node in workflow, (
+                    f"{name}: input '{input_name}' option '{option_name}' patches[{i}] "
+                    f"references node_id {patch_node!r}, which is not a key in {workflow_path.name}"
+                )
+                assert patch["field"] in workflow[patch_node].get("inputs", {}), (
+                    f"{name}: input '{input_name}' option '{option_name}' patches[{i}] "
+                    f"targets field {patch['field']!r} on node {patch_node}, but that field "
+                    f"is not present in {workflow_path.name}"
+                )
+                # A [node_id, slot] value rewires a link — the node it points at must exist too.
+                value = patch["value"]
+                if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
+                    assert value[0] in workflow, (
+                        f"{name}: input '{input_name}' option '{option_name}' patches[{i}] "
+                        f"rewires {patch['field']!r} to node {value[0]!r}, which is not a key "
+                        f"in {workflow_path.name}"
+                    )
+
     for i, res_node in enumerate(meta.get("resolution_nodes") or []):
         node_id = res_node["node_id"]
         assert node_id in workflow, (
@@ -262,6 +283,91 @@ def test_gpt_image_2_aspect_ratio_injection(name, aspect_ratio, expected_size):
     _inject_resolution(workflow, meta, aspect_ratio)
 
     assert workflow["268"]["inputs"]["size"] == expected_size
+
+
+def _load_starter(name):
+    from pathlib import Path
+
+    starter_dir = Path(__file__).resolve().parent.parent / "slop_studio" / "assets" / "starter-templates"
+    return (
+        json.loads((starter_dir / f"{name}.meta.json").read_text(encoding="utf-8")),
+        json.loads((starter_dir / f"{name}.json").read_text(encoding="utf-8")),
+    )
+
+
+@pytest.mark.parametrize(
+    "name, sampler_node, seed_field, resolution_node",
+    [
+        ("image_krea2_turbo_t2i", "30:3", "seed", "49"),
+        ("image_krea2_turbo_style_reference", "30:63", "noise_seed", "71"),
+    ],
+)
+def test_krea2_resolution_and_seed_wiring(name, sampler_node, seed_field, resolution_node):
+    """The Krea-2 sidecars drive a ResolutionSelector, not integer width/height.
+
+    `aspect_ratio` sets the selector's combo and the `resolution` enum its
+    megapixel budget, which must stay inside Krea 2's supported 1K-2K range.
+    """
+    from slop_studio.backends.local import _inject_resolution, _resolve_enum_inputs
+
+    meta, workflow = _load_starter(name)
+
+    _inject_resolution(workflow, meta, "16:9")
+    assert workflow[resolution_node]["inputs"]["aspect_ratio"] == "16:9 (Widescreen)"
+
+    megapixels = [o["value"] for o in meta["inputs"]["resolution"]["options"].values()]
+    assert min(megapixels) >= 1.0 and max(megapixels) <= 2.0
+
+    effective, patches = _resolve_enum_inputs(meta["inputs"], {"resolution": "2k"})
+    assert effective["resolution"] == 2.0
+    assert patches == []
+
+    assert seed_field in workflow[sampler_node]["inputs"]
+    assert meta["inputs"]["seed"]["node_id"] == sampler_node
+    assert meta["inputs"]["seed"]["field"] == seed_field
+
+
+def test_krea2_t2i_style_enum_rewires_the_sampler_onto_the_lora():
+    """The CustomCombo selector that appends trigger words in the editor does
+    not run over the API, so the sidecar carries the trigger words itself and
+    the sampler is rewired onto the LoRA loader per style."""
+    from slop_studio.backends.local import _apply_patches, _resolve_enum_inputs
+
+    meta, workflow = _load_starter("image_krea2_turbo_t2i")
+
+    # Shipped default: the bare checkpoint, LoRA loader unreachable.
+    assert workflow["30:3"]["inputs"]["model"] == ["30:10", 0]
+
+    effective, patches = _resolve_enum_inputs(meta["inputs"], {"prompt": "a martini glass", "style": "darkbrush"})
+    _apply_patches(workflow, patches)
+
+    assert effective["style"] == "krea2_darkbrush.safetensors"
+    assert effective["prompt"] == "a martini glass, monochrome ink wash style"
+    assert workflow["30:3"]["inputs"]["model"] == ["30:15", 0]
+
+    # Every style option names a LoRA the template also declares a download for.
+    declared = {entry["filename"] for entry in meta["model_requirements"]}
+    for option_name, option in meta["inputs"]["style"]["options"].items():
+        if option_name == "none":
+            assert option == {}
+            continue
+        assert option["value"] in declared, f"style '{option_name}' has no model_requirements entry"
+        assert option["prompt_suffix"]
+
+
+def test_krea2_templates_share_encoder_and_vae_downloads():
+    """The two Krea-2 templates are sold as sharing everything but the
+    checkpoint and LoRA — keep that claim honest."""
+    t2i_meta, _ = _load_starter("image_krea2_turbo_t2i")
+    ref_meta, _ = _load_starter("image_krea2_turbo_style_reference")
+
+    def by_name(meta):
+        return {entry["filename"]: entry["url"] for entry in meta["model_requirements"]}
+
+    shared = set(by_name(t2i_meta)) & set(by_name(ref_meta))
+    assert shared == {"qwen3vl_4b_fp8_scaled.safetensors", "qwen_image_vae.safetensors"}
+    for filename in shared:
+        assert by_name(t2i_meta)[filename] == by_name(ref_meta)[filename]
 
 
 @pytest.mark.anyio
@@ -1274,3 +1380,141 @@ def test_starter_template_3d_outputs_are_retrievable(name, meta_path, workflow_p
         assert shadowing not in class_types, (
             f"{name}: {shadowing} would shadow the mesh — get_image prefers image outputs"
         )
+
+
+# ── enum input validation ──
+
+
+def _enum_meta(**option_overrides):
+    """Sample meta whose 'style' input is an enum over the sample workflow."""
+    style = {
+        "node_id": "6",
+        "field": "text",
+        "type": "optional",
+        "input_type": "enum",
+        "description": "Style",
+        "prompt_input": "prompt",
+        "options": {
+            "none": {},
+            "inky": {
+                "value": "inky.safetensors",
+                "prompt_suffix": "ink wash style",
+                "patches": [{"node_id": "47", "field": "width", "value": 512}],
+            },
+        },
+        **option_overrides,
+    }
+    return _sample_meta(
+        inputs={
+            "prompt": {"node_id": "6", "field": "text", "type": "required", "description": "Prompt"},
+            "style": style,
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_valid_enum_input(templates_dir):
+    result = await slop_studio.templates.add_template("ok_enum", SAMPLE_WORKFLOW, _enum_meta())
+
+    assert result["status"] == "success"
+    on_disk = json.loads((templates_dir / "ok_enum.meta.json").read_text())
+    assert on_disk["inputs"]["style"]["options"]["inky"]["prompt_suffix"] == "ink wash style"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("options", [{}, "inky", None])
+async def test_add_template_rejects_enum_without_options(templates_dir, options):
+    meta = _enum_meta(options=options)
+
+    result = await slop_studio.templates.add_template("bad_enum_opts", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "non-empty 'options'" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_enum_option_that_is_not_an_object(templates_dir):
+    meta = _enum_meta(options={"inky": "inky.safetensors"})
+
+    result = await slop_studio.templates.add_template("bad_enum_opt", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert "must be a JSON object" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_enum_patch_missing_field(templates_dir):
+    meta = _enum_meta(options={"inky": {"patches": [{"node_id": "47", "value": 512}]}})
+
+    result = await slop_studio.templates.add_template("bad_enum_patch", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert "missing required 'field'" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_enum_patch_missing_value(templates_dir):
+    """A patch without a 'value' is silently a no-op at runtime — reject it here."""
+    meta = _enum_meta(options={"inky": {"patches": [{"node_id": "47", "field": "width"}]}})
+
+    result = await slop_studio.templates.add_template("bad_enum_patch_val", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert "missing required 'value'" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_enum_default_not_in_options(templates_dir):
+    meta = _enum_meta(default="sketchy")
+
+    result = await slop_studio.templates.add_template("bad_enum_default", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert "is not one of its options" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_enum_prompt_input_naming_unknown_input(templates_dir):
+    meta = _enum_meta(prompt_input="caption")
+
+    result = await slop_studio.templates.add_template("bad_enum_prompt", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert "does not name another input" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_rejects_enum_empty_prompt_suffix(templates_dir):
+    meta = _enum_meta(options={"inky": {"prompt_suffix": ""}})
+
+    result = await slop_studio.templates.add_template("bad_enum_suffix", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert "prompt_suffix" in result["error"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("text_field", ["prompt_prefix", "prompt_suffix"])
+async def test_add_template_rejects_prompt_text_without_prompt_input(templates_dir, text_field):
+    """Prompt text has nowhere to go without prompt_input, and resolution skips
+    it silently — the template would be accepted but not behave as written."""
+    meta = _enum_meta(options={"inky": {text_field: "ink wash style"}})
+    del meta["inputs"]["style"]["prompt_input"]
+
+    result = await slop_studio.templates.add_template("bad_enum_no_target", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert "must also declare 'prompt_input'" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_add_template_accepts_enum_without_prompt_input_when_no_prompt_text(templates_dir):
+    """The resolution enum sets a value and nothing else — no prompt_input needed."""
+    meta = _enum_meta(options={"1k": {"value": 1.0}, "2k": {"value": 2.0}})
+    del meta["inputs"]["style"]["prompt_input"]
+
+    result = await slop_studio.templates.add_template("ok_enum_no_target", SAMPLE_WORKFLOW, meta)
+
+    assert result["status"] == "success"

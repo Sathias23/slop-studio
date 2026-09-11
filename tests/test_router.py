@@ -1626,3 +1626,109 @@ async def test_get_image_cloud_forwards_output_subfolder(cloud_registered, tmp_p
     assert result["status"] == "success"
     assert view_route.calls.last.request.url.params["subfolder"] == "3d"
     assert view_route.calls.last.request.url.params["filename"] == "ComfyUI_00001_.glb"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_cloud_path_resolves_enum_inputs_and_keeps_explicit_seed(cloud_registered, tmp_path, monkeypatch):
+    """The cloud orchestrator duplicates the local one's prepare step — enum
+    expansion and seed pass-through must not regress on only one of them."""
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "cloud_tmpl.json").write_text(
+        json.dumps(
+            {
+                "3": {"class_type": "KSampler", "inputs": {"seed": 0, "model": ["4", 0]}},
+                "4": {"class_type": "UNETLoader", "inputs": {"unet_name": "base.safetensors"}},
+                "6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+                "8": {
+                    "class_type": "LoraLoaderModelOnly",
+                    "inputs": {"model": ["4", 0], "lora_name": "placeholder.safetensors"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (templates_dir / "cloud_tmpl.meta.json").write_text(
+        json.dumps(
+            {
+                "name": "cloud_tmpl",
+                "inputs": {
+                    "prompt": {"node_id": "6", "field": "text", "type": "required"},
+                    "seed": {"node_id": "3", "field": "seed", "type": "optional"},
+                    "style": {
+                        "node_id": "8",
+                        "field": "lora_name",
+                        "type": "optional",
+                        "input_type": "enum",
+                        "prompt_input": "prompt",
+                        "options": {
+                            "inky": {
+                                "value": "inky.safetensors",
+                                "prompt_suffix": "ink wash style",
+                                "patches": [{"node_id": "3", "field": "model", "value": ["8", 0]}],
+                            }
+                        },
+                    },
+                },
+                "aspect_ratios": {},
+                "resolution_nodes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cloud_registered, "TEMPLATES_DIR", str(templates_dir))
+
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "cloud-uuid-xyz", "node_errors": {}})
+    )
+
+    result = await cloud_registered.route_submission(
+        "cloud_tmpl",
+        {"prompt": "a martini glass", "seed": 12345, "style": "inky"},
+        backend_override="cloud",
+    )
+
+    assert result["status"] == "success"
+    submitted = json.loads(respx.calls.last.request.content)["prompt"]
+    assert submitted["6"]["inputs"]["text"] == "a martini glass, ink wash style"
+    assert submitted["8"]["inputs"]["lora_name"] == "inky.safetensors"
+    assert submitted["3"]["inputs"]["model"] == ["8", 0]
+    assert submitted["3"]["inputs"]["seed"] == 12345
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_cloud_path_rejects_unknown_enum_option(cloud_registered, tmp_path, monkeypatch):
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "cloud_tmpl.json").write_text(
+        json.dumps({"8": {"class_type": "LoraLoaderModelOnly", "inputs": {"lora_name": "x.safetensors"}}}),
+        encoding="utf-8",
+    )
+    (templates_dir / "cloud_tmpl.meta.json").write_text(
+        json.dumps(
+            {
+                "name": "cloud_tmpl",
+                "inputs": {
+                    "style": {
+                        "node_id": "8",
+                        "field": "lora_name",
+                        "type": "optional",
+                        "input_type": "enum",
+                        "options": {"inky": {"value": "inky.safetensors"}},
+                    }
+                },
+                "aspect_ratios": {},
+                "resolution_nodes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cloud_registered, "TEMPLATES_DIR", str(templates_dir))
+
+    result = await cloud_registered.route_submission("cloud_tmpl", {"style": "sketchy"}, backend_override="cloud")
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert result["backend"] == "cloud"

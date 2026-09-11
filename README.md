@@ -9,7 +9,7 @@ MCP server for conversational image generation via ComfyUI. Generate images — 
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Ships nineteen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), **TRELLIS.2** and **Pixal3D** image-to-3D (local), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
+- Ships twenty-one starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), **Krea 2 Turbo** (local 8-step distilled DiT, with its nine official style LoRAs and an image-style-reference variant), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), **TRELLIS.2** and **Pixal3D** image-to-3D (local), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
 - Image-to-3D: single reference image in, textured `.glb` mesh with PBR maps out
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
@@ -281,7 +281,7 @@ See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the a
 
 ## Templates
 
-Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Nineteen starter templates ship with every project, spanning both backends:
+Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Twenty-one starter templates ship with every project, spanning both backends:
 
 **Local — GGUF models on your GPU (Flux.2 Klein, 16 GB VRAM):**
 
@@ -293,6 +293,13 @@ Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Ninetee
 
 - **image_ernie** — Baidu's ERNIE-Image 8B DiT (Apache-2.0); precise text rendering, built-in prompt enhancement (~60s); 9 aspect ratios
 - **image_ernie_turbo** — DMD/RL-distilled 8-step variant (~30s, ~2× faster than standard); 9 aspect ratios
+
+**Local — Krea 2 Turbo (8-step distilled DiT; ~13 GB checkpoint + 5 GB encoder, 16 GB VRAM):**
+
+- **image_krea2_turbo_t2i** — Krea 2 Turbo text-to-image (~20s). Nine official style LoRAs behind a single `style` input (`darkbrush`, `dotmatrix`, `kidsdrawing`, `neondrip`, `rainywindow`, `retroanime`, `softwatercolor`, `sunsetblur`, `vintagetarot`) — picking one loads the LoRA, routes the sampler through it, and appends the LoRA's trigger word to your prompt, which the editor's CustomCombo node does in the UI but cannot do over the API. `style: "none"` (the default) runs the bare checkpoint and needs none of the LoRA files.
+- **image_krea2_turbo_style_reference** — one reference image plus a prompt, generating in the reference's style via ostris's `krea2_style_reference` LoRA and the INT8 checkpoint (~25s). Shares the Qwen3-VL encoder and Qwen-Image VAE with the text-to-image template, so adding it to an existing Krea 2 setup costs one checkpoint and one LoRA.
+
+Both size their output through a `ResolutionSelector`: `aspect_ratio` picks the shape (8 ratios, 1:1 through 21:9) and a `resolution` input the megapixel budget — `1k`, `1.5k` or `2k`, stopping at 2 MP because Krea 2 is only trained for 1K–2K. Both also accept an optional `seed` for reproducing an earlier generation, and `lora_strength`. The in-workflow LLM prompt-enhancement pass that the upstream templates enable by default is removed: Claude writes the prompt, and a second model silently rewriting it before generation is not wanted. Run `download_models` first — the text-to-image template declares all nine LoRAs (~470 MB each) alongside the checkpoint.
 
 **Local — Ideogram 4.0 (9.3B open-weights DiT, structured-JSON prompting; heavy — two fp8 checkpoints + 8B encoder):**
 
