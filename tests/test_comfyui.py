@@ -459,6 +459,45 @@ async def test_comfyui_400_returns_terminal_error(sample_templates):
 
 @pytest.mark.anyio
 @respx.mock
+async def test_queue_prompt_surfaces_node_errors(sample_templates):
+    """200 with non-empty node_errors must NOT be treated as success.
+
+    ComfyUI returns 200 + prompt_id when at least one output node validates,
+    even if others fail — and runs only the validating outputs. Returning
+    success here masks silent partial-execution failures (GH #26).
+    """
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "prompt_id": "abc-123",
+                "number": 1,
+                "node_errors": {
+                    "73": {
+                        "errors": [
+                            {
+                                "type": "value_not_in_list",
+                                "message": "Value not in list",
+                                "details": "ckpt_name: 'missing.safetensors' not in [...]",
+                            }
+                        ],
+                        "class_type": "SaveImage",
+                        "dependent_outputs": ["73"],
+                    }
+                },
+            },
+        )
+    )
+    result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_workflow"
+    assert result["retry_suggested"] is False
+    assert result["backend"] == "local"
+    assert "73" in result["error"]
+
+
+@pytest.mark.anyio
+@respx.mock
 async def test_comfyui_503_returns_transient_error(sample_templates):
     respx.post(f"{COMFYUI_URL}/prompt").mock(return_value=httpx.Response(503, text="Service Unavailable"))
     result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
