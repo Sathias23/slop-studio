@@ -69,6 +69,7 @@ from slop_studio.backends.local import (
     _inject_resolution,
     _injected_fields,
     _is_thumbnailable,
+    _provenance,
     _randomize_seeds,
     _resolve_enum_inputs,
     generate_thumbnail,
@@ -361,7 +362,12 @@ async def _prepare_and_submit(
     _randomize_seeds(prepared, _injected_fields(meta_inputs, inputs))
     _inject_resolution(prepared, meta, aspect_ratio)
 
-    return await backend.submit(prepared)
+    result = await backend.submit(prepared)
+    if result.get("status") != "success":
+        return result
+    # Parity with the local orchestrator: every successful submission exports
+    # the effective seeds and a hash of the graph that was actually sent.
+    return {**result, **_provenance(prepared)}
 
 
 async def route_submission(
