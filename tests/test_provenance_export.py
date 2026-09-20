@@ -18,7 +18,6 @@ import slop_studio.comfyui
 import slop_studio.config
 from slop_studio.backends.base import Backend
 from slop_studio.backends.local import LocalBackend, _provenance, _seed_map, _workflow_sha256
-
 from tests.test_comfyui import SAMPLE_META, SAMPLE_WORKFLOW, write_template
 
 COMFYUI_URL = "http://test-comfyui:8188"
@@ -96,9 +95,7 @@ async def test_local_queue_prompt_exports_seeds_matching_the_posted_graph(templa
 @pytest.mark.anyio
 @respx.mock
 async def test_local_backend_submit_exports_the_graph_it_posted(templates_dir):
-    respx.post(f"{COMFYUI_URL}/prompt").mock(
-        return_value=httpx.Response(200, json={"prompt_id": "abc-123"})
-    )
+    respx.post(f"{COMFYUI_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "abc-123"}))
     workflow = json.loads(json.dumps(SAMPLE_WORKFLOW))
     workflow["3"]["inputs"]["seed"] = 987654321
     result = await LocalBackend().submit(workflow)
@@ -135,9 +132,7 @@ async def test_local_route_submission_exports_both_fields_with_the_prefixed_id(t
     """The route Cenobite's queue_prompt actually takes: a local-declared template."""
     write_template(templates_dir, "local_tmpl", SAMPLE_WORKFLOW, {**SAMPLE_META, "backend": "local"})
     monkeypatch.setattr(router, "TEMPLATES_DIR", str(templates_dir))
-    respx.post(f"{COMFYUI_URL}/prompt").mock(
-        return_value=httpx.Response(200, json={"prompt_id": "native-abc"})
-    )
+    respx.post(f"{COMFYUI_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "native-abc"}))
     result = await router.route_submission("local_tmpl", {"prompt": "hello"}, aspect_ratio="1:1")
 
     posted = json.loads(respx.calls.last.request.content)["prompt"]
@@ -162,9 +157,7 @@ async def test_failed_cloud_submission_exports_nothing(templates_dir):
 @pytest.mark.anyio
 @respx.mock
 async def test_template_without_a_seed_node_exports_an_empty_map(templates_dir):
-    respx.post(f"{COMFYUI_URL}/prompt").mock(
-        return_value=httpx.Response(200, json={"prompt_id": "abc-123"})
-    )
+    respx.post(f"{COMFYUI_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "abc-123"}))
     result = await slop_studio.comfyui.queue_prompt("seedless_template", {"prompt": "hello"})
 
     assert result["status"] == "success"

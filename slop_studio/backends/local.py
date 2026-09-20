@@ -328,8 +328,11 @@ def _seed_map(workflow: dict) -> dict:
     seeds: dict = {}
     for node_id, node in workflow.items():
         inputs = node.get("inputs", {}) if isinstance(node, dict) else {}
-        found = {key: inputs[key] for key in SEED_FIELDS
-                 if isinstance(inputs.get(key), int) and not isinstance(inputs.get(key), bool)}
+        found = {
+            key: inputs[key]
+            for key in SEED_FIELDS
+            if isinstance(inputs.get(key), int) and not isinstance(inputs.get(key), bool)
+        }
         if found:
             seeds[str(node_id)] = found
     return seeds
