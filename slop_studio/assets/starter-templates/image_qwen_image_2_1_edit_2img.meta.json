@@ -1,0 +1,64 @@
+{
+  "name": "image_qwen_image_2_1_edit_2img",
+  "model": "qwen-image-2.1-int8-convrot",
+  "description": "Qwen-Image 2.1 two-image instruction edit (try-on, object/style transfer, compositing). Two reference images plus a text instruction; refer to them as <image1> and <image2> in the prompt. Pipeline mirrors ComfyUI's official image_qwen_image_2_1_image_edit template: int8-convrot diffusion model behind QwenImage21Cache (KV cache, auto device), Qwen3-VL 8B bf16 text encoder (type qwen_image), Qwen-Image 2.1 VAE, 25 euler/simple steps at cfg 1. TextEncodeQwenImage21 feeds each reference to both the vision tower and the VAE (as reference latents) and emits the sampling latent sized to the first image, so the output follows image 1's aspect ratio — there are no aspect_ratio presets. References are resized to about one megapixel (resolution 1024) by default (the official template uses 0 = native size, which can exhaust VRAM on large photos). ~25.5 GB of model downloads (text encoder alone is 17.5 GB); run check_requirements / download_models first. Weights are under the Qwen research license.",
+  "backend": "local",
+  "output_keys": [
+    "images"
+  ],
+  "expected_duration": "60-120 seconds on a 24GB GPU",
+  "inputs": {
+    "prompt": {
+      "node_id": "459:474",
+      "field": "prompt",
+      "type": "required",
+      "description": "Edit instruction referring to the inputs as <image1> and <image2> (e.g. 'Keep the character in <image1> unchanged, put the shirt from <image2> on the character'). Say what to preserve as well as what to change."
+    },
+    "image1": {
+      "node_id": "470",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Primary image (<image1>) — the one being edited. Its aspect ratio sets the output's."
+    },
+    "image2": {
+      "node_id": "475",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Second reference (<image2>) — the garment, object, or style source to bring into image 1."
+    },
+    "negative_prompt": {
+      "node_id": "459:474",
+      "field": "negative_prompt",
+      "type": "optional",
+      "description": "Negative prompt. Has no effect at the default cfg 1; leave empty."
+    },
+    "resolution": {
+      "node_id": "459:474",
+      "field": "resolution",
+      "type": "optional",
+      "description": "Reference resize target: each image is scaled to about resolution x resolution pixels (multiples of 32, aspect preserved). Integer 0-4096 in steps of 32; default 1024. 0 keeps each reference at its native size — sharper but much more VRAM on large inputs. Also sets the output size, which follows image 1."
+    }
+  },
+  "model_requirements": [
+    {
+      "filename": "qwen_image_2.1_int8_convrot.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+      "size_bytes": 7256783064
+    },
+    {
+      "filename": "qwen3vl_8b_bf16.safetensors",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_bf16.safetensors",
+      "size_bytes": 17534334616
+    },
+    {
+      "filename": "qwen_image_2.1_vae_bf16.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors",
+      "size_bytes": 675509688
+    }
+  ]
+}

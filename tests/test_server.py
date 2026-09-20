@@ -874,6 +874,7 @@ async def test_open_gallery_single_string_opens_viewer(tmp_path):
     mock_proc = AsyncMock()
     with (
         patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.platform.system", return_value="Darwin"),
         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
     ):
         result = await open_gallery(str(img))
@@ -892,6 +893,7 @@ async def test_open_gallery_single_list_opens_viewer(tmp_path):
     mock_proc = AsyncMock()
     with (
         patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.platform.system", return_value="Darwin"),
         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
     ):
         result = await open_gallery([str(img)])
@@ -913,6 +915,7 @@ async def test_open_gallery_multiple_generates_html(tmp_path):
     gallery_html = str(tmp_path / "gallery.html")
     with (
         patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.platform.system", return_value="Darwin"),
         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
         patch("slop_studio.gallery.generate_gallery", return_value=gallery_html) as mock_gen,
     ):
@@ -933,6 +936,7 @@ async def test_open_gallery_popen_failure(tmp_path):
     img.write_bytes(b"fake image")
     with (
         patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.platform.system", return_value="Darwin"),
         patch("asyncio.create_subprocess_exec", side_effect=OSError("no viewer")),
     ):
         result = await open_gallery(str(img))
@@ -1182,6 +1186,7 @@ async def test_open_gallery_accepts_glb_mesh(tmp_path):
     mock_proc = AsyncMock()
     with (
         patch("slop_studio.server.OUTPUT_DIR", str(tmp_path)),
+        patch("slop_studio.server.platform.system", return_value="Darwin"),
         patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
     ):
         result = await open_gallery(str(mesh))

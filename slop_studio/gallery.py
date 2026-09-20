@@ -152,6 +152,6 @@ def generate_gallery(image_paths: list[str], output_dir: str) -> str:
         image_data.append({"src": rel_path, "name": abs_path.name, "kind": kind})
 
     html = _GALLERY_HTML.replace("IMAGE_DATA_PLACEHOLDER", json.dumps(image_data))
-    gallery_path.write_text(html)
+    gallery_path.write_text(html, encoding="utf-8")
 
     return str(gallery_path)

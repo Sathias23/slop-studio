@@ -9,7 +9,7 @@ MCP server for conversational image generation via ComfyUI. Generate images — 
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Ships nineteen starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), **TRELLIS.2** and **Pixal3D** image-to-3D (local), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
+- Ships twenty-one starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), **Qwen-Image 2.1** instruction editing (local), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), **TRELLIS.2** and **Pixal3D** image-to-3D (local), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
 - Image-to-3D: single reference image in, textured `.glb` mesh with PBR maps out
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
@@ -281,7 +281,7 @@ See [docs/comfy-cloud-integration.md](docs/comfy-cloud-integration.md) for the a
 
 ## Templates
 
-Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Nineteen starter templates ship with every project, spanning both backends:
+Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Twenty-one starter templates ship with every project, spanning both backends:
 
 **Local — GGUF models on your GPU (Flux.2 Klein, 16 GB VRAM):**
 
@@ -297,6 +297,13 @@ Workflow templates live in `templates/` as `.json` + `.meta.json` pairs. Ninetee
 **Local — Ideogram 4.0 (9.3B open-weights DiT, structured-JSON prompting; heavy — two fp8 checkpoints + 8B encoder):**
 
 - **image_ideogram4_t2i** — Ideogram 4.0 text-to-image. Takes a **structured JSON prompt** (scene summary, style block, hex color palettes, and per-element bounding boxes `[y_min, x_min, y_max, x_max]` on a 0–1000 grid) rather than plain text, for precise layout, palette control, and readable in-image text. Asymmetric CFG over a conditional + unconditional UNET pair; Default preset (20 `res_multistep` steps); 7 aspect ratios. The model carries its own baked-in safety filter — blocked results come from Ideogram's weights, not ComfyUI.
+
+**Local — Qwen-Image 2.1 instruction editing (int8 diffusion model + Qwen3-VL 8B encoder; ~25.5 GB of model downloads):**
+
+- **image_qwen_image_2_1_edit_1img** — edit one image from a text instruction; refer to it as `<image1>` in the prompt.
+- **image_qwen_image_2_1_edit_2img** — two references (`<image1>`, `<image2>`) for try-on, object/style transfer and compositing.
+
+Both run 25 euler steps at cfg 1 behind `QwenImage21Cache`, and size the output to the first image — no aspect ratios. Optional `resolution` input (default 1024; `0` keeps references at native size at a VRAM cost). Run `check_requirements` / `download_models` first. Weights are under the Qwen research license.
 
 **Local — image-to-3D (TRELLIS.2 / Pixal3D; ~9-10 GB of model downloads each, 24 GB VRAM recommended):**
 
