@@ -33,11 +33,13 @@ Templates may declare a `backend` field in their `.meta.json`: `"local"`, `"clou
 `SLOP_STUDIO_DEFAULT_BACKEND` (`"local"` or `"cloud"`) controls the fallback when the field is absent or set to `"either"`.
 When `queue_prompt` reports `no_credits`, `auth_failed`, or `account_issue`, call `open_comfy_cloud_portal` to let the user resolve it in the browser.
 
-## Qwen-Image 2.1 editing
+## Qwen-Image 2.1
+
+`image_qwen_image_2_1_t2i` is text-to-image: pass `aspect_ratio` and optionally `resolution` (`1mp` default, `2mp`, `4mp` = native 2K) and `steps`.
 
 `image_qwen_image_2_1_edit_1img` and `image_qwen_image_2_1_edit_2img` edit images from a text instruction. Refer to the inputs as `<image1>` / `<image2>` in the prompt and say what to preserve as well as what to change. The output takes the first image's aspect ratio, so don't pass `aspect_ratio`. Optional `resolution` (default 1024; `0` = native size, much more VRAM).
 
-These templates need ~25.5 GB of model downloads. Call `check_requirements` first and, if anything is missing, tell the user the total size before calling `download_models`.
+All three templates share the same ~25.5 GB of model downloads. Call `check_requirements` first and, if anything is missing, tell the user the total size before calling `download_models`.
 
 ## Image-to-3D
 

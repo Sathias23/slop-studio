@@ -32,6 +32,12 @@
       "field": "resolution",
       "type": "optional",
       "description": "Reference resize target: each image is scaled to about resolution x resolution pixels (multiples of 32, aspect preserved). Integer 0-4096 in steps of 32; default 1024. 0 keeps each reference at its native size — sharper but much more VRAM on large inputs. Also sets the output size, which follows image 1."
+    },
+    "seed": {
+      "node_id": "459:458",
+      "field": "seed",
+      "type": "optional",
+      "description": "Sampler seed, for reproducing an earlier generation. Omit it and a fresh random seed is used on every submission."
     }
   },
   "model_requirements": [

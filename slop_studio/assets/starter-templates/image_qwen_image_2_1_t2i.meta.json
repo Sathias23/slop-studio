@@ -1,0 +1,109 @@
+{
+  "name": "image_qwen_image_2_1_t2i",
+  "model": "qwen-image-2.1-int8-convrot",
+  "description": "Qwen-Image 2.1 text-to-image, with native output up to 2K (2048x2048). Pipeline mirrors ComfyUI's official image_qwen_image_2_1_t2i template: int8-convrot diffusion model, Qwen3-VL 8B text encoder (type qwen_image) via TextEncodeQwenImage21 with no reference images, Qwen-Image 2.1 VAE, 25 euler/simple steps at cfg 1, output sized by a ResolutionSelector (aspect_ratio picks the shape, resolution the megapixel budget, snapped to multiples of 32). One deviation: it loads the bf16 text encoder rather than the official int8 one, so it shares all three model files with the image_qwen_image_2_1_edit_* templates — no extra download if those are installed. For a transparent PNG, wrap the prompt as: 'This is an RGBA format image with transparency. <description>. The image has an alpha channel and a transparent background.' ~25.5 GB of model downloads; run check_requirements / download_models first. Weights are under the Qwen research license.",
+  "backend": "local",
+  "output_keys": [
+    "images"
+  ],
+  "expected_duration": "60-120 seconds on a 24GB GPU",
+  "inputs": {
+    "prompt": {
+      "node_id": "459:452",
+      "field": "prompt",
+      "type": "required",
+      "description": "Text prompt describing the image to generate. Long, detailed natural-language prompts work well."
+    },
+    "negative_prompt": {
+      "node_id": "459:452",
+      "field": "negative_prompt",
+      "type": "optional",
+      "description": "Negative prompt. Has no effect at the default cfg 1; leave empty."
+    },
+    "resolution": {
+      "node_id": "13",
+      "field": "megapixels",
+      "type": "optional",
+      "input_type": "enum",
+      "default": "1mp",
+      "description": "Output size, as the megapixel budget the ResolutionSelector spends on the chosen aspect ratio: '1mp' = 1024x1024 square (default), '2mp' = ~1440x1440, '4mp' = 2048x2048, the model's native 2K. Non-square ratios keep the same pixel budget. Time and VRAM scale with it.",
+      "options": {
+        "1mp": {
+          "value": 1.0
+        },
+        "2mp": {
+          "value": 2.0
+        },
+        "4mp": {
+          "value": 4.0
+        }
+      }
+    },
+    "steps": {
+      "node_id": "459:458",
+      "field": "steps",
+      "type": "optional",
+      "description": "Sampler steps (default 25, as in the official template). Qwen's reference pipeline uses 40-50 with euler; raise it for fine detail at the cost of time."
+    },
+    "seed": {
+      "node_id": "459:458",
+      "field": "seed",
+      "type": "optional",
+      "description": "Sampler seed, for reproducing an earlier generation. Omit it and a fresh random seed is used on every submission."
+    }
+  },
+  "aspect_ratios": {
+    "1:1": {
+      "aspect_ratio": "1:1 (Square)"
+    },
+    "3:2": {
+      "aspect_ratio": "3:2 (Photo)"
+    },
+    "2:3": {
+      "aspect_ratio": "2:3 (Portrait Photo)"
+    },
+    "4:3": {
+      "aspect_ratio": "4:3 (Standard)"
+    },
+    "3:4": {
+      "aspect_ratio": "3:4 (Portrait Standard)"
+    },
+    "16:9": {
+      "aspect_ratio": "16:9 (Widescreen)"
+    },
+    "9:16": {
+      "aspect_ratio": "9:16 (Portrait Widescreen)"
+    },
+    "21:9": {
+      "aspect_ratio": "21:9 (Ultrawide)"
+    }
+  },
+  "resolution_nodes": [
+    {
+      "node_id": "13",
+      "field_map": {
+        "aspect_ratio": "aspect_ratio"
+      }
+    }
+  ],
+  "model_requirements": [
+    {
+      "filename": "qwen_image_2.1_int8_convrot.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+      "size_bytes": 7256783064
+    },
+    {
+      "filename": "qwen3vl_8b_bf16.safetensors",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_bf16.safetensors",
+      "size_bytes": 17534334616
+    },
+    {
+      "filename": "qwen_image_2.1_vae_bf16.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors",
+      "size_bytes": 675509688
+    }
+  ]
+}
