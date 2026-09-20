@@ -539,12 +539,19 @@ async def queue_prompt(
     """Submit an image generation job using a workflow template.
 
     Loads the named template, injects your input values into the correct
-    workflow nodes, randomizes all seeds to avoid cached results, and submits
+    workflow nodes, randomizes seeds to avoid cached results, and submits
     the workflow to ComfyUI. Returns a prompt_id to track the job.
 
     Call list_templates first to see available templates, then get_template
     to check required inputs. The inputs dict keys must match the template's
     input names (e.g., {"prompt": "a sunset over mountains"}).
+
+    A template may declare a seed input; pass a value there to reproduce an
+    earlier generation, and that seed is used verbatim instead of being
+    randomized. A template may also declare enum inputs (get_template lists
+    each option) — one choice can set several workflow fields at once, such
+    as the Krea-2 style LoRAs, which also append their trigger word to the
+    prompt.
 
     Optional aspect_ratio overrides the default resolution (e.g., "16:9",
     "9:16", "1:1"). Use get_template to see supported aspect ratios.

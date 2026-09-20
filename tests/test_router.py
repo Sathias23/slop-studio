@@ -774,7 +774,11 @@ async def test_route_submission_emits_cloud_prefix_with_override(cloud_registere
 
     result = await cloud_registered.route_submission("cloud_tmpl", {"prompt": "hi"}, backend_override="cloud")
 
-    assert result == {"status": "success", "prompt_id": "cloud:cloud-uuid-xyz"}
+    # Exact response shape: the two export fields and nothing else — the full
+    # submitted graph is deliberately kept out of every submission response.
+    assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "cloud:cloud-uuid-xyz"
 
 
 @pytest.mark.anyio
@@ -799,7 +803,9 @@ async def test_cloud_submission_does_not_invoke_ensure_ready(cloud_registered, m
         lifecycle_manager=lifecycle_manager,
     )
 
-    assert result == {"status": "success", "prompt_id": "cloud:xyz"}
+    assert set(result) == {"status", "prompt_id"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "cloud:xyz"
     assert lifecycle_manager.ensure_ready.await_count == 0
 
 
@@ -1062,7 +1068,9 @@ async def test_cloud_backend_uses_config_cloud_url(monkeypatch, tmp_path):
         )
 
         result = await router.route_submission("staging_tmpl", {"prompt": "hi"}, backend_override="cloud")
-        assert result == {"status": "success", "prompt_id": "cloud:staging-xyz"}
+        assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+        assert result["status"] == "success"
+        assert result["prompt_id"] == "cloud:staging-xyz"
     finally:
         _restore_router(snapshot)
 
@@ -1157,7 +1165,9 @@ async def test_route_submission_reads_template_backend_cloud(cloud_registered, t
 
     result = await router.route_submission("tpl_cloud", {"prompt": "hi"})
 
-    assert result == {"status": "success", "prompt_id": "cloud:cloud-nid-1"}
+    assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "cloud:cloud-nid-1"
     local_qp_spy.assert_not_awaited()
 
 
@@ -1273,7 +1283,9 @@ async def test_route_submission_backend_override_beats_template_local(cloud_regi
         backend_override="cloud",
     )
 
-    assert result == {"status": "success", "prompt_id": "cloud:cloud-override"}
+    assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "cloud:cloud-override"
 
 
 @pytest.mark.anyio
@@ -1626,3 +1638,109 @@ async def test_get_image_cloud_forwards_output_subfolder(cloud_registered, tmp_p
     assert result["status"] == "success"
     assert view_route.calls.last.request.url.params["subfolder"] == "3d"
     assert view_route.calls.last.request.url.params["filename"] == "ComfyUI_00001_.glb"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_cloud_path_resolves_enum_inputs_and_keeps_explicit_seed(cloud_registered, tmp_path, monkeypatch):
+    """The cloud orchestrator duplicates the local one's prepare step — enum
+    expansion and seed pass-through must not regress on only one of them."""
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "cloud_tmpl.json").write_text(
+        json.dumps(
+            {
+                "3": {"class_type": "KSampler", "inputs": {"seed": 0, "model": ["4", 0]}},
+                "4": {"class_type": "UNETLoader", "inputs": {"unet_name": "base.safetensors"}},
+                "6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+                "8": {
+                    "class_type": "LoraLoaderModelOnly",
+                    "inputs": {"model": ["4", 0], "lora_name": "placeholder.safetensors"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (templates_dir / "cloud_tmpl.meta.json").write_text(
+        json.dumps(
+            {
+                "name": "cloud_tmpl",
+                "inputs": {
+                    "prompt": {"node_id": "6", "field": "text", "type": "required"},
+                    "seed": {"node_id": "3", "field": "seed", "type": "optional"},
+                    "style": {
+                        "node_id": "8",
+                        "field": "lora_name",
+                        "type": "optional",
+                        "input_type": "enum",
+                        "prompt_input": "prompt",
+                        "options": {
+                            "inky": {
+                                "value": "inky.safetensors",
+                                "prompt_suffix": "ink wash style",
+                                "patches": [{"node_id": "3", "field": "model", "value": ["8", 0]}],
+                            }
+                        },
+                    },
+                },
+                "aspect_ratios": {},
+                "resolution_nodes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cloud_registered, "TEMPLATES_DIR", str(templates_dir))
+
+    respx.post(f"{CLOUD_BASE_URL}/api/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "cloud-uuid-xyz", "node_errors": {}})
+    )
+
+    result = await cloud_registered.route_submission(
+        "cloud_tmpl",
+        {"prompt": "a martini glass", "seed": 12345, "style": "inky"},
+        backend_override="cloud",
+    )
+
+    assert result["status"] == "success"
+    submitted = json.loads(respx.calls.last.request.content)["prompt"]
+    assert submitted["6"]["inputs"]["text"] == "a martini glass, ink wash style"
+    assert submitted["8"]["inputs"]["lora_name"] == "inky.safetensors"
+    assert submitted["3"]["inputs"]["model"] == ["8", 0]
+    assert submitted["3"]["inputs"]["seed"] == 12345
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_cloud_path_rejects_unknown_enum_option(cloud_registered, tmp_path, monkeypatch):
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "cloud_tmpl.json").write_text(
+        json.dumps({"8": {"class_type": "LoraLoaderModelOnly", "inputs": {"lora_name": "x.safetensors"}}}),
+        encoding="utf-8",
+    )
+    (templates_dir / "cloud_tmpl.meta.json").write_text(
+        json.dumps(
+            {
+                "name": "cloud_tmpl",
+                "inputs": {
+                    "style": {
+                        "node_id": "8",
+                        "field": "lora_name",
+                        "type": "optional",
+                        "input_type": "enum",
+                        "options": {"inky": {"value": "inky.safetensors"}},
+                    }
+                },
+                "aspect_ratios": {},
+                "resolution_nodes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cloud_registered, "TEMPLATES_DIR", str(templates_dir))
+
+    result = await cloud_registered.route_submission("cloud_tmpl", {"style": "sketchy"}, backend_override="cloud")
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "invalid_inputs"
+    assert result["backend"] == "cloud"

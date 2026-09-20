@@ -1,0 +1,116 @@
+{
+  "name": "image_krea2_turbo_style_reference",
+  "model": "krea2-turbo-int8-convrot",
+  "description": "Krea 2 Turbo image style reference. Takes one reference image and a prompt, and generates a new image in the reference's style: the reference is encoded by TextEncodeQwenImageEditPlus alongside the prompt, and ostris's krea2_style_reference LoRA steers the 8-step SamplerCustomAdvanced pass (CFGGuider at cfg 1.0, euler/simple). Uses the INT8 checkpoint (~13 GB) and shares the Qwen3-VL encoder and Qwen-Image VAE with image_krea2_turbo_t2i, so running both costs one extra checkpoint and one extra LoRA. `aspect_ratio` and `resolution` size the output canvas \u2014 the reference image's own dimensions do not constrain it. Derived from Comfy-Org's image_krea2_turbo_int8_image_style_reference template with the subgraph flattened and the in-workflow LLM prompt enhancement removed.",
+  "backend": "local",
+  "output_keys": [
+    "images"
+  ],
+  "expected_duration": "25 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "30:52",
+      "field": "prompt",
+      "type": "required",
+      "description": "Text prompt describing the image to generate in the reference's style."
+    },
+    "image": {
+      "node_id": "69",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Path to the reference image whose style the generation should follow."
+    },
+    "lora_strength": {
+      "node_id": "30:15",
+      "field": "strength_model",
+      "type": "optional",
+      "description": "krea2_style_reference LoRA strength (default 1.0). Lower values let the prompt pull further away from the reference's style."
+    },
+    "seed": {
+      "node_id": "30:63",
+      "field": "noise_seed",
+      "type": "optional",
+      "description": "Sampler seed, for reproducing an earlier generation. Omit it and a fresh random seed is used on every submission."
+    },
+    "resolution": {
+      "node_id": "71",
+      "field": "megapixels",
+      "type": "optional",
+      "input_type": "enum",
+      "default": "1k",
+      "description": "Output size, as the megapixel budget the ResolutionSelector spends on the chosen aspect ratio. Krea 2 is only trained for 1K-2K, so the options stop at 2 MP: '1k' = 1.0 MP (1024x1024 square), '1.5k' = 1.5 MP (1256x1256), '2k' = 2.0 MP (1448x1448). Non-square ratios keep the same pixel budget, e.g. 2k at 16:9 is 1912x1080.",
+      "options": {
+        "1k": {
+          "value": 1.0
+        },
+        "1.5k": {
+          "value": 1.5
+        },
+        "2k": {
+          "value": 2.0
+        }
+      }
+    }
+  },
+  "aspect_ratios": {
+    "1:1": {
+      "aspect_ratio": "1:1 (Square)"
+    },
+    "3:2": {
+      "aspect_ratio": "3:2 (Photo)"
+    },
+    "2:3": {
+      "aspect_ratio": "2:3 (Portrait Photo)"
+    },
+    "4:3": {
+      "aspect_ratio": "4:3 (Standard)"
+    },
+    "3:4": {
+      "aspect_ratio": "3:4 (Portrait Standard)"
+    },
+    "16:9": {
+      "aspect_ratio": "16:9 (Widescreen)"
+    },
+    "9:16": {
+      "aspect_ratio": "9:16 (Portrait Widescreen)"
+    },
+    "21:9": {
+      "aspect_ratio": "21:9 (Ultrawide)"
+    }
+  },
+  "resolution_nodes": [
+    {
+      "node_id": "71",
+      "field_map": {
+        "aspect_ratio": "aspect_ratio"
+      }
+    }
+  ],
+  "model_requirements": [
+    {
+      "filename": "krea2_turbo_int8_convrot.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_int8_convrot.safetensors",
+      "size_bytes": 13492686496
+    },
+    {
+      "filename": "qwen3vl_4b_fp8_scaled.safetensors",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors",
+      "size_bytes": 5242467968
+    },
+    {
+      "filename": "qwen_image_vae.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors",
+      "size_bytes": 253806246
+    },
+    {
+      "filename": "krea2_style_reference.safetensors",
+      "subfolder": "loras",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/loras/krea2_style_reference.safetensors",
+      "size_bytes": 457111760
+    }
+  ]
+}
