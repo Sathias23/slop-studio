@@ -774,7 +774,11 @@ async def test_route_submission_emits_cloud_prefix_with_override(cloud_registere
 
     result = await cloud_registered.route_submission("cloud_tmpl", {"prompt": "hi"}, backend_override="cloud")
 
-    assert result == {"status": "success", "prompt_id": "cloud:cloud-uuid-xyz"}
+    # Exact response shape: the two export fields and nothing else — the full
+    # submitted graph is deliberately kept out of every submission response.
+    assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "cloud:cloud-uuid-xyz"
 
 
 @pytest.mark.anyio
@@ -799,7 +803,9 @@ async def test_cloud_submission_does_not_invoke_ensure_ready(cloud_registered, m
         lifecycle_manager=lifecycle_manager,
     )
 
-    assert result == {"status": "success", "prompt_id": "cloud:xyz"}
+    assert set(result) == {"status", "prompt_id"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "cloud:xyz"
     assert lifecycle_manager.ensure_ready.await_count == 0
 
 
@@ -1062,7 +1068,9 @@ async def test_cloud_backend_uses_config_cloud_url(monkeypatch, tmp_path):
         )
 
         result = await router.route_submission("staging_tmpl", {"prompt": "hi"}, backend_override="cloud")
-        assert result == {"status": "success", "prompt_id": "cloud:staging-xyz"}
+        assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+        assert result["status"] == "success"
+        assert result["prompt_id"] == "cloud:staging-xyz"
     finally:
         _restore_router(snapshot)
 
@@ -1157,7 +1165,9 @@ async def test_route_submission_reads_template_backend_cloud(cloud_registered, t
 
     result = await router.route_submission("tpl_cloud", {"prompt": "hi"})
 
-    assert result == {"status": "success", "prompt_id": "cloud:cloud-nid-1"}
+    assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "cloud:cloud-nid-1"
     local_qp_spy.assert_not_awaited()
 
 
@@ -1273,7 +1283,9 @@ async def test_route_submission_backend_override_beats_template_local(cloud_regi
         backend_override="cloud",
     )
 
-    assert result == {"status": "success", "prompt_id": "cloud:cloud-override"}
+    assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "cloud:cloud-override"
 
 
 @pytest.mark.anyio

@@ -91,7 +91,11 @@ async def test_queue_prompt_success(sample_templates):
         return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
     )
     result = await slop_studio.comfyui.queue_prompt("test_template", {"prompt": "hello"})
-    assert result == {"status": "success", "prompt_id": "abc-123"}
+    # Exact response shape: the two export fields and nothing else — the full
+    # submitted graph is deliberately kept out of every submission response.
+    assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "abc-123"
 
 
 @pytest.mark.anyio
@@ -205,7 +209,9 @@ async def test_partner_workflow_attaches_api_key(templates_dir, monkeypatch):
 
     result = await slop_studio.comfyui.queue_prompt("partner_template", {"prompt": "hello"})
 
-    assert result == {"status": "success", "prompt_id": "abc-123"}
+    assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "abc-123"
     request_body = json.loads(respx.calls.last.request.content)
     assert request_body.get("extra_data") == {"api_key_comfy_org": "comfyui-TESTKEY"}
 
@@ -339,7 +345,9 @@ async def test_multi_partner_workflow_attaches_single_extra_data(templates_dir, 
 
     result = await slop_studio.comfyui.queue_prompt("multi_partner", {"prompt": "hello"})
 
-    assert result == {"status": "success", "prompt_id": "abc-123"}
+    assert set(result) == {"status", "prompt_id", "effective_seeds", "submitted_workflow_sha256"}
+    assert result["status"] == "success"
+    assert result["prompt_id"] == "abc-123"
     request_body = json.loads(respx.calls.last.request.content)
     assert request_body["extra_data"] == {"api_key_comfy_org": "comfyui-TESTKEY"}
 
