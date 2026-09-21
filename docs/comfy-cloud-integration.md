@@ -17,7 +17,7 @@ No new Python dependencies were required — `httpx` handles the REST flow, `res
 | Workflow submission path | `POST /prompt` | `POST /api/prompt` | Backend-specific URL builder |
 | Workflow JSON shape | API format | Same API format | Templates reusable without transformation |
 | Auth | None | `X-API-Key` header | Per-backend client config |
-| Status check | `GET /history/{id}` (unified) | `GET /api/job/{id}/status` + `GET /api/history_v2/{id}` | Two-call flow hidden by abstraction |
+| Status check | `GET /history/{id}` (unified) | `GET /api/job/{id}/status` + `GET /api/jobs/{id}` | Two-call flow hidden by abstraction |
 | Output schema | `{node_id: {images: [...]}}` | Same shape | Output-parsing logic reusable |
 | Image retrieval | `GET /view` returns bytes | `GET /api/view` returns 302 to a signed URL | `follow_redirects=True` required |
 | Image input upload | `POST /upload/image` (multipart) | `POST /api/asset` (hash-addressed, dedup) | Per-backend upload helper |
@@ -57,7 +57,7 @@ Per the project's NFR-C5, there is no auto-retry or silent backend fallback — 
 - **No auto-fallback between backends.** On a cloud error, the user retries explicitly. Avoids burning credits or local GPU time unexpectedly and keeps the provenance clear — every error payload is tagged with its originating backend name.
 - **Credentials colocated with Bluesky credentials** in `~/.config/slop-studio/credentials.json`. Explicitly avoids per-project `.mcp.json` credential blocks — a setup friction pattern the project has deliberately moved away from. The env var `COMFY_CLOUD_API_KEY` wins when both are set.
 - **Per-template routing declared in `.meta.json`.** Three optional fields (`backend`, `output_keys`, `cloud_estimate_credits`) future-proof template authoring without breaking existing templates. See `templates/README.md` for the field reference.
-- **PR #4 (the `CloudBackend` implementation) was blocked on a short probe spike** with a real API key. The five open questions (credit balance endpoint, LoadImage asset reference, redirect auth-stripping, 429 disambiguation, concurrency overflow) were answered before freezing the surface. Defensive tests lock the behavior in case the experimental API drifts.
+- **PR #4 (the `CloudBackend` implementation) was blocked on a short probe spike** with a real API key. The five open questions (credit balance endpoint, LoadImage asset reference, redirect auth-stripping, 429 disambiguation, concurrency overflow) were answered before freezing the surface — at that time the cloud API was undocumented, so the behavior was established empirically (see `scripts/probe_cloud.py`). Comfy Org has since published an official [Cloud API Reference](https://docs.comfy.org/development/cloud/api-reference) backed by an OpenAPI spec; the endpoints used here are now documented, and the defensive tests still lock the behavior in case the API drifts. One such drift has already landed: `/api/history_v2/{id}` is now deprecated in favour of `/api/jobs/{id}`, which `history()` has been migrated to.
 
 ## When to use cloud vs local
 
@@ -68,6 +68,8 @@ The `"either"` option on a template's `backend` field defers the choice to `SLOP
 ## References
 
 - [Comfy Cloud API Overview](https://docs.comfy.org/development/cloud/overview) — official API docs
+- [Comfy Cloud API Reference](https://docs.comfy.org/development/cloud/api-reference) — per-endpoint reference (auth, request/response shapes, status enums)
+- [`openapi-cloud.yaml`](https://github.com/Comfy-Org/docs/blob/main/openapi-cloud.yaml) — the machine-readable OpenAPI spec the reference is generated from; the contract-test in CI validates `cloud.py` against this
 - [Comfy Cloud Pricing](https://www.comfy.org/cloud/pricing) — plan tiers and credit costs
 - [Comfy Cloud Billing](https://support.comfy.org/hc/en-us/articles/42819199299732-Billing-on-Comfy-Cloud) — credit semantics
 - [platform.comfy.org/profile/api-keys](https://platform.comfy.org/profile/api-keys) — API key issuance
