@@ -7,11 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-10-12
+
 ### Added
 
 - **OpenAI GPT Image 2.5 starter templates** — `api_openai_gpt_image_2_5_t2i`, `api_openai_gpt_image_2_5_edit_1img` and `api_openai_gpt_image_2_5_edit_2img`, all `backend: "local"`, built on `OpenAIGPTImageNodeV2` (ComfyUI v0.35.0+), the node ComfyUI added for GPT Image 2.5; the `OpenAIGPTImage1` node the GPT Image 2 templates use is deprecated upstream and never offered the 2.5 models. The V2 node's `model` input is a dynamic combo, so its per-model settings travel in API format as dotted siblings (`model.size`, `model.quality`, `model.background`, `model.images.image_N`), which the existing node/field injection writes as plain keys. Three optional enum inputs: `model` (`flare`, the fast default, or `sunburst`, slower and more precise; both share one settings layout so switching needs no other changes), `quality` (`low` through `max`, default `high`) and `background` (`auto` / `opaque` / `transparent` — the node keeps the alpha channel, so a transparent result saves as an RGBA PNG). `aspect_ratio` now sets an exact size instead of collapsing onto three presets: each of the 10 labels maps to `model.size: "Custom"` plus a width and height of about 1–1.6 MP that satisfy OpenAI's custom-size rules (multiples of 16, ratio at most 3:1, 655,360–8,294,400 pixels); omitting it leaves the node on `auto`. The seed is not exposed, because OpenAI's backend ignores it. `OpenAIGPTImageNodeV2` joins `PARTNER_API_CLASS_LABELS`; without it, local submissions would leave out `extra_data.api_key_comfy_org` and fail with a 403 at execution. Total shipped starters now twenty-seven.
 - **Qwen-Image 2.1 text-to-image starter template** — `image_qwen_image_2_1_t2i`, `backend: "local"`, converted from ComfyUI's official `image_qwen_image_2_1_t2i` template: `TextEncodeQwenImage21` with no reference images, `EmptyLatentImage` sized by a `ResolutionSelector` (multiples of 32), 25 euler/simple steps at cfg 1, no `QwenImage21Cache` (as upstream). 8 aspect ratios via `field_map`, a `resolution` enum (`1mp` / `2mp` / `4mp` — 4 MP is the model's native 2048x2048), and optional `steps`, `seed` and `negative_prompt`. One deviation: it loads the bf16 Qwen3-VL encoder instead of the official int8 one, so all three Qwen-Image 2.1 templates share one set of `model_requirements` and installing any of them covers the rest. Total shipped starters now twenty-four.
 - **Qwen-Image 2.1 image-edit starter templates** — `image_qwen_image_2_1_edit_1img` and `image_qwen_image_2_1_edit_2img`, both `backend: "local"`, converted from ComfyUI's official `image_qwen_image_2_1_image_edit` template. Split by reference count (as with the `api_flux2_pro_*img` family) because image inputs can't be optional — an unfilled `LoadImage` would point at a file that doesn't exist. Pipeline: `qwen_image_2.1_int8_convrot` behind `QwenImage21Cache`, Qwen3-VL 8B bf16 encoder (`type: "qwen_image"`), Qwen-Image 2.1 VAE, 25 euler/simple steps at cfg 1; `TextEncodeQwenImage21` takes the references on its autogrow `images.image_N` slots and emits positive, negative and the sampling latent (sized to the first image, so there are no `aspect_ratios`). The official template's unused text-to-image branch (`ResolutionSelector` → `EmptyLatentImage` → switch) and its `ImageCompare` preview are dropped, and `SaveImageAdvanced` becomes plain `SaveImage`. One deliberate deviation: reference `resolution` defaults to 1024 (the node's own default) rather than the template's `0` (native size), which can exhaust VRAM on a phone-sized photo; it is exposed as an optional input alongside `negative_prompt` and `seed`. `model_requirements` declares all three downloads from `Comfy-Org/Qwen-Image-2.1` with exact `size_bytes` (~25.5 GB; the encoder alone is 17.5 GB) for `check_requirements` / `download_models`.
+
+### Fixed
+
+- **CLI crash on legacy Windows consoles** — consoles on a legacy code page such as cp1252 can't encode characters like `✓`, so `slop-studio init` and other commands died with `UnicodeEncodeError` partway through their output. `main()` now reconfigures stdout and stderr with `errors="replace"`, so those characters print as `?` instead.
+- **`slop-studio init` path prompts on EOF** — some terminal wrappers (ConPTY, CI runners, Claude Code's `!` runner) report a TTY but return EOF from stdin, which made `input()` raise `EOFError` and abort setup. The path prompts now catch it and fall back to the shown default.
 
 ## [0.5.8] - 2026-09-21
 
@@ -282,7 +289,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Output and templates resolve to the art project dir, not the package dir
 
-[Unreleased]: https://github.com/Sathias23/slop-studio/compare/v0.5.8...HEAD
+[Unreleased]: https://github.com/Sathias23/slop-studio/compare/v0.5.9...HEAD
+[0.5.9]: https://github.com/Sathias23/slop-studio/compare/v0.5.8...v0.5.9
 [0.5.8]: https://github.com/Sathias23/slop-studio/compare/v0.5.7...v0.5.8
 [0.5.7]: https://github.com/Sathias23/slop-studio/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/Sathias23/slop-studio/compare/v0.5.5...v0.5.6
