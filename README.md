@@ -9,7 +9,7 @@ MCP server for conversational image generation via ComfyUI. Generate images — 
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Ships twenty-four starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), **Krea 2 Turbo** (local 8-step distilled DiT, with its nine official style LoRAs and an image-style-reference variant), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), **Qwen-Image 2.1** text-to-image and instruction editing (local), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), **TRELLIS.2** and **Pixal3D** image-to-3D (local), and **OpenAI GPT Image 2** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
+- Ships twenty-seven starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), **Krea 2 Turbo** (local 8-step distilled DiT, with its nine official style LoRAs and an image-style-reference variant), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), **Qwen-Image 2.1** text-to-image and instruction editing (local), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), **TRELLIS.2** and **Pixal3D** image-to-3D (local), and **OpenAI GPT Image 2 and 2.5** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
 - Image-to-3D: single reference image in, textured `.glb` mesh with PBR maps out
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
@@ -165,7 +165,7 @@ slop-studio auth --all           # both
 Running `auth` **merges** into the existing file — configuring one service never clobbers the other. Existing entries for the selected service prompt a per-service overwrite confirmation.
 
 - Create a Bluesky app password at [bsky.app](https://bsky.app) > Settings > App Passwords.
-- Create a Comfy Cloud API key at [platform.comfy.org/profile/api-keys](https://platform.comfy.org/profile/api-keys) (shown once — copy it immediately). The same key is used for both Comfy Cloud submissions AND any **local** workflow that includes a Comfy partner-API node (OpenAI GPT Image 2, Flux 2 Pro, Gemini / Nano Banana, etc.) — the node proxies upstream through Comfy's account-API infrastructure even when ComfyUI itself runs locally.
+- Create a Comfy Cloud API key at [platform.comfy.org/profile/api-keys](https://platform.comfy.org/profile/api-keys) (shown once — copy it immediately). The same key is used for both Comfy Cloud submissions AND any **local** workflow that includes a Comfy partner-API node (OpenAI GPT Image 2 / 2.5, Flux 2 Pro, Gemini / Nano Banana, etc.) — the node proxies upstream through Comfy's account-API infrastructure even when ComfyUI itself runs locally.
 
 ## CLI
 
@@ -324,6 +324,10 @@ Both accept optional `shape_resolution` (1024–2048), `texture_resolution` and 
 
 - **api_openai_gpt_image_2_t2i** — OpenAI GPT Image 2 text-to-image; 10 aspect ratios
 - **api_openai_gpt_image_2_image_edit** — OpenAI GPT Image 2 single-reference edit; 10 aspect ratios
+- **api_openai_gpt_image_2_5_t2i** — OpenAI GPT Image 2.5 text-to-image; 10 aspect ratios
+- **api_openai_gpt_image_2_5_edit_1img / _2img** — OpenAI GPT Image 2.5 edit with one / two reference images; 10 aspect ratios each
+
+The GPT Image 2.5 templates need ComfyUI v0.35.0 or newer (the `OpenAIGPTImageNodeV2` node). Each takes optional `model` (`flare`, the fast default, or `sunburst`, slower and more precise), `quality` (`low` / `medium` / `high` / `xhigh` / `max`, default `high`) and `background` (`auto` / `opaque` / `transparent`) inputs. `aspect_ratio` sets an exact custom size of about 1–1.6 MP (1:1 = 1024x1024, 16:9 = 1536x864); leave it out and the model chooses.
 
 **Cloud (Comfy Cloud; requires `COMFY_CLOUD_API_KEY`):**
 

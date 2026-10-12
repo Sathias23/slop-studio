@@ -233,13 +233,50 @@ async def test_partner_workflow_fails_fast_without_key(templates_dir, monkeypatc
     assert result["backend"] == "local"
     assert "OpenAIGPTImage1" in result["error"]
     assert "slop-studio auth --comfy-cloud" in result["error"]
+
     # No POST should have been made
     assert len(respx.calls) == 0
 
 
+@pytest.mark.anyio
+@respx.mock
+async def test_gpt_image_2_5_starter_submits_dotted_fields_with_api_key(templates_dir, monkeypatch):
+    """The shipped GPT Image 2.5 template goes out with the partner key and
+    its dynamic-combo settings written to the node's dotted `model.*` keys."""
+    from pathlib import Path
+
+    starter_dir = Path(__file__).resolve().parent.parent / "slop_studio" / "assets" / "starter-templates"
+    name = "api_openai_gpt_image_2_5_t2i"
+    workflow = json.loads((starter_dir / f"{name}.json").read_text(encoding="utf-8"))
+    meta = json.loads((starter_dir / f"{name}.meta.json").read_text(encoding="utf-8"))
+    write_template(templates_dir, name, workflow, meta)
+    monkeypatch.setattr("slop_studio.backends.local.get_comfy_cloud_api_key", lambda: "comfyui-TESTKEY")
+    respx.post(f"{COMFYUI_URL}/prompt").mock(
+        return_value=httpx.Response(200, json={"prompt_id": "abc-123", "number": 1, "node_errors": {}})
+    )
+
+    result = await slop_studio.comfyui.queue_prompt(
+        name,
+        {"prompt": "a lighthouse", "model": "sunburst", "quality": "max", "background": "transparent"},
+        aspect_ratio="16:9",
+    )
+
+    assert result["status"] == "success"
+    request_body = json.loads(respx.calls.last.request.content)
+    assert request_body["extra_data"] == {"api_key_comfy_org": "comfyui-TESTKEY"}
+    node = request_body["prompt"]["271"]
+    assert node["class_type"] == "OpenAIGPTImageNodeV2"
+    assert node["inputs"]["prompt"] == "a lighthouse"
+    assert node["inputs"]["model"] == "gpt-image-2.5-sunburst"
+    assert node["inputs"]["model.quality"] == "max"
+    assert node["inputs"]["model.background"] == "transparent"
+    assert node["inputs"]["model.size"] == "Custom"
+    assert (node["inputs"]["model.custom_width"], node["inputs"]["model.custom_height"]) == (1536, 864)
+
+
 @pytest.mark.parametrize(
     "class_type",
-    ["OpenAIGPTImage1", "Flux2ProImageNode", "GeminiImage2Node"],
+    ["OpenAIGPTImage1", "OpenAIGPTImageNodeV2", "Flux2ProImageNode", "GeminiImage2Node"],
 )
 def test_workflow_partner_nodes_detects_known_classes(class_type):
     from slop_studio.backends.local import _workflow_partner_nodes

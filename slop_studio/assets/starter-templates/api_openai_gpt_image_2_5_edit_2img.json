@@ -1,0 +1,58 @@
+{
+  "271": {
+    "inputs": {
+      "prompt": "Place the subject from image 1 into the scene from image 2, matching its lighting and perspective.",
+      "model": "gpt-image-2.5-flare",
+      "model.size": "auto",
+      "model.custom_width": 1024,
+      "model.custom_height": 1024,
+      "model.background": "auto",
+      "model.quality": "high",
+      "model.images.image_1": [
+        "272",
+        0
+      ],
+      "model.images.image_2": [
+        "273",
+        0
+      ],
+      "n": 1,
+      "seed": 126220531
+    },
+    "class_type": "OpenAIGPTImageNodeV2",
+    "_meta": {
+      "title": "OpenAI GPT Image 2.5"
+    }
+  },
+  "269": {
+    "inputs": {
+      "filename_prefix": "gpt-image-2.5",
+      "images": [
+        "271",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "272": {
+    "inputs": {
+      "image": "api_openai_gpt_image_2_5_input_image_1.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "273": {
+    "inputs": {
+      "image": "api_openai_gpt_image_2_5_input_image_2.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  }
+}
