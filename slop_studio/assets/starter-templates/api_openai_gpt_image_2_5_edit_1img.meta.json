@@ -1,0 +1,147 @@
+{
+  "name": "api_openai_gpt_image_2_5_edit_1img",
+  "model": "gpt-image-2.5",
+  "description": "OpenAI GPT Image 2.5 image edit, one reference image plus a text instruction. Use for restyling, object insertion/removal, and targeted changes that should leave the rest of the image alone. Runs through the OpenAIGPTImageNodeV2 partner node, which needs ComfyUI v0.35.0 or newer, against your local ComfyUI; billed to your Comfy account (the comfy_cloud API key from `slop-studio auth --comfy-cloud`), not an OpenAI key. aspect_ratio sets an exact custom size of about 1-1.6 MP (1:1 = 1024x1024, 16:9 = 1536x864, 21:9 = 1680x720); omit it and the model picks the size ('auto'). Output carries an alpha channel when background is 'transparent'. OpenAI's backend ignores the seed, so reruns of the same prompt will differ.",
+  "backend": "local",
+  "output_keys": [
+    "images"
+  ],
+  "expected_duration": "30-75 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "271",
+      "field": "prompt",
+      "type": "required",
+      "description": "Edit instruction. Say what to change and what to keep, e.g. 'replace the sky with a storm; keep the subject, pose and framing unchanged'."
+    },
+    "image1": {
+      "node_id": "272",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Reference image to edit."
+    },
+    "model": {
+      "node_id": "271",
+      "field": "model",
+      "type": "optional",
+      "input_type": "enum",
+      "default": "flare",
+      "description": "Which GPT Image 2.5 variant to run: 'flare' (default) is fast and suits most work; 'sunburst' is slower but more precise, especially across edits.",
+      "options": {
+        "flare": {
+          "value": "gpt-image-2.5-flare"
+        },
+        "sunburst": {
+          "value": "gpt-image-2.5-sunburst"
+        }
+      }
+    },
+    "quality": {
+      "node_id": "271",
+      "field": "model.quality",
+      "type": "optional",
+      "input_type": "enum",
+      "default": "high",
+      "description": "Render quality: 'low', 'medium', 'high' (default), 'xhigh' or 'max'. Cost and time rise with each tier, since billing is by output tokens; use 'low' for drafts.",
+      "options": {
+        "low": {
+          "value": "low"
+        },
+        "medium": {
+          "value": "medium"
+        },
+        "high": {
+          "value": "high"
+        },
+        "xhigh": {
+          "value": "xhigh"
+        },
+        "max": {
+          "value": "max"
+        }
+      }
+    },
+    "background": {
+      "node_id": "271",
+      "field": "model.background",
+      "type": "optional",
+      "input_type": "enum",
+      "default": "auto",
+      "description": "Background handling: 'auto' (default), 'opaque', or 'transparent' for a PNG cut-out with an alpha channel (say so in the prompt too, e.g. 'isolated on a transparent background').",
+      "options": {
+        "auto": {
+          "value": "auto"
+        },
+        "opaque": {
+          "value": "opaque"
+        },
+        "transparent": {
+          "value": "transparent"
+        }
+      }
+    }
+  },
+  "aspect_ratios": {
+    "1:1": {
+      "size": "Custom",
+      "width": 1024,
+      "height": 1024
+    },
+    "3:2": {
+      "size": "Custom",
+      "width": 1536,
+      "height": 1024
+    },
+    "2:3": {
+      "size": "Custom",
+      "width": 1024,
+      "height": 1536
+    },
+    "4:3": {
+      "size": "Custom",
+      "width": 1344,
+      "height": 1008
+    },
+    "3:4": {
+      "size": "Custom",
+      "width": 1008,
+      "height": 1344
+    },
+    "5:4": {
+      "size": "Custom",
+      "width": 1280,
+      "height": 1024
+    },
+    "4:5": {
+      "size": "Custom",
+      "width": 1024,
+      "height": 1280
+    },
+    "16:9": {
+      "size": "Custom",
+      "width": 1536,
+      "height": 864
+    },
+    "9:16": {
+      "size": "Custom",
+      "width": 864,
+      "height": 1536
+    },
+    "21:9": {
+      "size": "Custom",
+      "width": 1680,
+      "height": 720
+    }
+  },
+  "resolution_nodes": [
+    {
+      "node_id": "271",
+      "field_map": {
+        "size": "model.size",
+        "width": "model.custom_width",
+        "height": "model.custom_height"
+      }
+    }
+  ]
+}

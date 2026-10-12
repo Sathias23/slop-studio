@@ -194,6 +194,19 @@ def test_prompt_path_shows_default_and_accepts_enter():
     assert "/home/user/ComfyUI" in prompt_text
 
 
+def test_prompt_path_falls_back_to_default_on_eof():
+    # Wrappers like ConPTY report a TTY but stdin reads EOF (e.g. Claude Code's ! runner)
+    with patch("builtins.input", side_effect=EOFError):
+        result = _prompt_path("ComfyUI directory", "/home/user/ComfyUI")
+    assert result == "/home/user/ComfyUI"
+
+
+def test_prompt_path_returns_empty_on_eof_without_default():
+    with patch("builtins.input", side_effect=EOFError):
+        result = _prompt_path("ComfyUI directory", "")
+    assert result == ""
+
+
 def test_build_start_cmd_with_venv(tmp_path):
     comfyui_dir = tmp_path / "ComfyUI"
     comfyui_dir.mkdir()

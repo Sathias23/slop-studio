@@ -1,0 +1,45 @@
+{
+  "271": {
+    "inputs": {
+      "prompt": "Restyle the reference image as a moody cinematic still, keeping the subject and composition.",
+      "model": "gpt-image-2.5-flare",
+      "model.size": "auto",
+      "model.custom_width": 1024,
+      "model.custom_height": 1024,
+      "model.background": "auto",
+      "model.quality": "high",
+      "model.images.image_1": [
+        "272",
+        0
+      ],
+      "n": 1,
+      "seed": 126220530
+    },
+    "class_type": "OpenAIGPTImageNodeV2",
+    "_meta": {
+      "title": "OpenAI GPT Image 2.5"
+    }
+  },
+  "269": {
+    "inputs": {
+      "filename_prefix": "gpt-image-2.5",
+      "images": [
+        "271",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "272": {
+    "inputs": {
+      "image": "api_openai_gpt_image_2_5_input_image_1.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  }
+}

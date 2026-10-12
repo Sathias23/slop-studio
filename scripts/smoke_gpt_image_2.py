@@ -1,12 +1,15 @@
-"""Live end-to-end smoke for the gpt-image-2 starter templates.
+"""Live end-to-end smoke for the gpt-image-2 and gpt-image-2.5 starter templates.
 
 Submits a real job to the local ComfyUI (127.0.0.1:8188 by default) and
 polls until completion. Hits OpenAI's paid API via ComfyUI's
-OpenAIGPTImage1 node — small cost per run.
+OpenAIGPTImage1 node (GPT Image 2) or OpenAIGPTImageNodeV2 (GPT Image 2.5,
+ComfyUI v0.35.0+) — small cost per run.
 
 Usage:
-    uv run python scripts/smoke_gpt_image_2.py            # t2i smoke
-    uv run python scripts/smoke_gpt_image_2.py edit PATH  # image-edit smoke
+    uv run python scripts/smoke_gpt_image_2.py                  # GPT Image 2 t2i smoke
+    uv run python scripts/smoke_gpt_image_2.py edit PATH        # GPT Image 2 image-edit smoke
+    uv run python scripts/smoke_gpt_image_2.py --2.5            # GPT Image 2.5 t2i smoke
+    uv run python scripts/smoke_gpt_image_2.py --2.5 edit PATH  # GPT Image 2.5 image-edit smoke
 """
 
 from __future__ import annotations
@@ -22,10 +25,16 @@ async def queue_prompt(template_name, inputs, aspect_ratio=None):
     return await route_submission(template_name, inputs, aspect_ratio)
 
 
-async def smoke_t2i() -> int:
-    print("=== t2i smoke ===")
+TEMPLATES = {
+    "2": {"t2i": "api_openai_gpt_image_2_t2i", "edit": "api_openai_gpt_image_2_image_edit"},
+    "2.5": {"t2i": "api_openai_gpt_image_2_5_t2i", "edit": "api_openai_gpt_image_2_5_edit_1img"},
+}
+
+
+async def smoke_t2i(version: str) -> int:
+    print(f"=== GPT Image {version} t2i smoke ===")
     submit = await queue_prompt(
-        template_name="api_openai_gpt_image_2_t2i",
+        template_name=TEMPLATES[version]["t2i"],
         inputs={
             "prompt": "a tiny succulent in a ceramic pot on a sunlit windowsill, soft focus",
             "quality": "low",
@@ -53,14 +62,14 @@ async def smoke_t2i() -> int:
     return 0
 
 
-async def smoke_edit(reference_path: str) -> int:
-    print("=== image-edit smoke ===")
+async def smoke_edit(version: str, reference_path: str) -> int:
+    print(f"=== GPT Image {version} image-edit smoke ===")
     if not Path(reference_path).is_file():
         print(f"reference image not found: {reference_path}")
         return 1
 
     submit = await queue_prompt(
-        template_name="api_openai_gpt_image_2_image_edit",
+        template_name=TEMPLATES[version]["edit"],
         inputs={
             "prompt": "convert the background to a soft pastel gradient, keep the subject sharp",
             "image1": reference_path,
@@ -90,12 +99,17 @@ async def smoke_edit(reference_path: str) -> int:
 
 
 async def main(argv: list[str]) -> int:
-    if len(argv) >= 2 and argv[1] == "edit":
-        if len(argv) < 3:
-            print("usage: smoke_gpt_image_2.py edit <reference-image-path>")
+    args = argv[1:]
+    version = "2"
+    if args and args[0] == "--2.5":
+        version = "2.5"
+        args = args[1:]
+    if args and args[0] == "edit":
+        if len(args) < 2:
+            print("usage: smoke_gpt_image_2.py [--2.5] edit <reference-image-path>")
             return 2
-        return await smoke_edit(argv[2])
-    return await smoke_t2i()
+        return await smoke_edit(version, args[1])
+    return await smoke_t2i(version)
 
 
 if __name__ == "__main__":

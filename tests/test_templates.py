@@ -285,6 +285,59 @@ def test_gpt_image_2_aspect_ratio_injection(name, aspect_ratio, expected_size):
     assert workflow["268"]["inputs"]["size"] == expected_size
 
 
+GPT_IMAGE_2_5_TEMPLATES = [
+    "api_openai_gpt_image_2_5_t2i",
+    "api_openai_gpt_image_2_5_edit_1img",
+    "api_openai_gpt_image_2_5_edit_2img",
+]
+
+
+@pytest.mark.parametrize("name", GPT_IMAGE_2_5_TEMPLATES)
+def test_gpt_image_2_5_aspect_ratios_are_valid_custom_sizes(name):
+    """Every aspect ratio must map to a custom size OpenAI accepts.
+
+    OpenAIGPTImageNodeV2 rejects custom sizes that break any of these rules
+    at execution time, after the job has already been queued.
+    """
+    from slop_studio.backends.local import _inject_resolution
+
+    meta, workflow = _load_starter(name)
+    assert workflow["271"]["inputs"]["model.size"] == "auto"
+    assert len(meta["aspect_ratios"]) == 10
+
+    for label in meta["aspect_ratios"]:
+        prepared = json.loads(json.dumps(workflow))
+        _inject_resolution(prepared, meta, label)
+        inputs = prepared["271"]["inputs"]
+        width, height = inputs["model.custom_width"], inputs["model.custom_height"]
+
+        assert inputs["model.size"] == "Custom"
+        assert width % 16 == 0 and height % 16 == 0, label
+        assert max(width, height) <= 3840, label
+        assert max(width, height) / min(width, height) <= 3, label
+        assert 655_360 <= width * height <= 8_294_400, label
+        ratio_w, ratio_h = (int(part) for part in label.split(":"))
+        assert width / height == pytest.approx(ratio_w / ratio_h, rel=0.02), label
+
+
+@pytest.mark.parametrize("name", GPT_IMAGE_2_5_TEMPLATES)
+def test_gpt_image_2_5_enum_defaults_match_the_workflow(name):
+    """The enum defaults write the values already baked into the workflow, so
+    a run that passes no options submits the graph unchanged."""
+    from slop_studio.backends.local import _resolve_enum_inputs
+
+    meta, workflow = _load_starter(name)
+    effective, patches = _resolve_enum_inputs(meta["inputs"], {})
+
+    assert patches == []
+    for input_name in ("model", "quality", "background"):
+        field = meta["inputs"][input_name]["field"]
+        assert effective[input_name] == workflow["271"]["inputs"][field]
+
+    effective, _ = _resolve_enum_inputs(meta["inputs"], {"model": "sunburst"})
+    assert effective["model"] == "gpt-image-2.5-sunburst"
+
+
 def _load_starter(name):
     from pathlib import Path
 

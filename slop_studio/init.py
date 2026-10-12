@@ -102,7 +102,12 @@ def _build_start_cmd(comfyui_dir: Path, venv_dir: Path | None = None) -> str:
 
 def _prompt_path(label: str, default: str) -> str:
     """Prompt for a filesystem path, showing default in brackets."""
-    answer = input(f"  {label} [{default}]: ").strip() if default else input(f"  {label}: ").strip()
+    try:
+        answer = input(f"  {label} [{default}]: ").strip() if default else input(f"  {label}: ").strip()
+    except EOFError:
+        # Some terminal wrappers (ConPTY, CI) report a TTY but stdin reads EOF
+        print()
+        return default
     return answer if answer else default
 
 

@@ -315,6 +315,12 @@ def _serve(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    # Windows consoles often use legacy code pages (cp1252) that can't encode
+    # characters like "✓" — degrade them to "?" instead of crashing.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
     parser = argparse.ArgumentParser(
         prog="slop-studio",
         description="Conversational image generation via ComfyUI",

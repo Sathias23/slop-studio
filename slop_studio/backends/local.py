@@ -43,6 +43,7 @@ MAX_FAILURE_RETRIES = 3  # retry failed jobs this many times before reporting
 # adding templates that wrap a new partner node class.
 PARTNER_API_CLASS_LABELS: dict[str, str] = {
     "OpenAIGPTImage1": "OpenAI GPT Image",
+    "OpenAIGPTImageNodeV2": "OpenAI GPT Image 2.5",
     "Flux2ProImageNode": "Flux 2 Pro",
     "GeminiImage2Node": "Google Gemini Image (Nano Banana)",
     "LumaImageNode2": "Luma UNI-1 Image",

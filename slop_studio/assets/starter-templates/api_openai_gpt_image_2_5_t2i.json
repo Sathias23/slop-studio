@@ -1,0 +1,32 @@
+{
+  "271": {
+    "inputs": {
+      "prompt": "a generated image",
+      "model": "gpt-image-2.5-flare",
+      "model.size": "auto",
+      "model.custom_width": 1024,
+      "model.custom_height": 1024,
+      "model.background": "auto",
+      "model.quality": "high",
+      "n": 1,
+      "seed": 122545540
+    },
+    "class_type": "OpenAIGPTImageNodeV2",
+    "_meta": {
+      "title": "OpenAI GPT Image 2.5"
+    }
+  },
+  "269": {
+    "inputs": {
+      "filename_prefix": "gpt-image-2.5",
+      "images": [
+        "271",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

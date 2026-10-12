@@ -1,7 +1,9 @@
 """Tests for slop_studio.cli — CLI entry point."""
 
 import argparse
+import io
 import json
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -24,6 +26,21 @@ def _ns(**overrides):
     defaults = {"command": "auth", "bluesky": False, "comfy_cloud": False, "all": False}
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
+
+
+def test_init_survives_legacy_console_encoding(tmp_path, monkeypatch):
+    # Windows consoles often use cp1252, which can't encode "✓" (U+2713)
+    buffer = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(buffer, encoding="cp1252"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO())  # force non-interactive init
+    monkeypatch.setattr(sys, "argv", ["slop-studio", "init", str(tmp_path)])
+
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+
+    assert excinfo.value.code == 0
+    sys.stdout.flush()
+    assert b"Art project initialized" in buffer.getvalue()
 
 
 class TestAuth:
