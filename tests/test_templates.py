@@ -454,6 +454,19 @@ def test_flux3_klein_prompt_upsampling_switch(name):
 
 
 @pytest.mark.parametrize("name", FLUX3_KLEIN_TEMPLATES)
+def test_flux3_klein_upsampler_system_prompt_is_not_double_escaped(name):
+    """Upstream's edit templates ship the system prompt with an extra escape
+    layer; the upsampler must get real paragraph breaks and quotes."""
+    meta, workflow = _load_starter(name)
+    upsampler = workflow[meta["inputs"]["prompt_upsampling"]["node_id"]]["inputs"]["on_true"][0]
+    system_prompt = workflow[workflow[upsampler]["inputs"]["system_prompt"][0]]["inputs"]["value"]
+
+    assert "\n" in system_prompt
+    assert "\\n\\n" not in system_prompt
+    assert '\\"' not in system_prompt
+
+
+@pytest.mark.parametrize("name", FLUX3_KLEIN_TEMPLATES)
 def test_flux3_klein_requirements_cover_every_loaded_file(name):
     """Every file a loader names is declared for download, and the gated BFL
     files ask for the Hugging Face token."""
