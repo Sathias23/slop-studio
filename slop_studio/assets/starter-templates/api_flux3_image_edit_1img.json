@@ -1,0 +1,42 @@
+{
+  "4": {
+    "inputs": {
+      "image": "example.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image (image 1)"
+    }
+  },
+  "1": {
+    "inputs": {
+      "prompt": "Remove the character's glasses in image 1. Keep everything else unchanged.",
+      "aspect_ratio": "auto",
+      "resolution": "1K",
+      "grounding": true,
+      "safety_tolerance": 4,
+      "seed": 0,
+      "images.image_1": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "Flux3ImageNode",
+    "_meta": {
+      "title": "FLUX 3 Image"
+    }
+  },
+  "2": {
+    "inputs": {
+      "filename_prefix": "FLUX_3_Image",
+      "images": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

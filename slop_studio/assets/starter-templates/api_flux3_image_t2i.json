@@ -1,0 +1,29 @@
+{
+  "1": {
+    "inputs": {
+      "prompt": "Close-up of a race car driver inside a silver vintage sports car, red helmet with a white cross, intense focused expression, golden hour sunlight with a glowing lens flare on the glass, shallow depth of field, cinematic automotive photography.",
+      "aspect_ratio": "auto",
+      "resolution": "1K",
+      "grounding": true,
+      "safety_tolerance": 4,
+      "seed": 0
+    },
+    "class_type": "Flux3ImageNode",
+    "_meta": {
+      "title": "FLUX 3 Image"
+    }
+  },
+  "2": {
+    "inputs": {
+      "filename_prefix": "FLUX_3_Image",
+      "images": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

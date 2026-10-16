@@ -423,6 +423,119 @@ def test_krea2_templates_share_encoder_and_vae_downloads():
         assert by_name(t2i_meta)[filename] == by_name(ref_meta)[filename]
 
 
+FLUX3_KLEIN_TEMPLATES = [
+    f"image_flux3_klein_{variant}_{kind}"
+    for variant in ("base", "distilled")
+    for kind in ("t2i", "edit_1img", "edit_2img")
+]
+FLUX3_API_TEMPLATES = ["api_flux3_image_t2i", "api_flux3_image_edit_1img", "api_flux3_image_edit_2img"]
+
+
+@pytest.mark.parametrize("name", FLUX3_KLEIN_TEMPLATES)
+def test_flux3_klein_prompt_upsampling_switch(name):
+    """Upsampling defaults on and the shipped graph already routes through the
+    upsampler; 'off' flips the lazy switch onto the raw prompt string, so the
+    upsampler is never loaded."""
+    from slop_studio.backends.local import _resolve_enum_inputs
+
+    meta, workflow = _load_starter(name)
+    upsampling = meta["inputs"]["prompt_upsampling"]
+    switch = workflow[upsampling["node_id"]]
+    assert switch["class_type"] == "ComfySwitchNode"
+    assert workflow[switch["inputs"]["on_true"][0]]["class_type"] == "TextGenerate"
+    assert switch["inputs"]["on_false"][0] == meta["inputs"]["prompt"]["node_id"]
+
+    effective, patches = _resolve_enum_inputs(meta["inputs"], {})
+    assert patches == []
+    assert effective["prompt_upsampling"] is switch["inputs"]["switch"] is True
+
+    effective, _ = _resolve_enum_inputs(meta["inputs"], {"prompt_upsampling": "off"})
+    assert effective["prompt_upsampling"] is False
+
+
+@pytest.mark.parametrize("name", FLUX3_KLEIN_TEMPLATES)
+def test_flux3_klein_upsampler_system_prompt_is_not_double_escaped(name):
+    """Upstream's edit templates ship the system prompt with an extra escape
+    layer; the upsampler must get real paragraph breaks and quotes."""
+    meta, workflow = _load_starter(name)
+    upsampler = workflow[meta["inputs"]["prompt_upsampling"]["node_id"]]["inputs"]["on_true"][0]
+    system_prompt = workflow[workflow[upsampler]["inputs"]["system_prompt"][0]]["inputs"]["value"]
+
+    assert "\n" in system_prompt
+    assert "\\n\\n" not in system_prompt
+    assert '\\"' not in system_prompt
+
+
+@pytest.mark.parametrize("name", FLUX3_KLEIN_TEMPLATES)
+def test_flux3_klein_requirements_cover_every_loaded_file(name):
+    """Every file a loader names is declared for download, and the gated BFL
+    files ask for the Hugging Face token."""
+    meta, workflow = _load_starter(name)
+    declared = {entry["filename"]: entry for entry in meta["model_requirements"]}
+
+    loaded = set()
+    for node in workflow.values():
+        for field in ("unet_name", "clip_name", "vae_name"):
+            if field in node["inputs"]:
+                loaded.add(node["inputs"][field])
+    assert loaded == set(declared)
+
+    for entry in declared.values():
+        if "black-forest-labs/" in entry["url"]:
+            assert entry.get("auth") == "huggingface", entry["filename"]
+
+
+def test_flux3_klein_templates_share_everything_but_the_checkpoint():
+    def by_name(name):
+        meta, _ = _load_starter(name)
+        return {entry["filename"]: entry for entry in meta["model_requirements"]}
+
+    shared = set.intersection(*(set(by_name(name)) for name in FLUX3_KLEIN_TEMPLATES))
+    assert shared == {
+        "qwen3vl_4b_int8_convrot.safetensors",
+        "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors",
+        "flux2-vae.safetensors",
+    }
+    for filename in shared:
+        assert len({str(by_name(name)[filename]) for name in FLUX3_KLEIN_TEMPLATES}) == 1, filename
+
+    # The VAE is the same entry the Ideogram 4 starter declares, so an install is reused.
+    ideogram_meta, _ = _load_starter("image_ideogram4_t2i")
+    ideogram_vae = next(e for e in ideogram_meta["model_requirements"] if e["filename"] == "flux2-vae.safetensors")
+    assert by_name(FLUX3_KLEIN_TEMPLATES[0])["flux2-vae.safetensors"] == ideogram_vae
+
+
+@pytest.mark.parametrize("name", [n for n in FLUX3_KLEIN_TEMPLATES if "edit_2img" in n])
+def test_flux3_klein_two_image_edit_feeds_both_references(name):
+    meta, workflow = _load_starter(name)
+    image_nodes = [meta["inputs"][key]["node_id"] for key in ("image1", "image2")]
+
+    for class_type in ("ReferenceMultiLatent", "BatchImagesNode"):
+        node = next(n for n in workflow.values() if n["class_type"] == class_type)
+        assert [node["inputs"][f"images.image{i}"] for i in range(2)] == [[nid, 0] for nid in image_nodes]
+
+
+@pytest.mark.parametrize("name", FLUX3_API_TEMPLATES)
+def test_flux3_api_templates_offer_every_fixed_aspect_ratio(name):
+    """aspect_ratios mirrors the node's combo minus 'auto', which is what an
+    omitted aspect_ratio leaves in place."""
+    from slop_studio.backends.local import _inject_resolution, _resolve_enum_inputs
+
+    meta, workflow = _load_starter(name)
+    node = workflow["1"]
+    assert node["class_type"] == "Flux3ImageNode"
+    assert node["inputs"]["aspect_ratio"] == "auto"
+    assert len(meta["aspect_ratios"]) == 15
+
+    _inject_resolution(workflow, meta, "9:21")
+    assert node["inputs"]["aspect_ratio"] == "9:21"
+
+    effective, patches = _resolve_enum_inputs(meta["inputs"], {})
+    assert patches == []
+    assert effective["resolution"] == node["inputs"]["resolution"] == "1K"
+    assert effective["grounding"] is node["inputs"]["grounding"] is True
+
+
 @pytest.mark.anyio
 async def test_get_template_returns_full_metadata(templates_dir):
     meta = _write_meta(templates_dir, "mytemplate")

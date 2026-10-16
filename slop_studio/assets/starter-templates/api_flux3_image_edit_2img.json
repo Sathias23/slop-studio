@@ -1,0 +1,55 @@
+{
+  "4": {
+    "inputs": {
+      "image": "example.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image (image 1)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "image": "example2.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image (image 2)"
+    }
+  },
+  "1": {
+    "inputs": {
+      "prompt": "The person from image 1 wearing the jacket from image 2, same pose, lighting and background as image 1.",
+      "aspect_ratio": "auto",
+      "resolution": "1K",
+      "grounding": true,
+      "safety_tolerance": 4,
+      "seed": 0,
+      "images.image_1": [
+        "4",
+        0
+      ],
+      "images.image_2": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "Flux3ImageNode",
+    "_meta": {
+      "title": "FLUX 3 Image"
+    }
+  },
+  "2": {
+    "inputs": {
+      "filename_prefix": "FLUX_3_Image",
+      "images": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

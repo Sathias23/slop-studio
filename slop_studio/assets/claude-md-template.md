@@ -41,6 +41,16 @@ When `queue_prompt` reports `no_credits`, `auth_failed`, or `account_issue`, cal
 
 All three templates share the same ~25.5 GB of model downloads. Call `check_requirements` first and, if anything is missing, tell the user the total size before calling `download_models`.
 
+## FLUX 3 Image Klein
+
+`image_flux3_klein_distilled_t2i` is the default FLUX 3 text-to-image template: pass `aspect_ratio` and optionally `resolution` (`1mp` default, `2mp`, `4mp`), `steps` (default 16) and `seed`. The `image_flux3_klein_base_*` templates run the undistilled base checkpoint at 50 steps and are several times slower. Use them only when asked for the base model.
+
+`image_flux3_klein_distilled_edit_1img` / `_2img` (and the `base` equivalents) edit images from a text instruction. Refer to the inputs as `<ref_image_0>` / `<ref_image_1>`, and describe the whole finished image rather than only the change. The output takes the first image's aspect ratio, so don't pass `aspect_ratio`; `reference_megapixels` (default 1.0) sets its size.
+
+A prompt upsampler rewrites the prompt before generation (`prompt_upsampling`, default `on`). Turn it `off` only when you have written a full, detailed scene caption yourself. All six templates share ~17.7 GB of gated downloads: call `check_requirements` first, and if anything is missing, tell the user they must accept the FLUX Kommunity License on Hugging Face and set `HF_TOKEN` before `download_models`.
+
+For the closed FLUX 3 Image API use `api_flux3_image_t2i` / `_edit_1img` / `_edit_2img` (cloud, billed per image). Refer to references as "image 1" / "image 2" in plain words.
+
 ## Image-to-3D
 
 `image_to_3d_trellis2` (TRELLIS.2) and `image_to_3d_pixal3d` (Pixal3D) take one reference image and produce a textured `.glb` mesh with PBR maps. They take no text prompt — geometry and texture come entirely from the image, so pass a clear, single-subject photo. Optional inputs: `shape_resolution` (1024–2048, default 1536), `texture_resolution` (default 4096), `face_count` (default 700000).

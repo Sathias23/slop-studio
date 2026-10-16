@@ -276,7 +276,7 @@ async def test_gpt_image_2_5_starter_submits_dotted_fields_with_api_key(template
 
 @pytest.mark.parametrize(
     "class_type",
-    ["OpenAIGPTImage1", "OpenAIGPTImageNodeV2", "Flux2ProImageNode", "GeminiImage2Node"],
+    ["OpenAIGPTImage1", "OpenAIGPTImageNodeV2", "Flux2ProImageNode", "Flux3ImageNode", "GeminiImage2Node"],
 )
 def test_workflow_partner_nodes_detects_known_classes(class_type):
     from slop_studio.backends.local import _workflow_partner_nodes

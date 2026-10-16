@@ -9,7 +9,7 @@ MCP server for conversational image generation via ComfyUI. Generate images — 
 ## Features
 
 - Conversational image generation through Claude Code and Claude Desktop
-- Ships twenty-seven starter templates spanning local and cloud backends — Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), **Krea 2 Turbo** (local 8-step distilled DiT, with its nine official style LoRAs and an image-style-reference variant), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), **Qwen-Image 2.1** text-to-image and instruction editing (local), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), **TRELLIS.2** and **Pixal3D** image-to-3D (local), and **OpenAI GPT Image 2 and 2.5** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
+- Ships thirty-six starter templates spanning local and cloud backends — **FLUX 3 Image Klein** text-to-image and editing (local, 16 GB VRAM), Flux.2 Klein (local GGUF), Baidu's ERNIE-Image (local 8B DiT), **Krea 2 Turbo** (local 8-step distilled DiT, with its nine official style LoRAs and an image-style-reference variant), Ideogram 4.0 (local 9.3B open-weights, structured-JSON prompting), **Qwen-Image 2.1** text-to-image and instruction editing (local), Flux.2 Dev (cloud), Flux.2 Pro API (cloud), **FLUX 3 Image** API (cloud), Google's Gemini 3 Pro Image / "Nano Banana Pro" (cloud), Luma UNI-1 (cloud), **TRELLIS.2** and **Pixal3D** image-to-3D (local), and **OpenAI GPT Image 2 and 2.5** (runs through your local ComfyUI via Comfy's partner-API proxy — no Comfy Cloud account subscription needed, just the API key)
 - Image-to-3D: single reference image in, textured `.glb` mesh with PBR maps out
 - Workflow template system with browsing, customization, and aspect ratios
 - Pluggable execution backends — run locally via ComfyUI or on [Comfy Cloud](https://www.comfy.org/cloud); routing is per-template
@@ -313,6 +313,15 @@ Both size their output through a `ResolutionSelector`: `aspect_ratio` picks the 
 
 All three share the same three model files and run 25 euler steps at cfg 1, with an optional `seed`. The edit templates sit behind `QwenImage21Cache` and size the output to the first image — no aspect ratios — with an optional reference `resolution` (default 1024; `0` keeps references at native size at a VRAM cost). Run `check_requirements` / `download_models` first. Weights are under the Qwen research license.
 
+**Local — FLUX 3 Image Klein (5.6B open weights, int8; ~17.7 GB of model downloads, fits 16 GB VRAM):**
+
+- **image_flux3_klein_distilled_t2i** — text-to-image on the step-distilled checkpoint: 16 steps at cfg 1, the everyday choice.
+- **image_flux3_klein_distilled_edit_1img / _2img** — edit one image, or compose from two, from a text instruction; refer to the inputs as `<ref_image_0>` / `<ref_image_1>`.
+- **image_flux3_klein_base_t2i** — text-to-image on the undistilled base checkpoint: 50 steps at cfg 3.5, several times slower. BFL ships it for fine-tuning and research; exposes `cfg` and `negative_prompt`.
+- **image_flux3_klein_base_edit_1img / _2img** — the same edits on the base checkpoint (cfg 3.5; the official template runs it at cfg 1).
+
+Black Forest Labs' open-weights FLUX 3 model (October 2026), converted from ComfyUI's official templates. All six share the Qwen3-VL 4B int8 text encoder, the Flux 2 VAE and BFL's Qwen3.5 9B prompt upsampler. ComfyUI loads them one at a time, so they fit a 16 GB card. The upsampler rewrites your prompt into the detailed caption the model was trained on, and in edits it sees the reference images too. It is on by default because BFL says short prompts give generic output without it; `prompt_upsampling: "off"` sends your text verbatim and skips loading it. Text-to-image sizes the output with a `ResolutionSelector` (8 aspect ratios, `resolution` `1mp` / `2mp` / `4mp`). Edits follow image 1's aspect ratio, sized by `reference_megapixels` (default 1.0). Every template takes optional `steps` and `seed`. Needs ComfyUI 0.41.0 or newer. The weights are gated under the FLUX Kommunity License (free commercial use only under US$5M revenue): accept it at [black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy) and set `HF_TOKEN` before `download_models`.
+
 **Local — image-to-3D (TRELLIS.2 / Pixal3D; ~9-10 GB of model downloads each, 24 GB VRAM recommended):**
 
 - **image_to_3d_trellis2** — Microsoft's TRELLIS.2. One reference image in, one textured `.glb` out with PBR maps (base colour, metallic, roughness, ambient occlusion, normal). BiRefNet strips the background, DINOv3 conditions a three-stage sparse-voxel sample (structure → shape → cascade upsample to 1536), then the mesh is remeshed, decimated, UV-unwrapped and baked. No text prompt.
@@ -334,6 +343,7 @@ The GPT Image 2.5 templates need ComfyUI v0.35.0 or newer (the `OpenAIGPTImageNo
 - **image_flux2** — Flux.2 Dev single-reference image edit
 - **image_flux2_text_to_image** — Flux.2 Dev text-to-image
 - **api_flux2_pro_1img / _2img / _4img** — Flux.2 Pro API (Black Forest Labs), one / two / four reference images; 7 aspect ratios each
+- **api_flux3_image_t2i / _edit_1img / _edit_2img** — FLUX 3 Image API (Black Forest Labs' closed flagship), text-to-image and edits with one / two references (`image 1`, `image 2` in the prompt); 15 aspect ratios (omit it to let the model pick or follow image 1), optional `resolution` (`0.75K` to `4K`, default `1K`, billed per tier) and `grounding` (web/image search, default `on`)
 - **api_nano_banana_pro_text_to_image / _1img / _2img** — Google Gemini 3 Pro Image ("Nano Banana Pro"); 10 aspect ratios each
 - **api_luma_uni_1_image_create** — Luma UNI-1 (reasoning-and-generation image model); 9 aspect ratios
 
