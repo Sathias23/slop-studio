@@ -1,0 +1,129 @@
+{
+  "name": "image_flux3_klein_distilled_t2i",
+  "model": "flux-3-image-klein-int8-convrot",
+  "description": "FLUX 3 Image Klein text-to-image, step-distilled checkpoint: BFL's open-weights 5.6B image model at 16 euler/simple steps, cfg 1. The everyday Klein template. Pipeline mirrors ComfyUI's official image_flux3_klein_distilled_t2i template with its subgraph flattened: int8-convrot diffusion model, Qwen3-VL 4B int8 text encoder (CLIPLoader type flux3), Flux 2 VAE, and the official Qwen3.5 9B prompt upsampler (TextGenerate with BFL's system prompt) switchable via prompt_upsampling. Output is sized by a ResolutionSelector (aspect_ratio picks the shape, resolution the megapixel budget, multiples of 16). Fits a 16 GB GPU: ComfyUI loads the 5.8 GB diffusion model, 4.9 GB encoder and 6.7 GB upsampler one at a time. The bounding-box layout branch of the official template is left out. ~17.7 GB of model downloads; run check_requirements / download_models first. Shares the text encoder, upsampler and VAE with every other image_flux3_klein_* template. Weights are gated on Hugging Face under the FLUX Kommunity License (free commercial use only below US$5M annual revenue): accept the license at huggingface.co/black-forest-labs/flux-3-image-klein-comfy and set HF_TOKEN before download_models. Needs ComfyUI 0.41.0 or newer.",
+  "backend": "local",
+  "output_keys": [
+    "images"
+  ],
+  "expected_duration": "30-90 seconds on a 16GB GPU (prompt upsampling is most of it)",
+  "inputs": {
+    "prompt": {
+      "node_id": "18:17",
+      "field": "value",
+      "type": "required",
+      "description": "Text prompt describing the image to generate. With prompt upsampling on, a short request is fine; with it off, write a full scene caption (framing, subject, background, lighting)."
+    },
+    "prompt_upsampling": {
+      "node_id": "18:16",
+      "field": "switch",
+      "type": "optional",
+      "input_type": "enum",
+      "default": "on",
+      "description": "Run the prompt through the official Qwen3.5 9B FLUX 3 prompt upsampler before encoding (default 'on', as BFL recommends: short prompts give generic results without it). 'off' encodes your text verbatim and skips loading the 6.7 GB upsampler, which saves time when you already wrote a full, detailed scene caption.",
+      "options": {
+        "on": {
+          "value": true
+        },
+        "off": {
+          "value": false
+        }
+      }
+    },
+    "resolution": {
+      "node_id": "19",
+      "field": "megapixels",
+      "type": "optional",
+      "input_type": "enum",
+      "default": "1mp",
+      "description": "Output size, as the megapixel budget the ResolutionSelector spends on the chosen aspect ratio: '1mp' = 1024x1024 square (default), '2mp' = ~1440x1440, '4mp' = ~2048x2048. Non-square ratios keep the same pixel budget. Time and VRAM scale with it.",
+      "options": {
+        "1mp": {
+          "value": 1.0
+        },
+        "2mp": {
+          "value": 2.0
+        },
+        "4mp": {
+          "value": 4.0
+        }
+      }
+    },
+    "steps": {
+      "node_id": "18:7",
+      "field": "steps",
+      "type": "optional",
+      "description": "Sampler steps (default 16, BFL's recommendation for the distilled checkpoint; useful range 4-16). Fewer steps are faster but softer."
+    },
+    "seed": {
+      "node_id": "18:7",
+      "field": "seed",
+      "type": "optional",
+      "description": "Sampler seed, for reproducing an earlier generation. Omit it and a fresh random seed is used on every submission."
+    }
+  },
+  "aspect_ratios": {
+    "1:1": {
+      "aspect_ratio": "1:1 (Square)"
+    },
+    "3:2": {
+      "aspect_ratio": "3:2 (Photo)"
+    },
+    "2:3": {
+      "aspect_ratio": "2:3 (Portrait Photo)"
+    },
+    "4:3": {
+      "aspect_ratio": "4:3 (Standard)"
+    },
+    "3:4": {
+      "aspect_ratio": "3:4 (Portrait Standard)"
+    },
+    "16:9": {
+      "aspect_ratio": "16:9 (Widescreen)"
+    },
+    "9:16": {
+      "aspect_ratio": "9:16 (Portrait Widescreen)"
+    },
+    "21:9": {
+      "aspect_ratio": "21:9 (Ultrawide)"
+    }
+  },
+  "resolution_nodes": [
+    {
+      "node_id": "19",
+      "field_map": {
+        "aspect_ratio": "aspect_ratio"
+      }
+    }
+  ],
+  "model_requirements": [
+    {
+      "filename": "flux3_image_klein_sd_int8_convrot.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3_image_klein_sd_int8_convrot.safetensors",
+      "size_bytes": 5827874779,
+      "auth": "huggingface"
+    },
+    {
+      "filename": "qwen3vl_4b_int8_convrot.safetensors",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "size_bytes": 4858559240,
+      "auth": "huggingface"
+    },
+    {
+      "filename": "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors",
+      "size_bytes": 6724090780,
+      "auth": "huggingface"
+    },
+    {
+      "filename": "flux2-vae.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors",
+      "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+      "size_bytes": 336213556
+    }
+  ]
+}

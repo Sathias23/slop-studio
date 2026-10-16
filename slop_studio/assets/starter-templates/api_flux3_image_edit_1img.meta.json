@@ -1,0 +1,121 @@
+{
+  "name": "api_flux3_image_edit_1img",
+  "model": "flux-3-image",
+  "description": "FLUX 3 Image (Black Forest Labs' closed flagship image model) image edit with one reference image, via the Flux3ImageNode partner node on Comfy Cloud (requires a configured API key; billed per image by resolution tier). Mirrors ComfyUI's official api_bfl_flux3_image_edit template. The prompt is interpreted and expanded server-side, with optional web/image-search grounding. aspect_ratio picks one of 15 ratios from 21:9 to 9:21; omit it and the output follows image 1. The node's seed only forces a re-run (FLUX 3 picks its own), so it is not exposed. Up to 10 references are supported upstream; this template wires 1.",
+  "backend": "cloud",
+  "output_keys": [
+    "images"
+  ],
+  "expected_duration": "30-60 seconds",
+  "inputs": {
+    "prompt": {
+      "node_id": "1",
+      "field": "prompt",
+      "type": "required",
+      "description": "Edit or composition instruction. Refer to the reference as image 1 (plain words, not tags)."
+    },
+    "image1": {
+      "node_id": "4",
+      "field": "image",
+      "type": "required",
+      "input_type": "image",
+      "description": "Reference image (image 1). With aspect_ratio omitted the output follows its shape. At least 256x256 pixels."
+    },
+    "resolution": {
+      "node_id": "1",
+      "field": "resolution",
+      "type": "optional",
+      "input_type": "enum",
+      "default": "1K",
+      "description": "Output size at the chosen aspect ratio, billed per image by tier: '0.75K' ~0.6 MP (~$0.059), '1K' ~1 MP (~$0.069, default, as in the official template), '1.5K' ~2.4 MP (~$0.10), '2K' ~4.2 MP (~$0.14), '4K' ~16.8 MP (~$0.87).",
+      "options": {
+        "0.75K": {
+          "value": "0.75K"
+        },
+        "1K": {
+          "value": "1K"
+        },
+        "1.5K": {
+          "value": "1.5K"
+        },
+        "2K": {
+          "value": "2K"
+        },
+        "4K": {
+          "value": "4K"
+        }
+      }
+    },
+    "grounding": {
+      "node_id": "1",
+      "field": "grounding",
+      "type": "optional",
+      "input_type": "enum",
+      "default": "on",
+      "description": "'on' (default) lets FLUX 3 research the prompt with web and image search before generating, which helps with real products, places and people in the news. 'off' skips it.",
+      "options": {
+        "on": {
+          "value": true
+        },
+        "off": {
+          "value": false
+        }
+      }
+    }
+  },
+  "aspect_ratios": {
+    "21:9": {
+      "aspect_ratio": "21:9"
+    },
+    "2:1": {
+      "aspect_ratio": "2:1"
+    },
+    "16:9": {
+      "aspect_ratio": "16:9"
+    },
+    "3:2": {
+      "aspect_ratio": "3:2"
+    },
+    "7:5": {
+      "aspect_ratio": "7:5"
+    },
+    "4:3": {
+      "aspect_ratio": "4:3"
+    },
+    "5:4": {
+      "aspect_ratio": "5:4"
+    },
+    "1:1": {
+      "aspect_ratio": "1:1"
+    },
+    "4:5": {
+      "aspect_ratio": "4:5"
+    },
+    "3:4": {
+      "aspect_ratio": "3:4"
+    },
+    "5:7": {
+      "aspect_ratio": "5:7"
+    },
+    "2:3": {
+      "aspect_ratio": "2:3"
+    },
+    "9:16": {
+      "aspect_ratio": "9:16"
+    },
+    "1:2": {
+      "aspect_ratio": "1:2"
+    },
+    "9:21": {
+      "aspect_ratio": "9:21"
+    }
+  },
+  "resolution_nodes": [
+    {
+      "node_id": "1",
+      "field_map": {
+        "aspect_ratio": "aspect_ratio"
+      }
+    }
+  ]
+}
