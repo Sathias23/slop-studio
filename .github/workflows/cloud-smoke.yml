@@ -1,0 +1,68 @@
+name: Cloud live smoke test
+
+# Behavioural drift check against the LIVE Comfy Cloud API — covers what the
+# schema-only contract check (cloud-contract.yml) cannot: the 302 auth-strip on
+# /api/view, LoadImage asset-hash resolution, and 429 semantics.
+#
+# This SPENDS CREDITS and needs a funded key, so it is manual-only by default
+# and runs nothing unless the COMFY_CLOUD_API_KEY secret is configured. Each
+# selected probe is a minimal LoadImage->SaveImage passthrough (~0.4 credits).
+#
+# To run it monthly instead of only on demand, uncomment the schedule below.
+
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "Which probe to run"
+        type: choice
+        default: probe-3
+        options:
+          - probe-3   # /api/view redirect auth-stripping (security canary)
+          - probe-2   # LoadImage asset-hash resolution
+          - probe-5   # concurrency overflow behaviour
+  # schedule:
+  #   - cron: "0 9 1 * *"  # 09:00 UTC on the 1st of each month
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMFY_CLOUD_API_KEY: ${{ secrets.COMFY_CLOUD_API_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Guard on funded key
+        id: guard
+        run: |
+          if [ -z "$COMFY_CLOUD_API_KEY" ]; then
+            echo "No COMFY_CLOUD_API_KEY secret — skipping live smoke test (no credits spent)."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install uv
+        if: steps.guard.outputs.present == 'true'
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+
+      - name: Set up Python
+        if: steps.guard.outputs.present == 'true'
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        if: steps.guard.outputs.present == 'true'
+        run: uv sync --frozen --group dev
+
+      - name: Seed a reference image (probes upload a PNG from output/)
+        if: steps.guard.outputs.present == 'true'
+        run: |
+          mkdir -p output
+          uv run python -c "from PIL import Image; Image.new('RGB', (64, 64), 'pink').save('output/seed.png')"
+
+      - name: Run probe against live cloud
+        if: steps.guard.outputs.present == 'true'
+        run: uv run python scripts/probe_cloud.py "${{ github.event.inputs.probe || 'probe-3' }}"

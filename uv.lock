@@ -2004,6 +2004,7 @@ sloppify = [
 dev = [
     { name = "pre-commit" },
     { name = "pytest" },
+    { name = "pyyaml" },
     { name = "respx" },
     { name = "ruff" },
 ]
@@ -2024,6 +2025,7 @@ provides-extras = ["sloppify"]
 dev = [
     { name = "pre-commit", specifier = ">=4.0.0" },
     { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "respx", specifier = ">=0.22.0" },
     { name = "ruff", specifier = ">=0.11.0" },
 ]
